@@ -24,7 +24,10 @@ const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:4311";
  */
 export default defineConfig({
   testDir: "./tests",
-  outputDir: "./test-results",
+  // Overridable because Playwright clears outputDir on every run. The MCP
+  // server check seeds its own evidence in a temporary directory and must not
+  // delete test-results/ from whatever suite ran before it.
+  outputDir: process.env.QUALITYFORGE_OUTPUT_DIR ?? "./test-results",
   globalSetup: "./tests/setup/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -45,14 +48,38 @@ export default defineConfig({
   reporter: process.env.CI
     ? [
         ["github"],
-        ["html", { outputFolder: "playwright-report", open: "never" }],
-        ["json", { outputFile: "artifacts/json/playwright-results.json" }],
+        [
+          "html",
+          {
+            outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR ?? "playwright-report",
+            open: "never",
+          },
+        ],
+        [
+          "json",
+          {
+            outputFile:
+              process.env.PLAYWRIGHT_JSON_OUTPUT_NAME ?? "artifacts/json/playwright-results.json",
+          },
+        ],
         ["junit", { outputFile: "artifacts/json/junit.xml" }],
       ]
     : [
         ["list"],
-        ["html", { outputFolder: "playwright-report", open: "never" }],
-        ["json", { outputFile: "artifacts/json/playwright-results.json" }],
+        [
+          "html",
+          {
+            outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR ?? "playwright-report",
+            open: "never",
+          },
+        ],
+        [
+          "json",
+          {
+            outputFile:
+              process.env.PLAYWRIGHT_JSON_OUTPUT_NAME ?? "artifacts/json/playwright-results.json",
+          },
+        ],
       ],
 
   use: {

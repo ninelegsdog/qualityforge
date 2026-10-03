@@ -307,6 +307,15 @@ function* walkSpecs(suites: PwSuite[] | undefined): Generator<PwSpec> {
   }
 }
 
+async function fileSize(absolute: string): Promise<number | undefined> {
+  try {
+    const info = await stat(absolute);
+    return info.isFile() ? info.size : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function isFile(target: string): Promise<boolean> {
   try {
     return (await stat(target)).isFile();
@@ -943,6 +952,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     // guessing file names, because the runner knows what it actually wrote.
     const evidence: DefectV1["evidence"] = {};
     let errorContextRef: string | undefined;
+    let errorContextBytes: number | undefined;
     let signals: DefectSignals | undefined;
     let page: DefectPage | undefined;
     for (const attachment of lastAttempt?.attachments ?? []) {
@@ -960,6 +970,16 @@ export async function collectDefects(options: CollectOptions): Promise<{
         evidence[field] = relativize(projectRoot, attachment.path);
       } else if (attachment.name === "error-context" && referenceErrorContext) {
         errorContextRef = relativize(projectRoot, attachment.path);
+        // Record the size alongside the reference. The artifact points at this
+        // file rather than embedding it, which is the right design — but it
+        // means a consumer following the reference has no idea whether it is
+        // about to read three kilobytes or thirty. Measured: 3 KB on our own
+        // fixture, 34 KB and 933 lines for an ariaSnapshot of a mainstream
+        // encyclopedia front page. An artifact is read by a language model, so
+        // the size belongs in the artifact rather than in the reader's
+        // judgement after the fact.
+        const size = await fileSize(attachment.path);
+        if (size !== undefined) errorContextBytes = size;
       }
     }
     // Evidence is whatever the runner actually attached. An absent trace on a
@@ -1002,6 +1022,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
         ...(error.snippet === undefined ? {} : { snippet: stripAnsi(error.snippet) }),
         ...(error.stack === undefined ? {} : { stack: stripAnsi(error.stack) }),
         ...(errorContextRef === undefined ? {} : { errorContextRef }),
+        ...(errorContextBytes === undefined ? {} : { errorContextBytes }),
         ...(attribution === undefined ? {} : { attribution }),
       },
       evidence,

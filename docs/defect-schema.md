@@ -123,6 +123,35 @@ Rules a consumer can rely on:
   `Authorization: Bearer [redacted]` into `Authorization: [redacted] [redacted]`
   destroys the diagnostic value while protecting nothing extra.
 
+### Signals are not comparable across browsers
+
+Measured on one broken third-party font, against `quotes.toscrape.com`:
+
+| Signal                              | Chromium     | Firefox                   | WebKit        |
+| ----------------------------------- | ------------ | ------------------------- | ------------- |
+| console entries for the failure     | 1            | **4**                     | **0**         |
+| `httpErrors[].statusText` for a 404 | `""`         | —                         | `"Not Found"` |
+| `console.warn("x", {a: 1})`         | `"x {a: 1}"` | **`"x JSHandle@object"`** | `"x {a: 1}"`  |
+
+Three separate consequences for anyone reading an artifact:
+
+1. **Absence of a console entry is not evidence of absence of a failure.** Firefox
+   logs nothing to the console for a failed subresource and reports it only in
+   `requestFailures`; WebKit reported zero console entries for the same failure
+   that Chromium reported once. The `requestFailures` and `httpErrors` categories
+   are the cross-browser-safe ones, and a consumer should not conclude "no console
+   error occurred" from a Firefox or WebKit artifact.
+2. **Object arguments lose their content in Firefox.** `console.warn("x", {a: 1})`
+   serialises to `"x JSHandle@object"`. The string survives; the data does not. A
+   diagnostic that depends on an object argument is weaker on that leg, not
+   absent.
+3. **`statusText` is not portable.** Chromium exposes no reason phrase, so it is
+   `""` there. Absence of `statusText` is a browser fact, not a missing capture.
+
+The artifact records no browser version for the page's engine, so this cannot be
+inferred from the file alone — `test.project` names the project, which is how you
+tell which of these applies. The `context.environment` gap is tracked as G9.
+
 ## Which application, and which page
 
 Two questions a triage agent asks first, which the artifact could not answer
@@ -271,7 +300,12 @@ moved.
    pattern. Claiming `failing` from a single observation would be a guess
    dressed up as a verdict.
 8. **`errorContextRef` may be absent** when `defects.referenceErrorContext` is
-   false in configuration.
+   false in configuration. When it is present, **`errorContextBytes` is too**,
+   and it is the size of that file. Read it before opening it: about 3 KB against
+   this project's fixture, and 34 KB — 933 lines — for an ariaSnapshot of a
+   mainstream front page. The artifact points at the file rather than embedding
+   it, which is correct, but it means the size has to travel with the reference or
+   a reader pulls an unknown quantity of text into a context window.
 9. **`signals` is never invented.** It is written only when the fixture actually
    captured something. There is no empty-object placeholder, because "nothing was
    observed" and "nothing was found" are different facts.

@@ -541,6 +541,68 @@ test.describe("collectDefects", () => {
     expect(defects[0]?.failure.errorContextRef).toBe("test-results/x/error-context.md");
   });
 
+  test("records the size of the referenced error-context.md", async () => {
+    // The artifact references this file rather than embedding it, so without a
+    // size a reader cannot tell whether they are about to open 3 KB or 34 KB.
+    const body = "# Instructions\n" + "x".repeat(500);
+    const root = await scaffold(() => ({
+      "test-results/x/error-context.md": body,
+    }));
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        {
+          status: "failed",
+          attachments: [
+            { name: "error-context", path: path.join(root, "test-results/x/error-context.md") },
+          ],
+        },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      referenceErrorContext: true,
+      thresholds: THRESHOLDS,
+    });
+
+    expect(defects[0]?.failure.errorContextBytes).toBe(Buffer.byteLength(body));
+  });
+
+  test("a reference without a readable file records a path but no size", async () => {
+    // Absent size is the honest answer for a file that is not there. Guessing a
+    // size would be worse than not having the field.
+    const root = await scaffold(() => ({}));
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        {
+          status: "failed",
+          attachments: [{ name: "error-context", path: path.join(root, "test-results/gone.md") }],
+        },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      referenceErrorContext: true,
+      thresholds: THRESHOLDS,
+    });
+
+    // The defect is still real and still written; only the evidence pointer is
+    // absent, because a path to a file that is not there would be a lie. An
+    // absent size must not become a zero, which would read as "empty file".
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.failure.errorContextRef).toBeUndefined();
+    expect(defects[0]?.failure.errorContextBytes).toBeUndefined();
+  });
+
   test("keeps no errorContextRef when the flag is off", async () => {
     const root = await scaffold(() => ({
       "test-results/x/error-context.md": "# Instructions\n",

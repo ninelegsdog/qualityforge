@@ -109,6 +109,17 @@ export interface DefectFailure {
   stack?: string;
   /** Relative path to Playwright's error-context.md, when it was captured. */
   errorContextRef?: string;
+  /**
+   * Size of the referenced file in bytes, when it was read.
+   *
+   * The artifact points at `error-context.md` rather than embedding it, which is
+   * the right design — but it means a consumer has no idea whether it is about to
+   * read three kilobytes or thirty before deciding to open it. Measured: about 3 KB
+   * against this project's fixture, and 34 KB for an ariaSnapshot of a mainstream
+   * site. An artifact is read by a language model, so the number belongs here
+   * rather than in the reader's judgement after the fact.
+   */
+  errorContextBytes?: number;
   /** Absent for the ordinary case; see {@link FailureAttribution}. */
   attribution?: FailureAttribution;
 }

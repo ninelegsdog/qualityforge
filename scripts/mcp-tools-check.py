@@ -27,6 +27,7 @@ on prior state.
 Usage: python3 scripts/mcp-tools-check.py [project-root]
 """
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -82,7 +83,8 @@ def run(requests: list[dict], root: pathlib.Path) -> tuple[dict, list, int]:
 
 def main() -> int:
     scratch, served_root, problems = evidence_seed.seed(ROOT)
-    print(evidence_seed.describe(scratch, served_root))
+    if not os.environ.get(evidence_seed.SHARED_SCRATCH_ENV):
+        print(evidence_seed.describe(scratch, served_root))
 
     if problems:
         print()

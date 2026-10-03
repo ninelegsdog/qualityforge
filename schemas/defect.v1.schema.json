@@ -84,7 +84,9 @@
         },
         "tags": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Title or file tags, without the @ or # sigil."
         }
       }
@@ -104,9 +106,18 @@
           "required": ["file", "line"],
           "description": "Where the assertion lives, which is usually not where the test failed.",
           "properties": {
-            "file": { "type": "string", "description": "Relative to the project root." },
-            "line": { "type": "integer", "minimum": 1 },
-            "column": { "type": "integer", "minimum": 1 }
+            "file": {
+              "type": "string",
+              "description": "Relative to the project root."
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "type": "integer",
+              "minimum": 1
+            }
           }
         },
         "snippet": {
@@ -121,6 +132,11 @@
           "type": "string",
           "description": "Relative path to Playwright's error-context.md. This artifact complements that file, it does not replace it."
         },
+        "errorContextBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size of the file named by errorContextRef, in bytes. Present only when that file was readable. An artifact is read by a language model, so the size belongs in the artifact: error-context.md runs about 3 KB against this project's fixture and 34 KB for an ariaSnapshot of a large page."
+        },
         "attribution": {
           "enum": ["suite", "unknown"],
           "description": "Where the failure was raised, as far as the report shows - not whose fault it is, which no producer can decide. suite: proven raised outside this spec's own body, because the error's source location names a different file or a line before this spec's declaration. unknown: the runner reported no source location. Absent is the ordinary case: the error was raised at or after this spec's own declaration in its own file, which carries no information. A file whose every failure shares one raise site produces no artifact at all; see the run summary's counts.aborted."
@@ -132,14 +148,26 @@
       "additionalProperties": false,
       "description": "Relative paths to captured evidence. Every field is optional: an absent trace on a local run with no retry is normal, not an error.",
       "properties": {
-        "trace": { "type": "string", "description": "Path to trace.zip." },
-        "screenshot": { "type": "string", "description": "Path to the failure screenshot." },
-        "video": { "type": "string", "description": "Path to the failure video." },
+        "trace": {
+          "type": "string",
+          "description": "Path to trace.zip."
+        },
+        "screenshot": {
+          "type": "string",
+          "description": "Path to the failure screenshot."
+        },
+        "video": {
+          "type": "string",
+          "description": "Path to the failure video."
+        },
         "snapshot": {
           "type": "string",
           "description": "Path to an aria or DOM snapshot, if one was taken."
         },
-        "report": { "type": "string", "description": "Path to the HTML report entry point." },
+        "report": {
+          "type": "string",
+          "description": "Path to the HTML report entry point."
+        },
         "resultsDir": {
           "type": "string",
           "description": "Output directory holding this failure's artifacts."
@@ -167,7 +195,10 @@
           "type": ["string", "null"],
           "description": "Git branch, when available."
         },
-        "ci": { "type": "boolean", "description": "Whether the run happened on CI." },
+        "ci": {
+          "type": "boolean",
+          "description": "Whether the run happened on CI."
+        },
         "retries": {
           "type": "integer",
           "minimum": 0,
@@ -210,10 +241,21 @@
         "additionalProperties": false,
         "required": ["attempt", "status"],
         "properties": {
-          "attempt": { "type": "integer", "minimum": 0 },
-          "status": { "enum": ["passed", "failed", "timedOut", "skipped", "interrupted"] },
-          "durationMs": { "type": "integer", "minimum": 0 },
-          "startedAt": { "type": "string", "format": "date-time" }
+          "attempt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "enum": ["passed", "failed", "timedOut", "skipped", "interrupted"]
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       }
     },
@@ -227,9 +269,18 @@
           "enum": ["flaky", "failing", "passedAfterRetry", "unknown"],
           "description": "flaky: passed on a retry. failing: failed every attempt. passedAfterRetry: passed on the final attempt. unknown: not enough attempts to decide."
         },
-        "attempts": { "type": "integer", "minimum": 1 },
-        "passedAttempts": { "type": "integer", "minimum": 0 },
-        "failedAttempts": { "type": "integer", "minimum": 0 }
+        "attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "passedAttempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failedAttempts": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "signals": {
@@ -244,16 +295,26 @@
             "additionalProperties": false,
             "required": ["type", "text"],
             "properties": {
-              "type": { "type": "string" },
-              "text": { "type": "string" },
+              "type": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
               "location": {
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["url", "line", "column"],
                 "properties": {
-                  "url": { "type": "string" },
-                  "line": { "type": "integer" },
-                  "column": { "type": "integer" }
+                  "url": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "column": {
+                    "type": "integer"
+                  }
                 }
               }
             }
@@ -266,14 +327,20 @@
             "additionalProperties": false,
             "required": ["type", "text"],
             "properties": {
-              "type": { "type": "string" },
-              "text": { "type": "string" }
+              "type": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
             }
           }
         },
         "pageErrors": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Uncaught exceptions thrown by page scripts."
         },
         "requestFailures": {
@@ -283,10 +350,18 @@
             "additionalProperties": false,
             "required": ["method", "url"],
             "properties": {
-              "method": { "type": "string" },
-              "url": { "type": "string" },
-              "resourceType": { "type": "string" },
-              "failure": { "type": ["string", "null"] }
+              "method": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "resourceType": {
+                "type": "string"
+              },
+              "failure": {
+                "type": ["string", "null"]
+              }
             }
           }
         },
@@ -297,10 +372,19 @@
             "additionalProperties": false,
             "required": ["method", "url", "status"],
             "properties": {
-              "method": { "type": "string" },
-              "url": { "type": "string" },
-              "status": { "type": "integer", "minimum": 100 },
-              "statusText": { "type": "string" }
+              "method": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "status": {
+                "type": "integer",
+                "minimum": 100
+              },
+              "statusText": {
+                "type": "string"
+              }
             }
           }
         },
@@ -313,7 +397,9 @@
     },
     "tags": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Free-form labels applied by the collector or by configuration."
     }
   }

@@ -32,7 +32,47 @@ import tempfile
 SEED_SPEC = "tests/smoke/evidence-pipeline.spec.ts"
 
 
+#: Set by `scripts/mcp-check-all.py` so both checks share one seeded run.
+SHARED_SCRATCH_ENV = "QUALITYFORGE_SEED_SCRATCH"
+
+
 def seed(project_root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, list[str]]:
+    """
+    Produce a seeded artifacts root, or reuse one another check already made.
+
+    `scripts/mcp-check-all.py` seeds once and points both checks at it. Each check
+    also runs standalone, and seeds for itself in that case.
+
+    Reuse is not an optimisation at the cost of independence: both paths produce
+    real artifacts through the same pipeline, and a check run on its own still
+    seeds its own. Measured on this machine, seeding cost 50s and 51s — together
+    more than every browser suite except Firefox's — because each check ran the
+    whole evidence pipeline separately.
+    """
+    shared = os.environ.get(SHARED_SCRATCH_ENV)
+    if shared:
+        scratch = pathlib.Path(shared)
+        root = scratch / "defects"
+        runs = sorted(root.glob("*/"))
+        artifacts = (
+            [p for p in runs[0].glob("*.v1.json") if p.name != "quality-summary.v1.json"]
+            if runs
+            else []
+        )
+        if artifacts:
+            return scratch, root, []
+        # A shared root that has nothing in it is a bug in the orchestrator, not
+        # something to paper over by silently seeding a second time.
+        return (
+            scratch,
+            root,
+            [f"{SHARED_SCRATCH_ENV} points at {root}, which holds no defect artifacts"],
+        )
+
+    return _seed_fresh(project_root)
+
+
+def _seed_fresh(project_root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, list[str]]:
     """
     Produce a seeded artifacts root.
 
@@ -120,4 +160,15 @@ def describe(scratch: pathlib.Path, defects_root: pathlib.Path) -> str:
 
 
 def discard(scratch: pathlib.Path) -> None:
+    """
+    Remove a scratch directory — unless this process did not create it.
+
+    Under `scripts/mcp-check-all.py` the scratch belongs to the orchestrator and
+    is shared by every check, so a check that succeeded must not delete it out
+    from under the checks that follow. That is not hypothetical: the first run of
+    the shared path failed because the session check cleaned up on its way out and
+    the tools check then found nothing.
+    """
+    if os.environ.get(SHARED_SCRATCH_ENV):
+        return
     shutil.rmtree(scratch, ignore_errors=True)

@@ -19,6 +19,7 @@ It therefore behaves the same on a clean checkout and on a green commit, instead
 of reporting eight protocol symptoms for what is really a missing directory.
 """
 import json
+import os
 import pathlib
 import subprocess
 import sys

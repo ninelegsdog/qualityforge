@@ -41,7 +41,7 @@
     "docs:check": "python3 scripts/check-links.py .",
     "mcp:check": "python3 scripts/mcp-session-check.py .",
     "mcp:check:tools": "python3 scripts/mcp-tools-check.py .",
-    "mcp:check:all": "npm run mcp:check && npm run mcp:check:tools && npm run mcp:check:spawn",
+    "mcp:check:all": "python3 scripts/mcp-check-all.py .",
     "mcp": "tsx src/mcp/index.ts",
     "mcp:check:spawn": "python3 scripts/mcp-spawn-check.py ."
   },

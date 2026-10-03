@@ -155,6 +155,10 @@ cannot run without a remote. See `npm run ci:validate`.
 
 Steps 4 and 5 do not exist yet. They are the substance of the project.
 
+Step 4 exists now. `src/mcp/` serves those artifacts over stdio, read-only, with
+path confinement enforced server-side. Its only job is to hand an agent the facts
+and refuse everything else.
+
 Step 3 is worth noting: `error-context.md` is already phrased as an instruction
 to an assistant. It has been observed to contain lines like "Explain why, be
 concise, respect Playwright best practices", followed by the structured facts.

@@ -167,6 +167,62 @@ many were cut, so a truncated capture never looks complete.
 gate passes, `1` when thresholds are violated, and `2` when collection could
 not run at all.
 
+## The MCP server
+
+`npm run mcp` starts a read-only MCP server over stdio, speaking protocol
+2026-07-28. It hands an agent the evidence layer: what failed, where, and what
+the page was doing while it failed.
+
+OpenCode, Kilo and MiMo all read the same `mcp` shape, so one block covers all
+three:
+
+```jsonc
+{
+  "mcp": {
+    "qualityforge": {
+      "enabled": true,
+      "type": "local",
+      "command": ["npx", "tsx", "/path/to/qualityforge/src/mcp/index.ts"],
+    },
+  },
+}
+```
+
+Add `--root <dir>` to serve artifacts from somewhere other than
+`artifacts/defects`.
+
+| Tool                     | What it answers                                                       |
+| ------------------------ | --------------------------------------------------------------------- |
+| `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed       |
+| `quality_list_failures`  | Compact records: id, status, test location, flakiness                 |
+| `quality_get_defect`     | One defect in full, including console, network and page-error signals |
+
+Plus resources for the latest run summary and any defect, and a
+`triage_failure` prompt that asks for facts before hypotheses.
+
+Read-only is structural, not a promise: there is no write path in the server,
+and the store exposes no mutating method.
+
+### Why the protocol is hand-written
+
+The official `@modelcontextprotocol/sdk` was checked rather than assumed.
+Version 1.32.0, published 2026-10-02, declares
+`LATEST_PROTOCOL_VERSION = "2025-11-25"` and contains no `server/discover`, no
+`resultType`, no `ttlMs`/`cacheScope` and no `subscriptions/listen`. It does not
+implement 2026-07-28, so the surface is implemented here. That also keeps the
+project dependency-free.
+
+The 2025-11-25 handshake is still accepted, because a client that never sends
+`initialize` must still get `tools/list`.
+
+### Path confinement
+
+Every client-supplied path is treated as hostile, because client-side path
+allowlists are a convenience rather than a boundary. Absolute paths, `..`
+traversal before and after percent-decoding, NUL bytes and symlinks resolving
+outside the root are all rejected — and the rejection message never echoes the
+filesystem layout, since it can end up in a transcript.
+
 ## Configuration
 
 [`config/project.json`](config/project.json) declares the project name, the
@@ -190,8 +246,13 @@ npm run test:debug          # Playwright Inspector, step through a test
 npm run report              # open the HTML report
 npm run report:clean        # remove generated output
 npm run defects:collect     # build defect artifacts from the last run
+npm run mcp                 # start the read-only MCP server on stdio
+npm run mcp:check:all       # drive the server over real stdio and check it
 npm run verify              # lint + typecheck + format check (what CI runs first)
 ```
+
+`mcp:check*` and `ci:validate` need Python 3. They are separate scripts because
+`verify` must stay runnable with only Node installed.
 
 ## Quality rules enforced in CI
 

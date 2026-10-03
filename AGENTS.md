@@ -94,6 +94,35 @@ path`, not `testGet404`.
 - Every new test must be able to fail. Add it, then break the thing it guards
   and confirm it goes red. A test that has never failed is unverified.
 
+## The MCP server
+
+`src/mcp/` implements protocol 2026-07-28 directly. Read
+`src/mcp/protocol.ts` before changing it; the header explains why the official
+SDK is not used.
+
+1. **Never write to stdout.** stdout carries JSON-RPC frames. A banner, a
+   warning, or a stray `console.log` is a corrupt frame. Diagnostics go to
+   stderr, including `--help`.
+2. **Never add a write capability.** The server is read-only, and that is
+   structural. If a tool needs to write, it does not belong in this server.
+3. **Treat every client path as hostile.** Confinement lives in
+   `src/mcp/store.ts` and must stay server-side. Do not rely on a client's path
+   allowlist; the Kilo config on this machine allows `/home/*`.
+4. **Never let a rejection message describe the filesystem.** Errors reach
+   transcripts and model prompts.
+5. **Every result carries `resultType`.** List and read results also carry
+   `ttlMs` and `cacheScope`. 2026-07-28 requires both.
+6. **Keep `tools/list` order stable.** Clients cache on it, and it affects LLM
+   prompt-cache hit rates.
+7. **Resource-not-found is `-32602`.** It moved from `-32002` in this revision.
+8. **A notification gets no response**, not even an error one.
+
+Check changes over the wire, not only by calling functions:
+
+```bash
+npm run mcp:check:all
+```
+
 ## The defect contract
 
 Artifacts under `artifacts/defects/` are a published contract. Read

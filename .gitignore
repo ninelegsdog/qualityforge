@@ -53,3 +53,7 @@ npm-debug.log*
 
 # Local caches
 .cache/
+
+# Python bytecode from the maintainer scripts (ci:validate, mcp:check)
+__pycache__/
+*.pyc

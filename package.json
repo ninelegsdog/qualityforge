@@ -37,7 +37,11 @@
     "format:check": "prettier --check .",
     "serve:fixtures": "node scripts/serve.mjs",
     "verify": "npm run lint && npm run typecheck && npm run format:check",
-    "ci:validate": "python3 scripts/validate-ci.py ."
+    "ci:validate": "python3 scripts/validate-ci.py .",
+    "mcp:check": "python3 scripts/mcp-session-check.py .",
+    "mcp:check:tools": "python3 scripts/mcp-tools-check.py .",
+    "mcp:check:all": "npm run mcp:check && npm run mcp:check:tools",
+    "mcp": "tsx src/mcp/index.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

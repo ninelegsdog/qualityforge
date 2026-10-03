@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Read-only MCP server on stdio speaking protocol **2026-07-28**:
+  `src/mcp/protocol.ts`, `store.ts`, `tools.ts`, `server.ts`, `stdio.ts`,
+  `index.ts`. Start it with `npm run mcp`.
+- Tools `quality_get_latest_run`, `quality_list_failures`,
+  `quality_get_defect`; resources for the latest run summary and any defect;
+  a `triage_failure` prompt that asks for facts before hypotheses.
+- `ArtifactStore` with server-side path confinement: absolute paths, `..`
+  traversal before and after percent-decoding, NUL bytes and symlinks
+  resolving outside the root are all rejected, and rejection messages never
+  describe the filesystem.
+- `scripts/mcp-session-check.py` and `scripts/mcp-tools-check.py`, wired into CI,
+  which drive the server over real stdio. Unit tests cannot check that stdout
+  carries JSON-RPC and nothing else.
+- 43 unit tests for the store boundary and the protocol surface.
+
+### Changed
+
+- `quality-summary.v1.json` now lists defects as run-prefixed paths
+  (`<runId>/<id>.v1.json`) instead of bare filenames, so a value from the
+  summary can be handed straight to `quality_get_defect` as `defectPath`.
+  One canonical form, rather than a caller having to guess which it holds.
+
+### Notes
+
+- The MCP protocol surface is hand-written. `@modelcontextprotocol/sdk@1.32.0`,
+  published 2026-10-02, declares `LATEST_PROTOCOL_VERSION = "2025-11-25"` and
+  contains no `server/discover`, no `resultType`, no `ttlMs`/`cacheScope` and no
+  `subscriptions/listen`. It does not implement 2026-07-28. The 2025-11-25
+  handshake is still accepted so existing clients keep working.
+
 - Signal capture: `src/quality/signals.ts` records console errors and warnings,
   uncaught page errors, failed requests and HTTP responses at or above 400.
 - Redaction: `src/quality/redact.ts` strips sensitive assignments, `Authorization`

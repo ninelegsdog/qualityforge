@@ -602,7 +602,10 @@ export async function collectDefects(options: CollectOptions): Promise<{
     },
     ...(runDuration === undefined ? {} : { durationMs: Math.round(runDuration) }),
     ...(report.stats?.startTime === undefined ? {} : { startedAt: report.stats.startTime }),
-    defects: defects.map((d) => `${d.id}.v1.json`),
+    // Run-prefixed, not a bare filename, so a value from the summary can be
+    // passed straight back as quality_get_defect's defectPath. One canonical
+    // form avoids the caller having to guess which one it is holding.
+    defects: defects.map((d) => `${runId}/${d.id}.v1.json`),
     thresholds,
     gate: {
       passed: violations.length === 0,

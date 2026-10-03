@@ -109,9 +109,17 @@ cmd_create() {
   # gate. The hot files are listed as forbidden explicitly, because "not in my
   # zone" is weaker than "listed as someone else's".
   # core.hooksPath, not .git/hooks: in a worktree .git is a FILE, so there is
-  # no hooks directory to write into. Per-worktree config is the supported way.
+  # no hooks directory to write into.
+  #
+  # extensions.worktreeConfig is not optional here. Without it, git writes
+  # config from inside a worktree into the COMMON config file, so four agents
+  # setting core.hooksPath overwrite each other and every agent ends up gated by
+  # whoever wrote last. That happened: all four worktrees pointed at the
+  # read-only agent's hooks, whose zone forbids everything, so three agents could
+  # not commit at all. One of them found it by hitting it.
   mkdir -p "$dir/.githooks"
-  git -C "$dir" config core.hooksPath "$dir/.githooks"
+  git -C "$REPO" config extensions.worktreeConfig true
+  git -C "$dir" config --worktree core.hooksPath "$dir/.githooks"
 
   if [ -n "$zone_file" ]; then
     [ -f "$zone_file" ] || die "нет файла зоны: $zone_file"

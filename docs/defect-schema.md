@@ -140,12 +140,30 @@ prefers the most trustworthy input available and records which one it used in
 | `report`       | `webServer.url` in the JSON report | only when a project declares a `webServer`                                            |
 | `config`       | `config/project.json`              | otherwise; correct exactly when nothing overrode it                                   |
 
-`environment` is evidence, not proof. A project whose Playwright config derives
-its base URL some other way would report it as `environment` incorrectly, which
-is exactly why the source is recorded next to the answer rather than the answer
-being trusted alone. A `BASE_URL` that does not parse as an absolute URL is
-ignored rather than recorded — Playwright reports that misconfiguration far more
-clearly than the collector could.
+`environment` is evidence, not proof, and this repository's own third-party suite
+is the worked example of where it goes wrong. That spec navigates to absolute URLs
+built from `QUALITYFORGE_THIRD_PARTY_URL`, not from `BASE_URL`, precisely so a
+`BASE_URL` left pointing at the bundled fixture cannot redirect it. Run it with
+`BASE_URL` still set to the fixture — which you must, or the fixture server is not
+what `webServer` waits for — and the collector faithfully reports
+`baseUrl: http://127.0.0.1:4311, targetSource: environment` for failures that
+happened on `https://quotes.toscrape.com`. Every input it has is a lie in that
+configuration, and the strongest one lies loudest.
+
+Two things make that recoverable rather than silent:
+
+- **`targetSource` says how much the answer is worth.** Read it, never `baseUrl`
+  alone.
+- **`page.url` is ground truth.** It is read from the browser, so it cannot be
+  wrong about where the failure happened. Comparing its origin with
+  `context.baseUrl` detects the disagreement, and that comparison is the check a
+  consumer grouping by application should make.
+
+`context.baseUrl` deliberately still means "the origin this run was pointed at",
+which is a run-level claim, not a per-failure one. Reconciling it against
+`page.url` per defect would be a different meaning for an existing field, and that
+is a version decision rather than a bug fix. Until then the two fields disagreeing
+is the signal, and it is a signal a consumer can act on.
 
 **Which page failed.** `page.url` is the page the browser was on when the failure
 happened, read at failure time and redacted the way signal URLs are.
@@ -257,10 +275,13 @@ moved.
 9. **`signals` is never invented.** It is written only when the fixture actually
    captured something. There is no empty-object placeholder, because "nothing was
    observed" and "nothing was found" are different facts.
-10. **`context.baseUrl` is the effective origin, and `context.targetSource` says
-    how confident that is.** Read the pair, never `baseUrl` alone: `environment`
-    is the value the runner was pointed at, `config` is only a fallback, and a
-    consumer grouping defects by origin needs to know which of the two it holds
+10. **`context.baseUrl` is the origin the run was pointed at, and
+    `context.targetSource` says how much that is worth.** Read the pair, never
+    `baseUrl` alone. `environment` is the value the runner's config reads and is
+    the strongest evidence available, but a suite that navigates to absolute URLs
+    of its own can contradict it — and then `page.url` disagrees with
+    `context.baseUrl`, which is the signal to notice. `config` is only a fallback.
+    A consumer grouping defects by origin must decide which of these it holds
     before it trusts the grouping. See "Which application, and which page" above.
 11. **`httpErrors[].statusText` is frequently an empty string** and must not be
     branched on. Chromium does not expose a reason phrase for HTTP/2 or for a

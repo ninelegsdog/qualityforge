@@ -38,10 +38,17 @@ A workflow cannot be exercised without a remote, so it gets a static check:
 npm run ci:validate
 ```
 
-This verifies that the workflow parses, that every `npm run` target it uses
-exists in `package.json`, that every artifact path it uploads is actually
-produced by something in the repository, and that no end-of-life Node version is
-pinned.
+This verifies, beyond mere validity, the properties whose absence is silent:
+
+- `permissions` is declared and least-privilege, so the token inherits nothing;
+- every third-party action is pinned to a commit SHA, not a mutable tag;
+- `persist-credentials` is disabled, so no token is left in `.git/config`;
+- every job sets `timeout-minutes`;
+- installs run with `--ignore-scripts`;
+- `pull_request_target` is not used, since it exposes secrets to untrusted code;
+- every `npm run` target exists in `package.json`;
+- every uploaded artifact path is actually produced by something in the repo;
+- no end-of-life Node version is pinned.
 
 It needs Python 3 with PyYAML, which is why it is a separate script rather than
 part of `npm run verify`: `verify` must stay runnable with only Node installed.

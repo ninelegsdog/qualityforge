@@ -11,21 +11,39 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege for the whole workflow. These jobs only read the repository and
+# run its code; nothing needs write access. Declaring this explicitly means a
+# compromised dependency in a test cannot reach beyond reading the tree, whatever
+# the repository or organisation default happens to be.
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: Lint and typecheck
     runs-on: ubuntu-latest
+    # A hung job would otherwise consume the default 360 minutes.
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      # Pinned to a commit SHA, not a tag: a tag can be repointed at new code by
+      # anyone who can push to the action's repository, whereas a SHA cannot.
+      # The comment records which release the SHA corresponds to.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Do not leave the token in .git/config after the checkout.
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           # Node 20 reached end-of-life with its final release in March 2026,
           # so CI uses an active LTS line instead.
           node-version: 24
           cache: npm
 
-      - run: npm ci
+      # --ignore-scripts: dependency lifecycle scripts are arbitrary code
+      # execution on the runner. Nothing this project needs runs at install time;
+      # Playwright browsers are installed by its CLI below, not by a postinstall.
+      - run: npm ci --ignore-scripts
 
       - name: Lint
         run: npm run lint
@@ -39,20 +57,24 @@ jobs:
   test:
     name: Smoke tests (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    # Browser download plus a suite is minutes, not hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         browser: [chromium]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           # Test the two active LTS lines. Node 20 is past end-of-life.
           node-version: [22, 24]
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       # Install only the browser this job needs. Installing all of them wastes
       # both time and disk on the runner.
@@ -66,7 +88,7 @@ jobs:
       # of trace/screenshot/video is lost.
       - name: Upload artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report-${{ matrix.browser }}
           path: |
@@ -77,7 +99,7 @@ jobs:
 
       - name: Upload JUnit results
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: junit-${{ matrix.browser }}
           path: test-results/junit.xml
@@ -103,7 +125,7 @@ jobs:
 
       - name: Upload defect artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: defects-${{ matrix.browser }}
           path: artifacts/defects/

@@ -223,6 +223,59 @@ for version in sorted(seen):
 if seen:
     print(f"  node versions: {', '.join(sorted(seen))}")
 
+# --- 10. node-version must not be an array inside a matrix job -------------
+# An array in `node-version` makes setup-node expand the matrix itself. Combined
+# with a job that already declares strategy.matrix, GitHub rejects the workflow
+# at validation time: the run fails in zero seconds, with no jobs and no logs.
+#
+# This is invisible to every local check. The YAML is valid, PyYAML parses it,
+# and the failure appears only as "this run likely failed because of a workflow
+# file issue". Found by bisection against the real GitHub runner, after a static
+# validator had passed the broken file.
+for job_name, job in jobs.items():
+    has_matrix = bool((job or {}).get("strategy", {}).get("matrix"))
+    if not has_matrix:
+        continue
+    for step in (job or {}).get("steps", []) or []:
+        if not isinstance(step, dict):
+            continue
+        if "actions/setup-node" not in str(step.get("uses", "")):
+            continue
+        version = (step.get("with") or {}).get("node-version")
+        if isinstance(version, list):
+            problems.append(
+                f"job '{job_name}': node-version is a list while the job declares "
+                "strategy.matrix — GitHub rejects the workflow and the run fails "
+                "instantly. Put the versions in the matrix instead, e.g. "
+                "matrix: { node: [22, 24] } with node-version: ${{ matrix.node }}"
+            )
+        elif isinstance(version, str) and "${{" not in version and not version.isdigit():
+            problems.append(
+                f"job '{job_name}': node-version {version!r} is neither a version "
+                "number nor a matrix reference"
+            )
+
+# --- 11. artifact names must be unique across a matrix ---------------------
+# Two matrix legs uploading to the same artifact name collide, and the second
+# upload fails or silently overwrites the first.
+for job_name, job in jobs.items():
+    matrix_keys = list(((job or {}).get("strategy", {}) or {}).get("matrix", {}) or {})
+    if len(matrix_keys) < 1:
+        continue
+    for step in (job or {}).get("steps", []) or []:
+        if not isinstance(step, dict):
+            continue
+        use = str(step.get("uses", ""))
+        if "upload-artifact" not in use:
+            continue
+        name = str((step.get("with") or {}).get("name", ""))
+        referenced = {k for k in matrix_keys if f"matrix.{k}" in name}
+        if len(referenced) < len(matrix_keys):
+            problems.append(
+                f"job '{job_name}': artifact name {name!r} does not reference every "
+                f"matrix key {matrix_keys}, so matrix legs would collide"
+            )
+
 print()
 if problems:
     print(f"FAIL: {len(problems)} problem(s)")

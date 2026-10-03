@@ -93,6 +93,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text, so it is invisible in review. Fenced code blocks are skipped, and anchors
   are verified as files only.
 
+- `scripts/agent-worktree.sh` and [`docs/parallel-work.md`](docs/parallel-work.md)
+  — how several agents work on this repository at once. Each agent gets its own
+  worktree, branch, artifacts directory and fixture port; `CHANGELOG.md`,
+  `AGENTS.md` and `package.json` are integrator-only during a wave, because each
+  was touched by 5 of the last 5 commits. Verified before adoption: two agents ran
+  the suite simultaneously on separate ports, both green, main tree untouched.
+
 - `defects:collect --report <path>` and `--out <dir>`, so a run can be collected
   from a report other than the default and written outside the configured
   directory. The library already accepted both; only the CLI hardcoded them.

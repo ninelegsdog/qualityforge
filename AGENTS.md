@@ -105,6 +105,26 @@ QUALITYFORGE_EVIDENCE_CHECK=1 npx playwright test tests/smoke/evidence-pipeline.
 
 That run is supposed to fail. Confirm the artifacts landed in `test-results/`.
 
+## Parallel work
+
+Several agents may work on this repository at once, but not in one working tree:
+`CHANGELOG.md`, `AGENTS.md` and `package.json` were each touched by 5 of the last
+5 commits, so two agents in one tree collide on the first commit that touches
+documentation.
+
+Use `scripts/agent-worktree.sh`, which gives an agent its own worktree, branch
+and fixture port, and **read [`docs/parallel-work.md`](docs/parallel-work.md)
+before splitting work**. It documents the file-exclusivity zones, which files are
+integrator-only, the `FIXTURE_PORT`/`BASE_URL` trap, the wave plan, and the
+failure modes.
+
+Two things to keep in mind:
+
+- The fixture port comes from `FIXTURE_PORT`, not `BASE_URL`. Setting only
+  `BASE_URL` leaves the server on 4311 and the run times out.
+- The integrator's verification is serial and cannot be delegated. That is the
+  real ceiling on how far this repository parallelises.
+
 ## The demo app
 
 `fixtures/` is a real, working app, not a mock stub. It exists so the suite has

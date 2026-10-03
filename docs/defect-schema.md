@@ -193,6 +193,285 @@ Rules a consumer can rely on:
 9. **`signals` is never invented.** It is written only when the fixture actually
    captured something. There is no empty-object placeholder, because "nothing was
    observed" and "nothing was found" are different facts.
+10. **`context.baseUrl` is the configured base URL, which is not always the
+    application the test ran against.** Pointing the suite at another host with
+    `BASE_URL` does not change it: the collector reads `config/project.json`, and
+    Playwright's JSON report does not serialise `use.baseURL`. See gap G1 below —
+    this is the sharpest edge in the contract today.
+11. **`httpErrors[].statusText` is frequently an empty string** and must not be
+    branched on. Chromium does not expose a reason phrase for HTTP/2 or for a
+    response that crossed a TLS-terminating proxy. `status` is the reliable field.
+12. **A defect produced by an expected failure (`test.fail()`) carries no
+    evidence.** The fixture attaches `quality-context` only when
+    `testInfo.status !== testInfo.expectedStatus`, which is false for an expected
+    failure, and the runner attaches no screenshot or video for one either. The
+    artifact is written with `evidence: {}` and no `signals`, which reads exactly
+    like a failure that produced no signals. See gap G12.
+
+## Meeting an application we did not build
+
+Everything above was, until now, checked against `fixtures/` — an application
+this repository wrote, and whose suite it also controls. A contract verified only
+by its own producer is not verified.
+
+[`../tests/smoke/third-party/quotes-toscrape.smoke.spec.ts`](../tests/smoke/third-party/quotes-toscrape.smoke.spec.ts)
+runs the contract against **quotes.toscrape.com**, Zyte's public scraping
+sandbox: a real application with a real login form, a real 302 after a POST, real
+repeated accessible names, a real HTML 404 page, and real assets loaded from
+Google's font CDN. It needs no account, no API key and no code of ours.
+
+```bash
+QUALITYFORGE_THIRD_PARTY=1 npx playwright test tests/smoke/third-party
+npm run defects:collect
+```
+
+It never runs by default: someone else's uptime is not a dependency of
+`npm test`. Five tests assert the application's real behaviour and pass. Five
+probes assert things the target does not do and **fail on purpose** — that is the
+run's deliverable, and the run is expected to end red. Before each run the suite
+probes the target over HTTP with a hard timeout and aborts with "the third-party
+target is unreachable" rather than letting an outage arrive as a pile of locator
+timeouts.
+
+### What held up
+
+Worth stating, because the list below is long enough to look like a verdict on
+the whole contract. ANSI stripping worked on real Playwright messages — the raw
+report carried `\x1b[2m` sequences and the artifacts did not. Redaction held:
+no query strings, no cookies, no credentials, from a site that sets a session
+cookie on login. All five `id` values satisfied the kebab-case pattern and the
+120-character cap. `validateDefect()` accepted all five artifacts unchanged. And
+the documented absent-versus-empty rule for `signals` behaved as written in two of
+the five probes.
+
+### Gaps
+
+Each one states what could not be expressed, what it risks a consumer, and what
+is proposed. "Schema" means a change to
+[`../schemas/defect.v1.schema.json`](../schemas/defect.v1.schema.json), which is
+the integrator's file; "producer" means `src/`.
+
+#### G1 · `context.baseUrl` is not the application under test
+
+_What could not be expressed:_ which application a defect belongs to. All five
+artifacts from the third-party run record `"baseUrl": "http://127.0.0.1:4311"`
+while the browser was on `https://quotes.toscrape.com`. The collector is handed
+`config.baseUrl`; Playwright's JSON report does not serialise `use.baseURL`, so
+the only place the effective value survives inside the report is
+`config.webServer.url`, which exists because of the bundled fixture.
+
+_Risk:_ a consumer that groups or suppresses defects by origin silently merges a
+third party's failures with the fixture's, and two runs against different targets
+produce artifacts claiming the same origin. Here the artifact also contradicts
+its own `id`, which says `quotes-toscrape-smoke`.
+
+_Proposed:_ producer — prefer the effective base URL over the configured one and
+say which was used; schema — additive `context.targetSource`
+(`config | environment | report`), minor bump.
+
+#### G2 · Nothing records the page the failure happened on
+
+_What could not be expressed:_ where the browser was. The "missing element"
+probe's entire message is `waiting for getByRole('heading', { name:
+'Documentation', level: 1 })`. `error-context.md` does not fill the gap either:
+it carries the test name, the error and an aria snapshot, and **no URL**. So the
+file this contract extends by reference cannot supply it either.
+
+_Risk:_ on the fixture, origin plus test name reconstructs the page, because there
+are three routes. On a real application with hundreds, a consumer cannot tell
+which page failed and cannot reproduce it.
+
+_Proposed:_ schema — additive `page: { url, title? }` recorded by the fixture,
+which holds `page.url()` at failure time; minor bump. Redact the URL the way
+signals are redacted. Note that the end state alone cannot recover a redirect
+chain: the login probe was answered with a 302 and landed on a different page,
+and nothing anywhere records that it moved.
+
+#### G3 · An outage is indistinguishable from a defect
+
+_What could not be expressed:_ "this failure is the target being unavailable".
+With the target pointed at a dead port, the run produced **four** artifacts. All
+four say `status: "failed"`, all four carry distinct ids ending in
+`quotes-toscrape-smoke`, and all four carry the same message: `Third-party target
+… is unreachable, so this suite did not run.`
+
+_Risk:_ an agent working the defect list opens four tickets against the target's
+codebase for one outage, and the quality gate reports it as a 40% failure rate.
+The contract has a flakiness verdict and no notion of attribution at all.
+
+_Proposed:_ two steps, and the first is cheaper and more correct. Producer — a
+failure raised in `beforeAll` is not a defect and should not produce an artifact;
+the collector needs to recognise a hook failure rather than a spec failure.
+Schema — additive `failure.attribution` enum
+(`application | environment | test | unknown`); minor bump.
+
+#### G4 · `id` is not unique within a run, and collisions destroy artifacts
+
+_What could not be expressed:_ two distinct failures as two distinct artifacts.
+Two proven triggers:
+
+- A title with no ASCII letters slugifies to nothing, so `id` collapses to the
+  file name. Two tests in one file titled in Russian, Chinese or Greek produce the
+  same `id`, and the second write **overwrites** the first.
+- `id` is truncated at 120 characters. Two titles sharing a prefix past that point
+  collide the same way.
+
+Reproduced end to end: two specs, two reported failures, `defects` in the summary
+listing the _same path twice_, and **one** artifact on disk — the second failure.
+The first is gone, with no warning and no trace. `validateDefect()` passes it,
+because each artifact is individually valid.
+
+_Risk:_ silent loss of a defect, a summary that contradicts the directory it
+describes, and history joined on `id` attributing one test's failure to another.
+
+_Proposed:_ producer only, no schema change. Derive `id` from
+`test.playwrightId` — already in the artifact, already unique per spec — or append
+a short hash of it. And make the collector **fail closed** on a duplicate `id`,
+throwing as it already does for an invalid artifact, instead of overwriting.
+
+#### G5 · `signals` cannot tell the target's origin from a third party's
+
+_What could not be expressed:_ whose problem a network signal is. The
+blocked-CDN probe's artifact carries
+`requestFailures[0].url = https://fonts.gstatic.com/s/raleway/v37/1Ptug….woff2`
+and a console error naming the same request. Neither is marked as unrelated to
+the application under test.
+
+_Risk:_ an agent files "the application's font request failed" against the
+application. In the other direction, a third party's noise consumes the 40-entry
+per-category cap, `dropped` goes above zero, and the application's own error is
+the one that gets dropped.
+
+_Proposed:_ schema — a per-entry `sameOriginAsTarget` boolean, or a separate
+`signals.thirdParty` group; minor bump. This one depends on G1: the flag needs a
+trustworthy target origin to compare against.
+
+#### G6 · One HTTP response is recorded twice, and the duplicate is the worse copy
+
+_What could not be expressed:_ that these two entries are the same fact. A real
+404 produces both `httpErrors[0] = { status: 404, statusText: "" }` and
+`consoleErrors[0].text = "Failed to load resource: the server responded with a
+status of 404 ()"` — Chromium's own message, with the empty reason phrase
+interpolated into the sentence.
+
+Its `location` is `{ url: <the document>, line: 0, column: 0 }`, which reads like
+a source position in the application and is neither. For page-thrown console
+errors the same field is the failing resource, so the field means two different
+things depending on who wrote the message.
+
+_Risk:_ a model counts two independent problems where there was one, and a human
+reads `line: 0, column: 0` as a location.
+
+_Proposed:_ documented now (rule 11 covers `statusText`; add the `location`
+ambiguity here); producer follow-up — drop console entries whose text is
+Chromium's "Failed to load resource", since `httpErrors` and `requestFailures`
+already carry the fact with better structure.
+
+#### G7 · `httpErrors[].statusText` is always empty in practice
+
+Two of two populated entries on the third-party run were `""`. The field is
+optional in the schema and reads as if it carries information.
+
+_Proposed:_ documented as unreliable (rule 11). Deprecating it properly is a major
+bump and should wait for a producer that can actually fill it.
+
+#### G8 · The schema advertises three evidence pointers nothing writes
+
+`evidence.snapshot`, `evidence.report` and `evidence.resultsDir` are declared in
+[`../schemas/defect.v1.schema.json`](../schemas/defect.v1.schema.json) and in
+`DefectEvidence`. The collector maps only `trace`, `screenshot` and `video`, and
+the third-party run produced only the last two.
+
+_Risk:_ a consumer wires up three pointers that are always absent and reads their
+absence as a lost artifact.
+
+_Proposed:_ integrator's decision — populate them or remove them. Removal is a
+major bump. Until then they are documented as reserved rather than promised.
+
+#### G9 · The environment a failure happened in is not recorded
+
+_What could not be expressed:_ browser build, viewport, locale, timezone, colour
+scheme, user agent. `test.project` is `"chromium"`; the report's project entry
+carries a name and a retry count, and no version.
+
+_Risk:_ against a third party, "only at 375 px", "only in Firefox" and "only
+under `TZ=Asia/Tokyo`" are first-order triage questions, and the answers live in a
+CI log rather than in the artifact.
+
+_Proposed:_ schema — additive `context.environment`; minor bump. Locale and
+timezone are worth more than the user agent and carry no secret.
+
+#### G10 · The quality gate cannot separate the target's failures from the suite's
+
+The third-party run reported `failure rate 50.0% exceeds maxFailureRate 5.0%
+(5/10)`. Those five failures were deliberate probes, and the thresholds come from
+a configuration authored for the bundled demo app.
+
+_Risk:_ a gate tuned for the fixture misfires on a real application and vice
+versa, so a red gate stops being actionable — which is the one thing a gate is
+for.
+
+_Proposed:_ per-target thresholds in configuration, plus `thresholdsSource` on the
+run summary. The summary is a separate document from the per-defect artifact, so
+this is additive and needs no `v1` bump — stated here rather than left implied.
+
+#### G11 · The published schema forbids the extensibility the versioning rule promises
+
+`additionalProperties: false` sits on the root object and on every nested object,
+while the rule below states that consumers should ignore unknown fields and that a
+minor bump must never break a reader. Both cannot hold: a consumer that validates
+against the published schema rejects every minor bump, including the `signals`
+block this repository shipped in `1.1.0`.
+
+_Proposed:_ integrator's decision — relax forward compatibility, or change the
+rule to say that a schema-validating consumer must allow unknown fields. **Not
+executed here:** no conforming JSON Schema validator is available in this
+environment and adding a dependency is out of scope, so this is a reading of the
+schema and of JSON Schema 2020-12 rather than an observed failure.
+
+#### G12 · `test.fail()` yields a defect with no evidence and no signals
+
+Found by writing this suite the obvious way first. With `test.fail()`, the JSON
+report records `status: "failed"` and exactly one attachment, `error-context`. The
+fixture's guard, `testInfo.status !== testInfo.expectedStatus`, is false for an
+expected failure, so `quality-context` is never attached — and the runner attaches
+no screenshot or video for an expected failure either. The artifacts came out with
+`evidence: {}` and no `signals`.
+
+_Risk:_ rule 9 stops being true. "Nothing was observed" and "the runner considered
+this failure expected" become indistinguishable, and a consumer will read the
+second as the first. This suite's probes were rewritten to fail honestly for
+exactly this reason.
+
+_Proposed:_ producer — attach on `testInfo.status === "failed"` rather than on a
+comparison with `expectedStatus`, so evidence follows the outcome. Documented as
+rule 12 until then.
+
+#### G13 · `commit` and `branch` are silently null in a git worktree
+
+Every artifact from every run in a worktree records `commit: null, branch: null`,
+while `git rev-parse HEAD` succeeds. `gitInfo()` reads `<root>/.git` expecting
+either `ref: refs/heads/…` or a bare SHA; in a worktree that path is a _file_
+containing `gitdir: /…/.git/worktrees/<name>`, which matches neither, so it
+returns nothing rather than failing.
+
+_Risk:_ history joined on commit degrades to no history without saying so, and two
+artifacts from different commits look identical.
+
+_Proposed:_ producer — follow `gitdir:` and read `HEAD` and its ref from there.
+
+#### G14 · `error-context.md` is unbounded, and it is the file this contract points at
+
+The fixture's pages snapshot to roughly ten lines. A real application's index
+snapshots to 141 lines and a login page to 300. For scale, a single `ariaSnapshot`
+of a mainstream encyclopedia's front page is 933 lines and 34 kB — and
+`error-context.md` embeds exactly that. `signals` is capped at 40 entries per
+category for the sake of a reader's context window, and the file the contract
+delegates the page state to has no cap at all.
+
+_Proposed:_ schema — additive `failure.errorContextBytes` so a consumer can decide
+before reading; producer follow-up — cap the snapshot and record that it was
+capped, the way `signals.dropped` already does.
 
 ## Versioning
 

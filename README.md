@@ -244,10 +244,13 @@ assumed:
   each connected, each serving three tools. Expect the two forms to differ if you
   let `mcp add` write the file for you.
 
-**Kilo and MiMo are untested.** An earlier version of this README claimed one
-block covered all three clients. Only OpenCode was ever connected, so that claim
-was not evidence of anything: Kilo and MiMo may expect a different shape
-entirely, and this block says nothing about whether they accept it.
+**Kilo and MiMo are not supported, by decision.** An earlier version of this
+README claimed one block covered all three clients; only OpenCode was ever
+connected, so that claim was not evidence of anything. They are now explicitly
+out of scope rather than quietly untested: the owner decided on 2026-10-03 not
+to pursue them, because the server-side work a third client would require is
+better spent on the one client that is real. If you use Kilo or MiMo, this block
+says nothing about whether they accept it — and it should not be assumed to.
 
 | Tool                     | What it answers                                                       |
 | ------------------------ | --------------------------------------------------------------------- |
@@ -295,6 +298,9 @@ Configuration error: Invalid configuration in /…/config/project.json
 ```
 
 ## Commands
+
+The server targets **OpenCode**. Kilo and MiMo are out of scope by decision, not
+merely untested — see the MCP section above.
 
 ```bash
 npm test                    # full suite

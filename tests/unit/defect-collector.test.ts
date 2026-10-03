@@ -11,6 +11,7 @@ import {
   stripAnsi,
 } from "../../src/defect/collect.js";
 import { readGitInfo } from "../../src/defect/git-info.js";
+import { shouldAttachContext } from "../../src/defect/page-context.js";
 import { validateDefect } from "../../src/defect/types.js";
 import type { TestStatus } from "../../src/defect/types.js";
 
@@ -602,6 +603,66 @@ test.describe("collectDefects", () => {
       const result = validateDefect(JSON.parse(JSON.stringify(defect)));
       expect(result.problems).toEqual([]);
     }
+  });
+});
+
+test.describe("what the fixture decides to record", () => {
+  /**
+   * The rule the fixture used before this fix, kept so the tests below can be
+   * read as a difference rather than as a preference.
+   *
+   * It is what `testInfo.status !== testInfo.expectedStatus` evaluates to.
+   */
+  const previousRule = (status: string, expectedStatus: string): boolean =>
+    status !== expectedStatus;
+
+  test("an expected failure still attaches, because it is the moment evidence matters", () => {
+    // test.fail() is the natural way to write a test asserting a bug exists.
+    // For an expected failure status and expectedStatus are equal, so comparing
+    // them produced no attachment at all: evidence deleted at exactly the moment
+    // someone wanted it. This is the whole defect, in one line.
+    expect(previousRule("failed", "failed")).toBe(false);
+    expect(shouldAttachContext("failed", "failed")).toBe(true);
+  });
+
+  test("an expected failure that passes unexpectedly attaches nothing", () => {
+    // test.fail() and the test passed: the runner reports status "passed" against
+    // an expected "failed", so this is a wrong claim about the application
+    // rather than a defect in it. Both rules agree, which is why it is worth
+    // saying out loud that the fix did not widen this case.
+    expect(shouldAttachContext("passed", "failed")).toBe(false);
+  });
+
+  test("a genuinely unexpected failure attaches", () => {
+    expect(shouldAttachContext("failed", "passed")).toBe(true);
+  });
+
+  test("a passing test attaches nothing, expected or not", () => {
+    expect(shouldAttachContext("passed", "passed")).toBe(false);
+  });
+
+  test("a timeout attaches, because the page state at a timeout is the evidence", () => {
+    // Narrowing the rule to status === "failed" would fix the reported case and
+    // introduce a quieter version of the same bug: a timeout is a defect, and a
+    // timed-out test has more page state worth recording than a passing one.
+    // The previous rule already attached here, so this is not a widening.
+    expect(previousRule("timedOut", "passed")).toBe(true);
+    expect(shouldAttachContext("timedOut", "passed")).toBe(true);
+  });
+
+  test("an interrupted test attaches too", () => {
+    expect(previousRule("interrupted", "passed")).toBe(true);
+    expect(shouldAttachContext("interrupted", "passed")).toBe(true);
+  });
+
+  test("a skipped test is not a failure and attaches nothing", () => {
+    expect(shouldAttachContext("skipped", "passed")).toBe(false);
+  });
+
+  test("an absent status is not a failure", () => {
+    // Fail closed on the evidence question, open on the outcome: an unknown
+    // status is not claimed to be a failure just in case.
+    expect(shouldAttachContext(undefined, undefined)).toBe(false);
   });
 });
 

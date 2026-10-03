@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { shouldAttachContext } from "../defect/page-context.js";
 import { SignalCollector } from "../quality/signals.js";
 
 /** Attachment name the defect collector looks for. */
@@ -26,7 +27,11 @@ export const test = base.extend<QualityFixtures>({
       const collector = new SignalCollector(page);
       await use(collector);
 
-      const failed = testInfo.status !== testInfo.expectedStatus;
+      // Decided on the outcome, not on a comparison with what was expected: an
+      // expected failure (`test.fail()`) is still a failure, and suppressing its
+      // evidence is what made it indistinguishable from a failure with nothing
+      // to report. See `shouldAttachContext`.
+      const failed = shouldAttachContext(testInfo.status, testInfo.expectedStatus);
       if (!failed || !collector.hasContent()) return;
 
       await testInfo.attach(ATTACHMENT_NAME, {

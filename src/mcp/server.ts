@@ -87,6 +87,60 @@ function clientCapabilitiesOf(request: JsonRpcRequest): Record<string, unknown> 
 }
 
 /**
+ * Refuse a request that names a revision this server cannot speak, or return null
+ * to let it through.
+ *
+ * ## Why this is ahead of the method and not inside `default:`
+ *
+ * Only checking the version when the method is unknown meant that an unservable
+ * revision was refused on exactly the methods where refusing costs nothing, and
+ * served on every method a client actually uses. `tools/list` carrying
+ * `_meta.protocolVersion: "1999-01-01"` returned the tool list.
+ *
+ * Serving it is not a free choice. A result in this shape carries `resultType`,
+ * `ttlMs` and `cacheScope`, all of which 2026-07-28 introduced. A client that
+ * says it speaks something else cannot be assumed to read them, and it caches on
+ * `ttlMs` when it can. So the answer to "what does this server speak" has to be
+ * the same answer whatever the method was: the revision is named, or it is not
+ * served.
+ *
+ * The error is the one a client is built to consume. In the OpenCode 2.0.16
+ * binary, a -32022 on the negotiation probe is read for `data.supported`, the
+ * list is filtered to revisions both peers speak, and the probe is retried with
+ * a mutual one (`corrective`); with no overlap it falls back to legacy or
+ * reports the failure naming what was asked for. That is why the answer carries
+ * `supported` and `requested`. Any other code, -32601 included, is discarded and
+ * collapses the client to legacy, which is the opposite of what a caller needs to
+ * know.
+ *
+ * ## Why `initialize` is exempt
+ *
+ * `initialize` is the negotiation. Refusing it would replace an answer the client
+ * can act on - "here is what I speak" - with an error, and would break the
+ * handshake that a client with no 2026-07-28 evidence depends on. So `initialize`
+ * is answered, and it echoes the requested version when it can serve it.
+ *
+ * A request that states no revision at all is served: `canServe(undefined)` is
+ * true, and it must stay true, or a pre-envelope client gets nothing.
+ */
+function versionRefusal(request: JsonRpcRequest): JsonRpcResponse | null {
+  if (request.method === "initialize") return null;
+
+  const version = versionOf(request);
+  if (version === undefined || canServe(version)) return null;
+
+  return fail(
+    request.id,
+    UNSUPPORTED_PROTOCOL_VERSION,
+    `Unsupported protocol version: ${version}`,
+    {
+      supported: [...SUPPORTED_PROTOCOL_VERSIONS],
+      requested: version,
+    },
+  );
+}
+
+/**
  * Refuse a request that 2026-07-28 cannot serve, or return null to let it
  * through.
  *
@@ -159,9 +213,14 @@ export async function dispatch(
     isNotification ? null : response;
 
   try {
-    // Ahead of the method: on 2026-07-28 a request without a usable envelope
-    // cannot be served whatever it asks for, so there is nothing to dispatch.
-    const refusal = envelopeRefusal(request);
+    // Ahead of the method, in this order:
+    //
+    // 1. The envelope gate. On 2026-07-28 a request without a usable envelope
+    //    cannot be served whatever it asks for, and that fault is more specific
+    //    than a version this server does not speak: it names the missing key.
+    // 2. The version gate. Once the revision is readable, it decides whether
+    //    this server can answer at all, which does not depend on the method.
+    const refusal = envelopeRefusal(request) ?? versionRefusal(request);
     if (refusal !== null) return reply(refusal);
 
     switch (method) {
@@ -321,17 +380,10 @@ export async function dispatch(
       case "ping":
         return reply(ok(id, complete()));
 
-      default: {
-        const version = versionOf(request);
-        if (version !== undefined && !canServe(version)) {
-          return reply(
-            fail(id, UNSUPPORTED_PROTOCOL_VERSION, `Unsupported protocol version: ${version}`, {
-              supported: [...SUPPORTED_PROTOCOL_VERSIONS],
-            }),
-          );
-        }
+      default:
+        // The version was already settled ahead of the switch, so reaching here
+        // means the revision is servable and only the method is not.
         return reply(fail(id, METHOD_NOT_FOUND, `Method not found: ${method}`));
-      }
     }
   } catch (error) {
     if (error instanceof PathAccessError) {

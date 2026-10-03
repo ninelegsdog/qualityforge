@@ -156,6 +156,67 @@ REQUESTS = [
         "method": "tools/list",
         "params": {"_meta": {META_PROTOCOL_VERSION: MODERN}},
     },
+    # --- a revision this server cannot speak ------------------------------
+    # The gate used to run only in the `default:` branch, so this was served:
+    # the full tool list, complete with resultType, ttlMs and cacheScope, to a
+    # client that says it speaks a protocol in which none of those exist.
+    {
+        "jsonrpc": "2.0",
+        "id": 16,
+        "method": "tools/list",
+        "params": {"_meta": {META_PROTOCOL_VERSION: "1999-01-01"}},
+    },
+    # The same revision stated in the pre-2026 position, which is how a client on
+    # the older transport states it.
+    {
+        "jsonrpc": "2.0",
+        "id": 17,
+        "method": "tools/list",
+        "params": {"protocolVersion": "1999-01-01"},
+    },
+    # A notification naming that revision. No id, so no answer - not even an
+    # error one.
+    {
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"_meta": {META_PROTOCOL_VERSION: "1999-01-01"}},
+    },
+    # A revision one release ahead of the newest we serve. The client is built to
+    # read -32022 for data.supported and retry the probe with a mutual revision,
+    # so this is the case the code exists for rather than an absurd request.
+    {
+        "jsonrpc": "2.0",
+        "id": 18,
+        "method": "server/discover",
+        "params": {"_meta": {META_PROTOCOL_VERSION: "2027-01-01", META_CLIENT_CAPABILITIES: {}}},
+    },
+    # --- subscription surface, which this server does not implement --------
+    # 2026-07-28 moved change notifications into subscriptions/listen. It is a
+    # client-to-server request, and answering it is not part of this surface.
+    {
+        "jsonrpc": "2.0",
+        "id": 19,
+        "method": "subscriptions/listen",
+        "params": {"_meta": envelope(), "notifications": {"toolsListChanged": True}},
+    },
+    {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "resources/subscribe",
+        "params": {"_meta": envelope(), "uri": "qualityforge://runs/latest/summary"},
+    },
+    # The legacy handshake, over the wire. OpenCode's default mode is "legacy"
+    # and only speaks up to 2025-11-25, so this is the connection it makes.
+    {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": LEGACY,
+            "capabilities": {},
+            "clientInfo": {"name": "opencode", "version": "2.0.16"},
+        },
+    },
 ]
 
 payload = "".join(json.dumps(r) + "\n" for r in REQUESTS)
@@ -205,9 +266,20 @@ ids = [f.get("id") for f in frames]
 if 7 in ids:
     problems.append("a notification was answered; notifications must be silent")
 
-missing = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15} - set(ids)
+missing = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21} - set(ids)
 if missing:
     problems.append(f"no response for id(s) {sorted(missing)}")
+
+# Two requests are silent: id 7, a notification-shaped method sent with an id, and
+# the id-less notification naming an unservable revision. Counting frames catches
+# an answer to the second, which looking for a missing id cannot: it has no id to
+# be missing.
+SILENT = 2
+if len(frames) != len(REQUESTS) - SILENT:
+    problems.append(
+        f"{len(frames)} answer(s) for {len(REQUESTS)} requests, expected "
+        f"{len(REQUESTS) - SILENT}; a notification was answered"
+    )
 
 by_id = {f.get("id"): f for f in frames}
 
@@ -239,6 +311,12 @@ def resources_capability(frame: dict) -> dict:
         return {}
     resources = capabilities.get("resources")
     return resources if isinstance(resources, dict) else {}
+
+
+def capabilities_of(frame: dict) -> dict:
+    """The whole advertised capability object of an answer."""
+    capabilities = result_of(frame).get("capabilities")
+    return capabilities if isinstance(capabilities, dict) else {}
 
 disc = by_id.get(1, {}).get("result", {})
 if "2026-07-28" not in (disc.get("supportedVersions") or []):
@@ -296,17 +374,38 @@ if "error" in legacy_tools or not result_of(legacy_tools).get("tools"):
 check_result_meta(legacy_tools, f"tools/list declaring {LEGACY}")
 
 declared = resources_capability(by_id.get(13, {}))
-if declared.get("subscribe") is not True:
+undeclared = resources_capability(by_id.get(14, {}))
+# `resources.subscribe` must not be advertised, to either client. This server has
+# no resources/subscribe method, and the 2026-07-28 ClientCapabilitiesSchema has no
+# `subscriptions` member at all, so the condition that used to switch it on could
+# only ever change who was misled.
+if "subscribe" in declared or "subscribe" in undeclared:
     problems.append(
-        f"a client that declared subscriptions was not offered them: resources={declared}"
+        f"resources.subscribe was advertised (declared -> {declared}, "
+        f"undeclared -> {undeclared}); this server implements no subscription method"
     )
 
-undeclared = resources_capability(by_id.get(14, {}))
-if undeclared.get("subscribe"):
-    problems.append(
-        f"subscribe was advertised to a client that declared no subscriptions: "
-        f"resources={undeclared}"
-    )
+# The three members the client gates its methods on. `assertCapabilityForMethod`
+# reads capabilities.tools / .resources / .prompts and throws
+# CapabilityNotSupported when one is missing, so dropping any of them makes the
+# corresponding method uncallable rather than deprecated.
+for label, req_id in (("server/discover", 1), ("initialize", 9)):
+    advertised = capabilities_of(by_id.get(req_id, {}))
+    for member in ("tools", "resources", "prompts"):
+        if not isinstance(advertised.get(member), dict):
+            problems.append(f"{label} does not advertise the `{member}` capability")
+        elif advertised[member].get("listChanged") is not False:
+            problems.append(
+                f"{label} {member}.listChanged is "
+                f"{advertised[member].get('listChanged')!r}, expected False; nothing "
+                "here mutates, and a client reads true as permission to subscribe"
+            )
+    for absent in ("completions", "experimental", "extensions", "tasks", "logging"):
+        if absent in advertised:
+            problems.append(
+                f"{label} advertises `{absent}`, a surface this server does not "
+                "implement"
+            )
 
 incomplete = by_id.get(15, {}).get("error", {}).get("code")
 if incomplete != INVALID_PARAMS:
@@ -315,13 +414,79 @@ if incomplete != INVALID_PARAMS:
         f"{incomplete}, expected {INVALID_PARAMS}"
     )
 
+# --- a revision this server cannot speak ---------------------------------
+#
+# The gate used to be consulted only in the `default:` branch of the dispatch
+# switch, so an unservable revision was refused on exactly the methods where
+# refusing costs nothing and served on every method a client uses.
+for req_id, label in ((16, "envelope position"), (17, "pre-2026 params position")):
+    frame = by_id.get(req_id, {})
+    error = frame.get("error", {})
+    if error.get("code") != UNSUPPORTED_PROTOCOL_VERSION:
+        problems.append(
+            f"tools/list declaring 1999-01-01 in the {label} answered "
+            f"{error.get('code')}, expected {UNSUPPORTED_PROTOCOL_VERSION}: a result "
+            "carrying resultType/ttlMs/cacheScope must not be served to a client "
+            "that says it speaks a revision where none of those exist"
+        )
+        continue
+    data = error.get("data") if isinstance(error.get("data"), dict) else {}
+    supported = data.get("supported")
+    if not isinstance(supported, list) or MODERN not in supported:
+        problems.append(
+            f"the {UNSUPPORTED_PROTOCOL_VERSION} answer for the {label} does not "
+            f"carry data.supported naming {MODERN}: {data}"
+        )
+    if data.get("requested") != "1999-01-01":
+        problems.append(
+            f"the {UNSUPPORTED_PROTOCOL_VERSION} answer for the {label} does not "
+            f"carry data.requested: {data}"
+        )
+
+ahead = by_id.get(18, {}).get("error", {})
+if ahead.get("code") != UNSUPPORTED_PROTOCOL_VERSION:
+    problems.append(
+        f"server/discover declaring a revision one release ahead answered "
+        f"{ahead.get('code')}, expected {UNSUPPORTED_PROTOCOL_VERSION}; this is the "
+        "case the client re-negotiates from, not an absurd request"
+    )
+
+# --- the subscription surface, which is not implemented -------------------
+for req_id, method in ((19, "subscriptions/listen"), (20, "resources/subscribe")):
+    code = by_id.get(req_id, {}).get("error", {}).get("code")
+    if code != -32601:
+        problems.append(
+            f"{method} answered {code}, expected -32601: this server implements no "
+            "subscription method, and must say so rather than answer as if it had"
+        )
+
+legacy_init = by_id.get(21, {})
+if "error" in legacy_init:
+    problems.append(f"the {LEGACY} initialize handshake failed: {legacy_init['error']}")
+elif result_of(legacy_init).get("protocolVersion") != LEGACY:
+    problems.append(
+        f"initialize for a {LEGACY} client answered "
+        f"{result_of(legacy_init).get('protocolVersion')!r}, expected {LEGACY!r}"
+    )
+check_result_meta(legacy_init, f"initialize for a {LEGACY} client")
+
 print(
     f"  envelope: with `_meta` served, without it {missing_envelope}, "
     f"incomplete {incomplete}, {LEGACY} served"
 )
 print(
-    f"  subscriptions: declared -> {declared.get('subscribe')!r}, "
-    f"undeclared -> {undeclared.get('subscribe')!r}"
+    f"  capabilities: {sorted(capabilities_of(by_id.get(1, {})))} — "
+    f"subscribe advertised: {'subscribe' in declared or 'subscribe' in undeclared}"
+)
+print(
+    f"  unservable revision: envelope {by_id.get(16, {}).get('error', {}).get('code')}, "
+    f"pre-2026 {by_id.get(17, {}).get('error', {}).get('code')}, "
+    f"ahead {by_id.get(18, {}).get('error', {}).get('code')}, "
+    f"notification silent, initialize answered {result_of(legacy_init).get('protocolVersion')!r}"
+)
+print(
+    f"  subscriptions: listen {by_id.get(19, {}).get('error', {}).get('code')}, "
+    f"subscribe {by_id.get(20, {}).get('error', {}).get('code')}"
 )
 
 print()
@@ -337,5 +502,6 @@ if problems:
 evidence_seed.discard(SCRATCH)
 print(
     "OK: clean stdio session — frames only on stdout, all responses delivered, "
-    "envelope required and answered on 2026-07-28, legacy path intact"
+    "envelope required and answered on 2026-07-28, legacy path intact, "
+    "unservable revisions refused with the payload a client re-negotiates from"
 )

@@ -8,14 +8,33 @@ line would surface as a corrupt frame, and that responses really arrive over a
 pipe.
 
 Usage: python3 scripts/mcp-session-check.py [project-root]
-Requires artifacts: run `npm test && npm run defects:collect` first.
+
+Self-seeding, like the tools check: it produces its own failing run with the
+project's own evidence-pipeline spec, in a temporary directory, and serves that.
+It therefore behaves the same on a clean checkout and on a green commit, instead
+of reporting eight protocol symptoms for what is really a missing directory.
 """
 import json
 import pathlib
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import evidence_seed  # noqa: E402  (needs the path above)
+
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+
+SCRATCH, SEEDED_ROOT, seed_problems = evidence_seed.seed(ROOT)
+if seed_problems:
+    print(evidence_seed.describe(SCRATCH, SEEDED_ROOT))
+    print(f"FAIL: {len(seed_problems)} problem(s)")
+    for problem in seed_problems:
+        print(f"  - {problem}")
+    print(f"  seeded artifacts kept at {SCRATCH}")
+    sys.exit(1)
+
+print(evidence_seed.describe(SCRATCH, SEEDED_ROOT))
+print()
 
 REQUESTS = [
     {"jsonrpc": "2.0", "id": 1, "method": "server/discover"},
@@ -36,7 +55,7 @@ REQUESTS = [
 payload = "".join(json.dumps(r) + "\n" for r in REQUESTS)
 
 proc = subprocess.run(
-    ["npx", "tsx", "src/mcp/index.ts"],
+    ["npx", "tsx", "src/mcp/index.ts", "--root", str(SEEDED_ROOT)],
     input=payload,
     capture_output=True,
     text=True,
@@ -67,7 +86,7 @@ print(f"  {len(frames)} valid frame(s), {len(corrupt)} corrupt")
 for bad in corrupt:
     print(f"  CORRUPT: {bad[:100]}")
 
-problems = []
+problems = list(seed_problems)
 if proc.returncode != 0:
     problems.append(f"exit code {proc.returncode}, expected 0")
 if corrupt:
@@ -112,6 +131,10 @@ if problems:
     print(f"FAIL: {len(problems)} problem(s)")
     for p in problems:
         print(f"  - {p}")
+    # Keep the scratch directory on failure: it holds the seeded artifacts,
+    # which is what the failure is about. A green run cleans up after itself.
+    print(f"  seeded artifacts kept at {SCRATCH}")
     sys.exit(1)
 
+evidence_seed.discard(SCRATCH)
 print("OK: clean stdio session — frames only on stdout, all responses delivered, envelope intact")

@@ -259,12 +259,13 @@ npm run verify              # lint + typecheck + format check (what CI runs firs
 `mcp:check*` and `ci:validate` need Python 3. They are separate scripts because
 `verify` must stay runnable with only Node installed.
 
-`mcp:check:tools` produces its own evidence to check against: it runs the
-deliberately failing `tests/smoke/evidence-pipeline.spec.ts`, collects the real
-artifacts, and serves those. So it works on a clean checkout and on a green
-commit, instead of needing a failing suite to have been run first. Nothing is
+Both MCP checks produce their own evidence to check against: each runs the
+deliberately failing `tests/smoke/evidence-pipeline.spec.ts` and collects the real
+artifacts. So they work on a clean checkout and on a green commit, instead of
+needing a failing suite to have been run first, and they report one clear cause
+rather than a cascade of symptoms when something upstream is missing. Nothing is
 written inside the project — the seed report, the artifacts and the served root
-all live in a temporary directory, which is kept only if the check fails.
+all live in a temporary directory, kept only if a check fails.
 
 ## Quality rules enforced in CI
 

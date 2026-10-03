@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asserts that the failure-rate gate trips on it. It no longer depends on prior
   state and no longer clears `test-results/` from the run before it.
 
+- `scripts/mcp-session-check.py` had the same dependency and the same silence
+  about it: with no artifacts root the server exited 1 at startup and the check
+  reported eight protocol symptoms — missing envelopes, absent `resultType`, an
+  empty tool list, no `-32601` — none of which named the actual cause, a
+  directory that had not been created. It had never shown up because CI happens
+  to run `defects:collect` first. Both checks now share `scripts/evidence_seed.py`
+  and seed themselves, so either can be run alone on a clean tree.
+
 - `collectDefects()` resolved `reportPath`, `outputDir` and `testDir` with
   `path.join`, which concatenates even when the given path is absolute. An
   absolute path was silently re-rooted inside the project, and the resulting

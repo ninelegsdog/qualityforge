@@ -213,6 +213,11 @@ Rules a consumer can rely on:
     failure, and the runner attaches no screenshot or video for one either. The
     artifact is written with `evidence: {}` and no `signals`, which reads exactly
     like a failure that produced no signals. See gap G12.
+14. **One run directory holds one artifact per failure, or the collector failed.**
+    Two failures whose ids collide stop the collection rather than sharing a
+    filename, so a run directory never contains a summary listing a path twice
+    while only one copy of it exists. A summary whose `defects` array repeats a
+    path was written by a version that predates this guarantee.
 
 ## Meeting an application we did not build
 
@@ -311,7 +316,7 @@ the collector needs to recognise a hook failure rather than a spec failure.
 Schema — additive `failure.attribution` enum
 (`application | environment | test | unknown`); minor bump.
 
-#### G4 · `id` is not unique within a run, and collisions destroy artifacts
+#### G4 · ~~`id` is not unique within a run, and collisions destroy artifacts~~ — fixed
 
 _What could not be expressed:_ two distinct failures as two distinct artifacts.
 Two proven triggers:
@@ -327,13 +332,22 @@ listing the _same path twice_, and **one** artifact on disk — the second failu
 The first is gone, with no warning and no trace. `validateDefect()` passes it,
 because each artifact is individually valid.
 
-_Risk:_ silent loss of a defect, a summary that contradicts the directory it
-describes, and history joined on `id` attributing one test's failure to another.
+_Fixed in `src/defect/collect.ts`._ The collector keeps an in-memory map of the
+ids it has already written for the run and **refuses the second write**, throwing
+with both colliding tests named — file, line, title and `playwrightId` — so the
+reader does not have to work out which two collided. Nothing already on disk is
+touched, and no run summary is written, because a summary is a claim that the run
+was collected in full and this one was not.
 
-_Proposed:_ producer only, no schema change. Derive `id` from
-`test.playwrightId` — already in the artifact, already unique per spec — or append
-a short hash of it. And make the collector **fail closed** on a duplicate `id`,
-throwing as it already does for an invalid artifact, instead of overwriting.
+A third path turned up while fixing this and is covered by the same guard: an id
+that slugifies to `quality-summary` produces the filename the run summary is
+written to, thirty lines later, with no warning. That filename is now reserved.
+
+_The derivation was deliberately left alone._ `id` is a published value and
+changing how it is computed changes every artifact ever written, which is a
+contract change rather than a bug fix. The collision is now a hard, explained
+failure instead of a silent loss; deciding what an id should be is a separate
+question and belongs with a version bump.
 
 #### G5 · `signals` cannot tell the target's origin from a third party's
 

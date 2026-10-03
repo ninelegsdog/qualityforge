@@ -249,6 +249,50 @@ const EVIDENCE_BY_ATTACHMENT: Record<string, "trace" | "screenshot" | "video"> =
 /** Attachment written by the QualityForge fixture on a failing test. */
 const SIGNALS_ATTACHMENT = "quality-context";
 
+/**
+ * The run summary's own filename.
+ *
+ * A defect's filename is `<id>.v1.json`, and an id is a slug, so a defect whose
+ * id slugifies to `quality-summary` lands on this exact name. It is reserved so
+ * that collision fails loudly instead of the summary quietly replacing a defect
+ * at the end of the run.
+ */
+const SUMMARY_FILE_NAME = "quality-summary.v1.json";
+
+/** One line naming a test, for a message its reader has to act on. */
+function describeTest(defect: DefectV1): string {
+  return (
+    `  - ${defect.test.file}:${defect.test.line ?? "?"} ` +
+    `${JSON.stringify(defect.test.title)}` +
+    (defect.test.playwrightId === undefined ? "" : ` (playwrightId ${defect.test.playwrightId})`)
+  );
+}
+
+/**
+ * The error raised when two failures want the same filename.
+ *
+ * Overwriting on a key collision is the defect itself: the first failure
+ * disappears with no warning, `validateDefect()` passes what is left, and the
+ * run summary lists one path twice while the directory holds one file. So the
+ * collector refuses, and says which two tests collided and why their ids
+ * matched - the reader should not have to work that out by hand.
+ */
+function duplicateIdError(id: string, first: DefectV1, second: DefectV1): Error {
+  return new Error(
+    `Refusing to write a second defect artifact for id ${JSON.stringify(id)} ` +
+      "(duplicate defect id).\n" +
+      "Both of these failed, and one filename cannot hold both:\n" +
+      `${describeTest(first)}\n` +
+      `${describeTest(second)}\n` +
+      "Nothing was overwritten: the artifact already on disk is untouched, and no\n" +
+      "run summary is written, so nothing on disk claims this run was collected in full.\n" +
+      "The id is a slug of the file basename and the title, so two tests collide when the\n" +
+      "slug is identical: two files sharing a basename, a title with no [a-z0-9]\n" +
+      "characters, or two titles that agree past the 120-character cap.\n" +
+      "Give the two tests distinguishable titles, or rename one of the files.",
+  );
+}
+
 interface SignalsPayload {
   signals?: DefectSignals;
   dropped?: number;
@@ -428,6 +472,15 @@ export async function collectDefects(options: CollectOptions): Promise<{
 
   const origin = originOf(options.baseUrl);
   const defects: DefectV1[] = [];
+  /**
+   * Id to artifact, for the run being collected.
+   *
+   * Checked before every write rather than inferred from the filesystem. The
+   * two differ exactly when the run directory is not empty, which is also when
+   * a stale artifact from a previous run could be mistaken for this run's -
+   * so the in-memory map is the truth and the directory is not consulted.
+   */
+  const writtenIds = new Map<string, DefectV1>();
   let specs = 0;
   let passed = 0;
   let skipped = 0;
@@ -563,6 +616,24 @@ export async function collectDefects(options: CollectOptions): Promise<{
     }
 
     const fileName = `${defect.id}.v1.json`;
+    if (fileName === SUMMARY_FILE_NAME) {
+      throw new Error(
+        `Defect "${defect.test.title}" would be written as ${fileName}, which is the run ` +
+          `summary's own filename, and the summary is written after every defect.\n` +
+          `${describeTest(defect)}\n` +
+          "Nothing was written. Rename the test file, or give the test a title that\n" +
+          "slugs to something other than quality-summary.",
+      );
+    }
+
+    // Fail closed on a key collision. Two failures, one filename, means one of
+    // them is destroyed with no signal, which is worse than a red run.
+    const collision = writtenIds.get(defect.id);
+    if (collision !== undefined) {
+      throw duplicateIdError(defect.id, collision, defect);
+    }
+
+    writtenIds.set(defect.id, defect);
     await writeFile(path.join(runDir, fileName), `${JSON.stringify(defect, null, 2)}\n`, "utf8");
     defects.push(defect);
   }
@@ -619,7 +690,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
   };
 
   await writeFile(
-    path.join(runDir, "quality-summary.v1.json"),
+    path.join(runDir, SUMMARY_FILE_NAME),
     `${JSON.stringify(summary, null, 2)}\n`,
     "utf8",
   );

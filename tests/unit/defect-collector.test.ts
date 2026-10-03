@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -602,6 +602,219 @@ test.describe("collectDefects", () => {
       const result = validateDefect(JSON.parse(JSON.stringify(defect)));
       expect(result.problems).toEqual([]);
     }
+  });
+});
+
+test.describe("colliding ids", () => {
+  /**
+   * A report with one spec per suite, each in its own file.
+   *
+   * Two specs under one suite is not how Playwright reports a file, and
+   * building the real shape matters: a collision has to be produced by the same
+   * report structure the runner writes, not by a convenient one.
+   */
+  function twoSpecReport(
+    root: string,
+    specs: { file: string; title: string; line: number; message: string }[],
+  ): string {
+    return JSON.stringify({
+      config: { rootDir: root },
+      stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 1234.5 },
+      suites: specs.map((spec, i) => ({
+        title: `tests/${spec.file}`,
+        file: spec.file,
+        specs: [
+          {
+            id: `spec-${i}`,
+            title: spec.title,
+            file: spec.file,
+            line: spec.line,
+            tests: [
+              {
+                projectName: "chromium",
+                expectedStatus: "passed",
+                results: [
+                  {
+                    status: "failed",
+                    retry: 0,
+                    duration: 10,
+                    startTime: "2026-10-03T00:00:00.000Z",
+                    error: { message: spec.message },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })),
+    });
+  }
+
+  const COLLIDE_OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: THRESHOLDS,
+  } as const;
+
+  test("two failures with the same id stop the collection instead of overwriting", async () => {
+    // Two files with the same basename: defectIdFrom() keeps only
+    // path.basename(), so both slugify to the same id.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /duplicate defect id/,
+    );
+  });
+
+  test("the collision message names both tests, so the fix is actionable", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    // A message that only says "duplicate id" leaves the reader to go and work
+    // out which two tests collided.
+    const thrown = await collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(thrown).toBeInstanceOf(Error);
+    const message = (thrown as Error).message;
+    expect(message).toContain("a-renders-the-heading");
+    expect(message).toContain("smoke/a.spec.ts:10");
+    expect(message).toContain("unit/a.spec.ts:20");
+  });
+
+  test("the failure written before the collision is left exactly as it was", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow();
+
+    // The whole point of failing closed: nothing already on disk is destroyed.
+    // Before the fix this file held SECOND and the first failure was gone.
+    const runDirs = await readdir(path.join(root, "artifacts/defects"));
+    const runDir = runDirs[0] as string;
+    expect(await readdir(path.join(root, "artifacts/defects", runDir))).toContain(
+      "a-renders-the-heading.v1.json",
+    );
+
+    const onDisk = JSON.parse(
+      await readFile(
+        path.join(root, "artifacts/defects", runDir, "a-renders-the-heading.v1.json"),
+        "utf8",
+      ),
+    ) as { failure: { message: string }; test: { file: string } };
+    expect(onDisk.failure.message).toBe("FIRST");
+    expect(onDisk.test.file).toBe("tests/smoke/a.spec.ts");
+  });
+
+  test("a colliding run writes no summary, so nothing on disk claims it completed", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow();
+
+    const runDirs = await readdir(path.join(root, "artifacts/defects"));
+    // A summary is a claim that the run was collected in full. This one was not.
+    expect(await readdir(path.join(root, "artifacts/defects", runDirs[0] as string))).not.toContain(
+      "quality-summary.v1.json",
+    );
+  });
+
+  test("a title with no ASCII letters collides with its neighbour and is refused", async () => {
+    // The other proven trigger: the slug is built from [a-z0-9], so a title in
+    // any other script contributes nothing and two tests in one file collapse
+    // onto the file name.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/homepage.smoke.spec.ts", title: "!!!", line: 5, message: "FIRST" },
+        { file: "smoke/homepage.smoke.spec.ts", title: "???", line: 9, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /duplicate defect id/,
+    );
+  });
+
+  test("titles truncated at the 120 character cap collide and are refused", async () => {
+    // Long enough that the distinct tail falls past the cap: the slug keeps the
+    // first 120 characters of `basename + title`, so both titles differ only in
+    // the part that gets cut.
+    const shared = "renders the heading with every one of its letters present ".repeat(3);
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        {
+          file: "smoke/homepage.smoke.spec.ts",
+          title: `${shared}FIRST`,
+          line: 11,
+          message: "FIRST",
+        },
+        {
+          file: "smoke/homepage.smoke.spec.ts",
+          title: `${shared}SECOND`,
+          line: 13,
+          message: "SECOND",
+        },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /duplicate defect id/,
+    );
+  });
+
+  test("a defect that would take the summary's own filename is refused", async () => {
+    // A file called quality-summary.spec.ts whose title slugifies to nothing
+    // produces id "quality-summary", and its artifact filename is exactly the
+    // one the run summary is written to — at the end of the run, with no
+    // warning. Same bug, third path in.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/quality-summary.spec.ts", title: "!!!", line: 5, message: "FIRST" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /quality-summary/,
+    );
+  });
+
+  test("two defects with different ids are still written side by side", async () => {
+    // The guard must not cost the ordinary case.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "smoke/b.spec.ts", title: "renders the footer", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    const { defects, runDir } = await collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root });
+
+    expect(defects).toHaveLength(2);
+    expect((await readdir(runDir)).sort()).toEqual([
+      "a-renders-the-heading.v1.json",
+      "b-renders-the-footer.v1.json",
+      "quality-summary.v1.json",
+    ]);
   });
 });
 

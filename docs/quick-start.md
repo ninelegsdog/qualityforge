@@ -50,8 +50,11 @@ Look at the report:
 npm run report
 ```
 
-It serves the HTML report on `http://localhost:9323` and stays in the foreground
-until you press Ctrl+C. That is Playwright's behaviour, not a hang.
+It takes about **ten seconds** to say anything, then serves the HTML report on
+`http://localhost:9323` and stays in the foreground until you press Ctrl+C. The
+pause is the server starting; it is not a hang. No wrapper prints the address
+sooner on purpose — if the server then failed, an address printed early would
+send you somewhere that does not serve.
 
 ## 3. See a real failure with evidence
 

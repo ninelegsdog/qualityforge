@@ -58,6 +58,14 @@ Open the HTML report:
 npm run report
 ```
 
+Expect **about ten seconds of silence** before it prints
+`Serving HTML report at http://localhost:9323`. It is starting a local server, not
+hanging. It then stays in the foreground until you press Ctrl+C.
+
+There is deliberately no wrapper that prints the address sooner. Printing early
+would be a lie if the server then failed to start — you would be handed a URL that
+does not serve, which is a worse failure to debug than silence.
+
 For a step-by-step path — seeing a real failure with evidence, collecting defect
 artifacts, connecting an agent, pointing it at your own application — see
 [`docs/quick-start.md`](docs/quick-start.md), or

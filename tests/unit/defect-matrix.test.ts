@@ -18,9 +18,31 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { collectDefects } from "../../src/defect/collect.js";
 
+/**
+ * The fields this suite reads. Parsing a file from disk is not trusted input,
+ * so it is parsed as unknown and narrowed, rather than left as `any` — which
+ * eslint refuses, correctly.
+ */
+interface ReadArtifact {
+  id: string;
+  status: string;
+  test: { project?: string };
+  flakiness: { verdict: string; attempts: number };
+}
+
+function parseArtifact(text: string): ReadArtifact {
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("artifact is not an object");
+  }
+  return parsed as ReadArtifact;
+}
+
 interface EngineResult {
   project: string;
   status: "passed" | "failed";
+  /** Defaults to a single attempt of `status`; supply to model a retry. */
+  attempts?: Array<{ status: string; duration: number; error?: { message: string } }>;
 }
 
 /** A report with one spec run in every engine named, each with that status. */
@@ -39,7 +61,9 @@ function twoEngineReport(results: EngineResult[], file = "smoke/demo.smoke.spec.
             line: 10,
             tests: results.map((r) => ({
               projectName: r.project,
-              results: [
+              // An engine supplies its own attempts when the case is about a
+              // retry; otherwise one attempt carrying that status.
+              results: r.attempts ?? [
                 {
                   status: r.status,
                   duration: 100,
@@ -85,7 +109,7 @@ async function collect(results: EngineResult[], file = "smoke/demo.smoke.spec.ts
   const artifacts = await Promise.all(
     files.map((f) => readFile(path.join(result.runDir, f), "utf8")),
   );
-  return { summary: result.summary, artifacts: artifacts.map((a) => JSON.parse(a)) };
+  return { summary: result.summary, artifacts: artifacts.map(parseArtifact) };
 }
 
 test.describe("a matrix run is not a retry", () => {
@@ -134,13 +158,17 @@ test.describe("a matrix run is not a retry", () => {
   test("retries within one engine are still retries", async () => {
     // The counter-case. Partitioning by project must not flatten genuine retries
     // inside a single engine, or this whole fix is a different bug.
-    const report = twoEngineReport([{ project: "firefox", status: "failed" }]);
-    // Give the one engine a retry that passed.
-    const test0 = report.suites[0]!.specs![0]!.tests![0]!;
-    test0.results = [
-      { status: "failed", duration: 100, error: { message: "Error: first" } },
-      { status: "passed", duration: 100 },
-    ];
+    const report = twoEngineReport([
+      {
+        project: "firefox",
+        status: "failed",
+        // One engine, two attempts: failed, then passed. A genuine retry.
+        attempts: [
+          { status: "failed", duration: 100, error: { message: "Error: first" } },
+          { status: "passed", duration: 100 },
+        ],
+      },
+    ]);
 
     const root = await mkdtemp(path.join(tmpdir(), "qf-retry-"));
     const reportPath = path.join(root, "report.json");

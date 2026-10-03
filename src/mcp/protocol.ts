@@ -43,22 +43,6 @@ export const META_SUBSCRIPTION_ID = "io.modelcontextprotocol/subscriptionId";
  */
 export const META_ENVELOPE = "_meta";
 
-/**
- * Where a client declares that it wants to be sent subscriptions, inside its
- * envelope capabilities.
- *
- * Note what this is not: the client capability schema of 2026-07-28, as
- * implemented in the OpenCode 2.0.16 binary, has no `subscriptions` member at
- * all. Its top-level members are experimental, sampling, elicitation, roots and
- * extensions, and a subscription is requested by calling `subscriptions/listen`.
- * So a conforming client never sets this, and `subscribe` stays unadvertised -
- * which is the honest answer for a server that implements no subscription
- * method. The key exists because a client that does declare it must be answered
- * truthfully, and because an unused capability key is how a server ends up
- * advertising something it cannot deliver.
- */
-export const CLIENT_CAPABILITIES_SUBSCRIPTIONS = "subscriptions";
-
 /** Name and version of a peer, as carried in `_meta`. */
 export interface Implementation {
   name: string;
@@ -218,12 +202,6 @@ export function readEnvelope(params: Record<string, unknown> | undefined): Envel
         ? (capabilities as Record<string, unknown>)
         : undefined,
   };
-}
-
-/** Whether the client asked, in its envelope, to be sent subscriptions. */
-export function declaresSubscriptions(capabilities: Record<string, unknown> | undefined): boolean {
-  if (capabilities === undefined) return false;
-  return Boolean(capabilities[CLIENT_CAPABILITIES_SUBSCRIPTIONS]);
 }
 
 /**

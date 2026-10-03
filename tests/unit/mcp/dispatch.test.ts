@@ -71,6 +71,7 @@ function result(response: Awaited<ReturnType<typeof dispatch>>): Record<string, 
 function errorOf(response: Awaited<ReturnType<typeof dispatch>>): {
   code: number;
   message: string;
+  data?: unknown;
 } {
   if (response === null) throw new Error("expected a response, got null");
   if (!("error" in response)) throw new Error("expected an error response");
@@ -269,6 +270,147 @@ test.describe("protocol envelope", () => {
   });
 });
 
+/**
+ * The 2026-07-28 capability shape, and the reason these tests exist.
+ *
+ * Issue #12 recorded the three members below as "the pre-2026 form" and asked for
+ * them to be replaced. The client disagrees. In the OpenCode 2.0.16 binary the
+ * `ServerCapabilitiesSchema` for 2026-07-28 is
+ * `{experimental?, logging?, completions?, prompts?: {listChanged?},
+ * resources?: {subscribe?, listChanged?}, tools?: {listChanged?}, tasks?,
+ * extensions?}` - all optional, and the three members are in it.
+ *
+ * These tests exist so that a later reader who believes the issue does not
+ * delete them and leave a suite that still passes.
+ */
+test.describe("the 2026-07-28 capabilities shape", () => {
+  /** The methods the client gates on each advertised capability member. */
+  const GATED: Array<[string, string]> = [
+    ["tools", "tools/list"],
+    ["resources", "resources/list"],
+    ["prompts", "prompts/list"],
+  ];
+
+  test("the three members the client gates its methods on are advertised", async () => {
+    // The client's `assertCapabilityForMethod` reads `capabilities.tools`,
+    // `.resources` and `.prompts` and throws `CapabilityNotSupported` when one is
+    // missing. Dropping any of them does not deprecate a feature, it makes the
+    // corresponding method uncallable.
+    const context = await makeContext();
+
+    for (const method of ["server/discover", "initialize"]) {
+      const payload = result(
+        await dispatch(context, {
+          jsonrpc: "2.0",
+          id: 1,
+          method,
+          params: { protocolVersion: "2025-11-25" },
+        }),
+      );
+      const capabilities = payload.capabilities as Record<string, unknown>;
+
+      for (const [member] of GATED) {
+        expect(capabilities[member], `${method} / ${member}`).toBeDefined();
+        expect(typeof capabilities[member], `${method} / ${member}`).toBe("object");
+      }
+    }
+  });
+
+  test("listChanged is false everywhere, so no client opens a subscription", async () => {
+    // The modern client decides whether to send `subscriptions/listen` by reading
+    // exactly these three flags out of the discover result. Nothing here mutates,
+    // so they must be false - a `true` would start a notification stream this
+    // server never feeds.
+    const context = await makeContext();
+    const payload = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "server/discover",
+        params: modern(),
+      }),
+    );
+    const capabilities = payload.capabilities as Record<string, Record<string, unknown>>;
+
+    for (const [member] of GATED) {
+      expect(capabilities[member]?.listChanged, member).toBe(false);
+    }
+  });
+
+  test("every advertised capability has a method this server implements", async () => {
+    // An advertised capability is a promise about the dispatch table. `resources:
+    // {subscribe: true}` was such a promise this server did not keep, and the
+    // only symptom would have been a client reporting the server as broken after
+    // a notification that never came.
+    //
+    // The envelope declares `subscriptions` on purpose. The advertisement used to
+    // be conditional on exactly that, so a request that does not declare it would
+    // pass this test with the bug restored - and the bug is a client-supplied
+    // input reaching the answer.
+    const context = await makeContext();
+    const payload = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "server/discover",
+        params: {
+          _meta: envelope(LATEST_PROTOCOL_VERSION, { subscriptions: { resources: true } }),
+        },
+      }),
+    );
+    const capabilities = payload.capabilities as Record<string, Record<string, unknown>>;
+
+    expect(capabilities.resources?.subscribe).toBeUndefined();
+    expect(capabilities.resources?.listChanged).toBe(false);
+  });
+
+  test("nothing is advertised for a surface this server does not implement", async () => {
+    // `completions` would promise `completion/complete`, and empty objects for
+    // `experimental`, `extensions` or `tasks` would promise a surface that does
+    // not exist. Absent is the only truthful answer for all four.
+    const context = await makeContext();
+    const payload = result(
+      await dispatch(context, { jsonrpc: "2.0", id: 1, method: "server/discover" }),
+    );
+    const capabilities = payload.capabilities as Record<string, unknown>;
+
+    for (const absent of ["completions", "experimental", "extensions", "tasks", "logging"]) {
+      expect(capabilities[absent], absent).toBeUndefined();
+    }
+  });
+
+  test("the answer does not vary with what the client declared", async () => {
+    // It used to: a client declaring a `subscriptions` capability was offered
+    // `resources.subscribe`. That key cannot exist in a conforming 2026-07-28
+    // client - its `ClientCapabilitiesSchema` members are experimental, sampling,
+    // elicitation, roots, tasks and extensions - so the condition selected who to
+    // mislead rather than what to say. Nothing about this server's surface depends
+    // on the caller, so nothing about its answer should either.
+    const context = await makeContext();
+
+    const declared = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "server/discover",
+        params: {
+          _meta: envelope(LATEST_PROTOCOL_VERSION, { subscriptions: { resources: true } }),
+        },
+      }),
+    );
+    const notDeclared = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "server/discover",
+        params: modern(),
+      }),
+    );
+
+    expect(declared.capabilities).toEqual(notDeclared.capabilities);
+  });
+});
+
 test.describe("the 2026-07-28 _meta envelope", () => {
   test("a request that declares the revision without the envelope is refused", async () => {
     // 2026-07-28 made the envelope mandatory. Serving this request silently is
@@ -388,45 +530,34 @@ test.describe("the 2026-07-28 _meta envelope", () => {
     ).toBeNull();
   });
 
-  test("capabilities answer the client that declared subscriptions", async () => {
+  test("a notification naming a revision we cannot speak stays silent too", async () => {
+    // The version gate is also ahead of the method, so a notification can fail it.
+    // Same rule: no answer, not even an error one.
     const context = await makeContext();
 
-    const declared = result(
+    expect(
       await dispatch(context, {
         jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: LATEST_PROTOCOL_VERSION,
-          _meta: envelope(LATEST_PROTOCOL_VERSION, { subscriptions: { resources: true } }),
-        },
+        method: "notifications/cancelled",
+        params: { _meta: { "io.modelcontextprotocol/protocolVersion": "1999-01-01" } },
       }),
-    );
-    const resources = (declared.capabilities as Record<string, unknown>).resources as Record<
-      string,
-      unknown
-    >;
-    expect(resources.subscribe).toBe(true);
+    ).toBeNull();
   });
 
-  test("capabilities do not offer subscriptions to a client that declared none", async () => {
-    // Advertising a subscription this server cannot deliver is worse than
-    // staying silent about it: the client subscribes and waits.
+  test("resources/subscribe is method-not-found, not an advertised capability", async () => {
+    // This server has no subscription method. The answer is the honest one, and
+    // because `resources.subscribe` is not advertised the client refuses to send
+    // this at all.
     const context = await makeContext();
 
-    const payload = result(
-      await dispatch(context, {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "server/discover",
-        params: modern(),
-      }),
-    );
-    const resources = (payload.capabilities as Record<string, unknown>).resources as Record<
-      string,
-      unknown
-    >;
-    expect(resources.subscribe).toBeUndefined();
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "resources/subscribe",
+      params: modern(),
+    });
+
+    expect(errorOf(response).code).toBe(METHOD_NOT_FOUND);
   });
 });
 
@@ -493,6 +624,142 @@ test.describe("notifications and malformed frames", () => {
       method: "tools/list",
       params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2025-11-25" } },
     });
+
+    expect(result(response).tools).toBeDefined();
+  });
+});
+
+/**
+ * The version gate.
+ *
+ * `canServe()` used to be consulted only in `default:`, so an unservable
+ * revision was refused on exactly the methods where refusing costs nothing and
+ * served on every method a client uses. `tools/list` carrying
+ * `_meta.protocolVersion: "1999-01-01"` returned the tool list, complete with
+ * `resultType`, `ttlMs` and `cacheScope` - fields 2026-07-28 introduced, which a
+ * client claiming another revision cannot be assumed to read.
+ */
+test.describe("a revision this server cannot speak", () => {
+  /** Every request method that a client uses, and so that used to be served. */
+  const USED_METHODS = [
+    "tools/list",
+    "resources/list",
+    "resources/templates/list",
+    "prompts/list",
+    "server/discover",
+  ];
+
+  test("a known method is refused, not served", async () => {
+    const context = await makeContext();
+
+    for (const method of USED_METHODS) {
+      const response = await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method,
+        params: { _meta: { "io.modelcontextprotocol/protocolVersion": "1999-01-01" } },
+      });
+
+      expect(errorOf(response).code, method).toBe(UNSUPPORTED_PROTOCOL_VERSION);
+    }
+  });
+
+  test("a tool call is refused before the store is touched", async () => {
+    const context = await makeContext();
+
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "quality_list_failures",
+        arguments: {},
+        _meta: { "io.modelcontextprotocol/protocolVersion": "1999-01-01" },
+      },
+    });
+
+    expect(errorOf(response).code).toBe(UNSUPPORTED_PROTOCOL_VERSION);
+  });
+
+  test("the answer names what a client needs to re-negotiate", async () => {
+    // The OpenCode 2.0.16 binary reads a -32022 for `data.supported`, filters it
+    // to revisions both peers speak, and retries the probe with a mutual one. Any
+    // other code is discarded and collapses it to legacy. So the payload is the
+    // contract, not a courtesy.
+    const context = await makeContext();
+
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: { _meta: { "io.modelcontextprotocol/protocolVersion": "1999-01-01" } },
+    });
+    const data = errorOf(response).data as { supported: string[]; requested: string };
+
+    expect(data.supported).toContain(LATEST_PROTOCOL_VERSION);
+    expect(data.supported).toContain("2025-11-25");
+    expect(data.requested).toBe("1999-01-01");
+  });
+
+  test("a version in the pre-2026 params position is refused as well", async () => {
+    // 2025-11-25 and earlier carried the revision in `params.protocolVersion`. A
+    // client on that transport states a revision there too, and gets the same
+    // answer - otherwise the gate would only protect one of the two transports.
+    const context = await makeContext();
+
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: { protocolVersion: "1999-01-01" },
+    });
+
+    expect(errorOf(response).code).toBe(UNSUPPORTED_PROTOCOL_VERSION);
+  });
+
+  test("the refusal message does not describe the filesystem", async () => {
+    // Error messages reach transcripts and model prompts.
+    const context = await makeContext();
+
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "quality_get_defect",
+        arguments: { defectPath: "../../etc/passwd" },
+        _meta: { "io.modelcontextprotocol/protocolVersion": "1999-01-01" },
+      },
+    });
+
+    expect(errorOf(response).message).not.toContain("/");
+  });
+
+  test("initialize is exempt, because it is the negotiation", async () => {
+    // Refusing the handshake replaces an answer the client can act on with an
+    // error, and breaks the path a client with no 2026-07-28 evidence depends on.
+    const context = await makeContext();
+
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "1999-01-01",
+        capabilities: {},
+        clientInfo: { name: "c", version: "1" },
+      },
+    });
+
+    expect(result(response).protocolVersion as string).toBe(LATEST_PROTOCOL_VERSION);
+  });
+
+  test("a request stating no revision at all is still served", async () => {
+    // `canServe(undefined)` is true on purpose. A pre-envelope client states
+    // nothing, and refusing it would break the legacy mode clients default to.
+    const context = await makeContext();
+
+    const response = await dispatch(context, { jsonrpc: "2.0", id: 1, method: "tools/list" });
 
     expect(result(response).tools).toBeDefined();
   });

@@ -10,7 +10,6 @@
  * `quality_list_failures` is valid, and the `quality_` prefix namespaces them.
  */
 import type { ArtifactStore } from "./store.js";
-import { declaresSubscriptions } from "./protocol.js";
 
 export const SERVER_INSTRUCTIONS = [
   "QualityForge exposes read-only evidence about browser test failures.",
@@ -451,37 +450,98 @@ export function buildTriagePrompt(defectPath: string): string {
 }
 
 /**
- * What this server offers.
+ * What this server offers, in the 2026-07-28 shape.
  *
- * `logging` is absent on purpose: deprecated in 2026-07-28. `tools.listChanged`
- * and `resources.listChanged` are false because nothing here mutates, which is
- * the read-only guarantee stated structurally elsewhere in this file.
+ * ## This shape is the modern one, and the surprise is that it did not change
+ *
+ * Issue #12 recorded this as "the pre-2026 form" and asked for
+ * `experimental, logging, completions, prompts, resources, tools, extensions` to
+ * replace `tools.listChanged`, `resources.subscribe` and `prompts.listChanged`.
+ * That reading does not survive the client. In the OpenCode 2.0.16 binary the
+ * `ServerCapabilitiesSchema` for 2026-07-28 is:
+ *
+ * ```js
+ * h({
+ *   experimental: record(string, json).optional(),
+ *   logging: object.optional(),
+ *   completions: object.optional(),
+ *   prompts:    h({ listChanged: boolean.optional() }).optional(),
+ *   resources:  h({ subscribe: boolean.optional(), listChanged: boolean.optional() }).optional(),
+ *   tools:      h({ listChanged: boolean.optional() }).optional(),
+ *   tasks:      object.optional(),
+ *   extensions: record(string, json).optional(),
+ * })
+ * ```
+ *
+ * The three members named in the issue are still there, still optional, and are
+ * what the client reads. So dropping them would not modernise the contract, it
+ * would delete the only signal the client acts on.
+ *
+ * `subscriptions/listen` is a separate mechanism, not a replacement: it is a
+ * client-to-server request whose `notifications` filter carries
+ * `toolsListChanged`, `promptsListChanged`, `resourcesListChanged` and
+ * `resourceSubscriptions`. The client decides *whether to send* it by reading
+ * `capabilities.tools.listChanged` and its two siblings out of the
+ * `server/discover` result. Both halves have to stay for the pair to work.
+ *
+ * ## What is advertised, and why so little
+ *
+ * Every member is optional, so this is the whole of what can be said truthfully:
+ *
+ * - `tools`, `resources`, `prompts` are present because the client gates the
+ *   corresponding methods on them. `assertCapabilityForMethod` reads
+ *   `_serverCapabilities?.tools`, `.resources` and `.prompts` and throws
+ *   `CapabilityNotSupported` when a member is missing, which would make
+ *   `tools/list`, `resources/list` and `prompts/list` uncallable. They carry
+ *   `listChanged: false`, which is the truth: nothing here mutates, so a client
+ *   is told not to open a subscription.
+ * - `completions` is absent: this server implements no `completion/complete`.
+ * - `logging` is absent: deprecated in 2026-07-28.
+ * - `experimental`, `extensions` and `tasks` are absent: there is nothing to put
+ *   in them. An empty object would be a claim of an extension surface that does
+ *   not exist.
+ *
+ * ## What was removed, and why it was a lie
+ *
+ * `resources.subscribe` used to be advertised, conditionally, to a client that
+ * declared a `subscriptions` capability. Two facts made that wrong. This server
+ * has no `resources/subscribe` case in its dispatch, so the capability promised
+ * a method that answers -32601. And the condition could only ever select *who*
+ * to mislead, never change the answer: the 2026-07-28 `ClientCapabilitiesSchema`
+ * has no `subscriptions` member at all - its members are experimental, sampling,
+ * elicitation, roots, tasks and extensions - so a conforming client can never
+ * switch it on. A capability this server cannot deliver is worse than silence
+ * about it: the client subscribes, waits for a notification that never arrives,
+ * and reports the server as broken.
+ *
+ * The absence is also the useful answer. With `resources.subscribe` missing, the
+ * client's own `assertCapabilityForMethod` refuses `resources/subscribe` before
+ * it is sent, which is a clear refusal instead of a method that vanishes.
  */
 export interface ServerCapabilities {
   tools: { listChanged: boolean };
-  resources: { listChanged: boolean; subscribe?: boolean };
+  resources: { listChanged: boolean };
   prompts: { listChanged: boolean };
 }
 
 /**
- * Advertised capabilities, answered against what the client declared.
+ * Advertised capabilities.
  *
- * `resources.subscribe` is advertised only to a client that asked for
- * subscriptions in its envelope. Advertising a subscription this server cannot
- * deliver is worse than saying nothing about it: the client subscribes, waits for
- * a notification that never arrives, and reports the server as broken.
+ * Constant, and no longer conditional. That is a change of substance rather than
+ * of style: it used to answer against the client's declared capabilities, and the
+ * reason it did was to advertise `resources.subscribe`. With that gone there is
+ * nothing left to vary, and a conditional answer is how an advertisement becomes
+ * something different to each caller - which is how a server ends up stating a
+ * capability to one client that it denies to the next.
  *
- * The capability is conditional rather than constant for the same reason it is
- * read from the envelope at all — the client states what it wants, and the answer
- * is not the same to every caller.
+ * The parameter is kept so the call sites carry the envelope they were already
+ * reading, and so a future conditional capability has an obvious home. It is
+ * ignored, and that is deliberate rather than forgotten.
  */
-export function capabilitiesFor(
-  clientCapabilities: Record<string, unknown> | undefined,
-): ServerCapabilities {
-  const subscribe = declaresSubscriptions(clientCapabilities);
+export function capabilitiesFor(_clientCapabilities?: Record<string, unknown>): ServerCapabilities {
   return {
     tools: { listChanged: false },
-    resources: subscribe ? { listChanged: false, subscribe: true } : { listChanged: false },
+    resources: { listChanged: false },
     prompts: { listChanged: false },
   };
 }

@@ -10,6 +10,7 @@
  * `quality_list_failures` is valid, and the `quality_` prefix namespaces them.
  */
 import type { ArtifactStore } from "./store.js";
+import { declaresSubscriptions } from "./protocol.js";
 
 export const SERVER_INSTRUCTIONS = [
   "QualityForge exposes read-only evidence about browser test failures.",
@@ -449,9 +450,38 @@ export function buildTriagePrompt(defectPath: string): string {
   ].join("\n");
 }
 
-/** Advertised capabilities. `logging` is absent on purpose: deprecated in 2026-07-28. */
-export const CAPABILITIES = {
-  tools: { listChanged: false },
-  resources: { subscribe: false, listChanged: false },
-  prompts: { listChanged: false },
-} as const;
+/**
+ * What this server offers.
+ *
+ * `logging` is absent on purpose: deprecated in 2026-07-28. `tools.listChanged`
+ * and `resources.listChanged` are false because nothing here mutates, which is
+ * the read-only guarantee stated structurally elsewhere in this file.
+ */
+export interface ServerCapabilities {
+  tools: { listChanged: boolean };
+  resources: { listChanged: boolean; subscribe?: boolean };
+  prompts: { listChanged: boolean };
+}
+
+/**
+ * Advertised capabilities, answered against what the client declared.
+ *
+ * `resources.subscribe` is advertised only to a client that asked for
+ * subscriptions in its envelope. Advertising a subscription this server cannot
+ * deliver is worse than saying nothing about it: the client subscribes, waits for
+ * a notification that never arrives, and reports the server as broken.
+ *
+ * The capability is conditional rather than constant for the same reason it is
+ * read from the envelope at all — the client states what it wants, and the answer
+ * is not the same to every caller.
+ */
+export function capabilitiesFor(
+  clientCapabilities: Record<string, unknown> | undefined,
+): ServerCapabilities {
+  const subscribe = declaresSubscriptions(clientCapabilities);
+  return {
+    tools: { listChanged: false },
+    resources: subscribe ? { listChanged: false, subscribe: true } : { listChanged: false },
+    prompts: { listChanged: false },
+  };
+}

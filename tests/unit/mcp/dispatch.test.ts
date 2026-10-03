@@ -8,6 +8,9 @@ import {
   INVALID_PARAMS,
   INVALID_REQUEST,
   METHOD_NOT_FOUND,
+  META_CLIENT_CAPABILITIES,
+  META_PROTOCOL_VERSION,
+  META_SERVER_INFO,
   PARSE_ERROR,
   RESULT_TYPE_COMPLETE,
   UNSUPPORTED_PROTOCOL_VERSION,
@@ -72,6 +75,25 @@ function errorOf(response: Awaited<ReturnType<typeof dispatch>>): {
   if (response === null) throw new Error("expected a response, got null");
   if (!("error" in response)) throw new Error("expected an error response");
   return response.error;
+}
+
+/**
+ * The `_meta` a 2026-07-28 client attaches to every request: the revision and
+ * its own capabilities. Both keys are mandatory on that revision.
+ */
+function envelope(
+  version: string = LATEST_PROTOCOL_VERSION,
+  clientCapabilities: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    [META_PROTOCOL_VERSION]: version,
+    [META_CLIENT_CAPABILITIES]: clientCapabilities,
+  };
+}
+
+/** `params` for a modern request carrying `envelope`. */
+function modern(version = LATEST_PROTOCOL_VERSION): Record<string, unknown> {
+  return { _meta: envelope(version) };
 }
 
 test.describe("protocol envelope", () => {
@@ -164,6 +186,10 @@ test.describe("protocol envelope", () => {
           protocolVersion: LATEST_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: { name: "c", version: "1" },
+          // A client on this revision states it twice: once here, for the
+          // handshake, and once in the envelope every 2026-07-28 request
+          // carries. Without the envelope the request is refused outright.
+          _meta: envelope(),
         },
       }),
     );
@@ -240,6 +266,167 @@ test.describe("protocol envelope", () => {
     expect(capabilities.logging).toBeUndefined();
     expect(capabilities.tools).toBeDefined();
     expect(capabilities.resources).toBeDefined();
+  });
+});
+
+test.describe("the 2026-07-28 _meta envelope", () => {
+  test("a request that declares the revision without the envelope is refused", async () => {
+    // 2026-07-28 made the envelope mandatory. Serving this request silently is
+    // what lets a client and a server believe they agree on the revision while
+    // exchanging results from two different protocols.
+    const context = await makeContext();
+
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: { protocolVersion: LATEST_PROTOCOL_VERSION },
+    });
+
+    expect(errorOf(response).code).toBe(UNSUPPORTED_PROTOCOL_VERSION);
+  });
+
+  test("an envelope missing the client capabilities is refused", async () => {
+    // The revision is stated, so the request is not pre-envelope, but there is
+    // nothing in it to negotiate capabilities against.
+    const context = await makeContext();
+
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: { _meta: { [META_PROTOCOL_VERSION]: LATEST_PROTOCOL_VERSION } },
+    });
+
+    expect(errorOf(response).code).toBe(INVALID_PARAMS);
+  });
+
+  test("the same request with the envelope is served", async () => {
+    const context = await makeContext();
+    const response = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: modern(),
+    });
+
+    expect(result(response).tools).toBeDefined();
+  });
+
+  test("2025-11-25 is served without an envelope", async () => {
+    // The revision before the envelope existed. Refusing it would break the
+    // legacy mode that clients default to.
+    const context = await makeContext();
+
+    const legacy = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: { protocolVersion: "2025-11-25" },
+    });
+    expect(result(legacy).tools).toBeDefined();
+
+    // A client that states nothing at all is older still, and is served.
+    const unstated = await dispatch(context, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+    });
+    expect(result(unstated).tools).toBeDefined();
+  });
+
+  test("every answer carries _meta back to the client", async () => {
+    const context = await makeContext();
+
+    for (const method of [
+      "server/discover",
+      "initialize",
+      "tools/list",
+      "resources/list",
+      "resources/templates/list",
+      "prompts/list",
+      "ping",
+    ]) {
+      const payload = result(
+        await dispatch(context, { jsonrpc: "2.0", id: 1, method, params: modern() }),
+      );
+      const meta = payload._meta as Record<string, unknown> | undefined;
+      expect(meta, method).toBeDefined();
+      const info = (meta?.[META_SERVER_INFO] ?? {}) as Record<string, unknown>;
+      expect(info.name, method).toBe("qualityforge-mcp");
+      expect(typeof info.version, method).toBe("string");
+    }
+  });
+
+  test("a tool result carries _meta too", async () => {
+    const context = await makeContext();
+    const payload = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "quality_get_latest_run", arguments: {}, ...modern() },
+      }),
+    );
+
+    const meta = payload._meta as Record<string, unknown> | undefined;
+    expect(meta?.[META_SERVER_INFO]).toBeDefined();
+  });
+
+  test("a notification that declares the revision without an envelope stays silent", async () => {
+    // The envelope gate runs ahead of the method, so a notification can now fail
+    // it. A notification still gets no answer - not even an error one, which
+    // would be read by the client as a response it never asked for.
+    const context = await makeContext();
+
+    expect(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { protocolVersion: LATEST_PROTOCOL_VERSION, requestId: "1" },
+      }),
+    ).toBeNull();
+  });
+
+  test("capabilities answer the client that declared subscriptions", async () => {
+    const context = await makeContext();
+
+    const declared = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          _meta: envelope(LATEST_PROTOCOL_VERSION, { subscriptions: { resources: true } }),
+        },
+      }),
+    );
+    const resources = (declared.capabilities as Record<string, unknown>).resources as Record<
+      string,
+      unknown
+    >;
+    expect(resources.subscribe).toBe(true);
+  });
+
+  test("capabilities do not offer subscriptions to a client that declared none", async () => {
+    // Advertising a subscription this server cannot deliver is worse than
+    // staying silent about it: the client subscribes and waits.
+    const context = await makeContext();
+
+    const payload = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "server/discover",
+        params: modern(),
+      }),
+    );
+    const resources = (payload.capabilities as Record<string, unknown>).resources as Record<
+      string,
+      unknown
+    >;
+    expect(resources.subscribe).toBeUndefined();
   });
 });
 

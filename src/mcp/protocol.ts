@@ -36,6 +36,36 @@ export const META_LOG_LEVEL = "io.modelcontextprotocol/logLevel";
 export const META_SUBSCRIPTION_ID = "io.modelcontextprotocol/subscriptionId";
 
 /**
+ * The envelope itself: `params._meta` on a request, `result._meta` on an answer.
+ *
+ * Named because the two halves are not the same object. The request half states
+ * who is speaking; the result half states who answered.
+ */
+export const META_ENVELOPE = "_meta";
+
+/**
+ * Where a client declares that it wants to be sent subscriptions, inside its
+ * envelope capabilities.
+ *
+ * Note what this is not: the client capability schema of 2026-07-28, as
+ * implemented in the OpenCode 2.0.16 binary, has no `subscriptions` member at
+ * all. Its top-level members are experimental, sampling, elicitation, roots and
+ * extensions, and a subscription is requested by calling `subscriptions/listen`.
+ * So a conforming client never sets this, and `subscribe` stays unadvertised -
+ * which is the honest answer for a server that implements no subscription
+ * method. The key exists because a client that does declare it must be answered
+ * truthfully, and because an unused capability key is how a server ends up
+ * advertising something it cannot deliver.
+ */
+export const CLIENT_CAPABILITIES_SUBSCRIPTIONS = "subscriptions";
+
+/** Name and version of a peer, as carried in `_meta`. */
+export interface Implementation {
+  name: string;
+  version: string;
+}
+
+/**
  * `resultType` values. Every result in 2026-07-28 carries one; clients must
  * treat an absent field as "complete" for backward compatibility.
  */
@@ -143,6 +173,81 @@ export function cacheable<T extends object>(
 /** Build a plain, non-cacheable result carrying the mandatory `resultType`. */
 export function complete(payload: Record<string, unknown> = {}): CompleteResult {
   return { resultType: RESULT_TYPE_COMPLETE, ...payload };
+}
+
+/**
+ * What a request's `_meta` actually said.
+ *
+ * The three fields are reported separately, and two of them are typed as
+ * possibly-undefined, because "no envelope at all" and "an envelope that cannot
+ * be used" are different faults and get different answers. Collapsing them into
+ * one boolean is how a malformed envelope ends up served as if it were absent.
+ */
+export interface EnvelopeContents {
+  /** The `params._meta` object, or undefined when it was not an object. */
+  readonly raw: Record<string, unknown> | undefined;
+  /** The revision the envelope claims, when it claims a string. */
+  readonly version: string | undefined;
+  /** The client's declared capabilities, when it declared an object. */
+  readonly clientCapabilities: Record<string, unknown> | undefined;
+}
+
+/**
+ * Read the request envelope.
+ *
+ * 2026-07-28 requires both `io.modelcontextprotocol/protocolVersion` and
+ * `io.modelcontextprotocol/clientCapabilities` here. Reading them without
+ * deciding what their absence means keeps this module free of policy; the caller
+ * decides, and the difference between "absent" and "unusable" survives.
+ */
+export function readEnvelope(params: Record<string, unknown> | undefined): EnvelopeContents {
+  const raw = params?.[META_ENVELOPE];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { raw: undefined, version: undefined, clientCapabilities: undefined };
+  }
+  const envelope = raw as Record<string, unknown>;
+
+  const version = envelope[META_PROTOCOL_VERSION];
+  const capabilities = envelope[META_CLIENT_CAPABILITIES];
+
+  return {
+    raw: envelope,
+    version: typeof version === "string" ? version : undefined,
+    clientCapabilities:
+      typeof capabilities === "object" && capabilities !== null && !Array.isArray(capabilities)
+        ? (capabilities as Record<string, unknown>)
+        : undefined,
+  };
+}
+
+/** Whether the client asked, in its envelope, to be sent subscriptions. */
+export function declaresSubscriptions(capabilities: Record<string, unknown> | undefined): boolean {
+  if (capabilities === undefined) return false;
+  return Boolean(capabilities[CLIENT_CAPABILITIES_SUBSCRIPTIONS]);
+}
+
+/**
+ * Attach the `_meta` an answer carries on 2026-07-28 and later.
+ *
+ * Server identity belongs in `result._meta` on that revision, not in the result
+ * body, and a client on it looks for it there. It is written on every answer,
+ * including the ones to a pre-envelope client: those ignore keys they do not
+ * know, and a client that negotiates its way up to 2026-07-28 mid-session then
+ * finds the field already there.
+ *
+ * A payload that carries its own `_meta` keeps it. This fills in what the server
+ * knows about itself and never overwrites what a handler decided.
+ */
+export function withResultMeta(result: unknown): unknown {
+  if (typeof result !== "object" || result === null || Array.isArray(result)) return result;
+  const payload = result as Record<string, unknown>;
+  if (META_ENVELOPE in payload) return result;
+  return {
+    ...payload,
+    [META_ENVELOPE]: {
+      [META_SERVER_INFO]: { name: SERVER_NAME, version: SERVER_VERSION } satisfies Implementation,
+    },
+  };
 }
 
 /**

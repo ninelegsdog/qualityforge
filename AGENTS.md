@@ -192,22 +192,36 @@ Check changes over the wire, not only by calling functions:
 npm run mcp:check:all
 ```
 
-But understand what those checks do **not** cover, or you will believe more than
-they prove:
+Three checks run there, and it is worth knowing which is which:
 
-- Neither check sends an `initialize` handshake. Protocol negotiation is therefore
-  untested by them, which is how `initialize` came to answer with a fixed version
-  and was rejected by a real client.
-- Neither check sends the `_meta` envelope, which 2026-07-28 makes mandatory.
-  `_meta` is read but never written, and `META_CLIENT_CAPABILITIES` is declared
-  and unused. The modern path is effectively unimplemented.
-- Both checks spawn the server from the project root with `npx`. A client
-  spawns it from elsewhere; that difference is what broke the artifacts root.
+| Check             | What it drives                                                            |
+| ----------------- | ------------------------------------------------------------------------- |
+| `mcp:check`       | frames only on stdout, envelope required and answered on 2026-07-28       |
+| `mcp:check:tools` | tools answer with real data; three traversal shapes refused with `-32602` |
+| `mcp:check:spawn` | the server started from a directory outside the project, with no `npx`    |
 
-So: after changing this directory, also start the server the way a client does,
-from a different working directory, send an `initialize` with each supported
-version, and send a request carrying `_meta`. The scripted checks cannot do that
-for you, and a client will.
+The first two spawn from the project root, which is not what any client does.
+`mcp:check:spawn` exists because that difference is exactly what broke the
+artifacts root once, and it asserts both halves: the root still resolves into this
+checkout when the working directory has nothing, and a foreign directory that
+really does hold evidence is still honoured. A server that ignored its working
+directory entirely would pass the first half alone, so the control case is there
+on purpose.
+
+What these checks still do **not** cover, so you do not believe more than they
+prove:
+
+- **No real client.** `opencode mcp list` connects, in both `auto` and pinned
+  2026-07-28 mode, but that was checked by hand. If you change anything a client
+  reads during connection — `server/discover`, capabilities, the `initialize`
+  echo — verify against the actual client, and **use a fresh directory**: the CLI
+  caches connection state per directory, so a directory that has already seen a
+  failure keeps reporting it after you fixed the server.
+- **Nothing is checked for speed or concurrency.** If you add a fourth check that
+  binds a port or writes to a shared path, it will collide with the other two.
+
+After changing this directory, still connect a real client. It reads things no
+local check asserts.
 
 ## The defect contract
 

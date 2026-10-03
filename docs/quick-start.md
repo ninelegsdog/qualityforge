@@ -131,7 +131,14 @@ npm run mcp:check:all
 This drives the real binary over a real pipe, asserts that stdout carries frames
 and nothing else, and tries three ways of escaping the artifacts root — `..`
 traversal, percent-encoded traversal and an absolute path — expecting all three to
-be refused. It produces its own evidence to check against, by running step 3, so
+be refused.
+
+It runs three checks, and the third exists because of a bug that only appeared in
+front of a real client: `mcp:check:spawn` starts the server the way a client
+starts it — from a temporary directory outside the project, without `npx` — and
+asserts the artifacts root still resolves into the checkout while a foreign
+directory that really does hold evidence is still honoured. The first two checks
+spawn from the project root, which is not what anything else does. It produces its own evidence to check against, by running step 3, so
 it works on a clean checkout and on a green commit.
 
 To connect a client, add this to its MCP configuration. This is the OpenCode

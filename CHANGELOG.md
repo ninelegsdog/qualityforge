@@ -103,6 +103,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checkout fallback applied to an explicitly passed relative path too, not only
   to the default.
 
+- The server no longer advertises `resources.subscribe`. It was offered
+  conditionally to a client declaring a `subscriptions` capability, and no
+  `resources/subscribe` case existed in dispatch — so the capability promised a
+  method that answers `-32601`. The 2026-07-28 client-capability schema has no
+  `subscriptions` member at all, so a conforming client could never switch it on;
+  the condition could only have selected who to mislead. Absence is also the more
+  useful answer, because the client then refuses the call itself. The rest of the
+  capabilities shape is unchanged and verified against the 2026 schema, which still
+  contains `tools`, `resources` and `prompts` with their `listChanged` flags —
+  dropping them would make `tools/list` uncallable, not modern.
+
+- A request declaring an unservable protocol revision is refused on **every**
+  method, not only unknown ones, with `UNSUPPORTED_PROTOCOL_VERSION` carrying both
+  `supported` and `requested`. Previously `tools/list` with revision `1999-01-01`
+  was served a result containing `resultType`, `ttlMs` and `cacheScope` — all
+  introduced by 2026-07-28 — and the client caches on `ttlMs`. `initialize` is
+  exempt because it is the negotiation itself, and notifications stay silent.
+
 ### Added
 
 - `npm run docs:check` — verifies that every relative link in the markdown

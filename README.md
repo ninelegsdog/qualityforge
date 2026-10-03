@@ -178,36 +178,71 @@ not run at all.
 2026-07-28. It hands an agent the evidence layer: what failed, where, and what
 the page was doing while it failed.
 
-OpenCode, Kilo and MiMo all read the same `mcp` shape, so one block covers all
-three:
+Verified against **OpenCode v2.0.16** on Linux, by copying the block below into
+an `opencode.json` and connecting. Kilo and MiMo were **not** tested — see the
+end of this section.
 
 ```jsonc
 {
+  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "qualityforge": {
       "enabled": true,
       "type": "local",
-      "command": ["npx", "tsx", "/path/to/qualityforge/src/mcp/index.ts"],
+      "command": [
+        "node",
+        "/absolute/path/to/qualityforge/node_modules/tsx/dist/cli.mjs",
+        "/absolute/path/to/qualityforge/src/mcp/index.ts",
+      ],
     },
   },
 }
 ```
 
+`opencode mcp list` then reports the connection status:
+
+```
+✓ qualityforge  connected
+```
+
+Re-run it before you believe it. In a directory OpenCode had not seen before,
+v2.0.16 printed `No MCP servers configured` on the first invocation and often the
+second, then `○ qualityforge  pending`, and only then the status above — with a
+config file that was present, valid and unchanged throughout. That first line is
+not evidence that your block is wrong.
+
 Add `--root <dir>` to serve artifacts from somewhere other than
 `artifacts/defects`.
 
-Two things worth knowing, both found by connecting a real client rather than by
-reading the code:
+Four things about that block, each checked against a real client rather than
+assumed:
 
-- If a relative root does not exist under the client's working directory, the
-  server falls back to this checkout and says so on stderr. Without that
-  fallback a client spawning the server from another directory reported only
-  "Connection closed", because the actionable message went to stderr and was
-  discarded.
-- Spell the runner out rather than relying on `npx`. `["npx", "tsx", ...]` did
-  not start under OpenCode, while `["node", "<abs>/node_modules/tsx/dist/cli.mjs",
-"<abs>/src/mcp/index.ts"]` did. Which of the two is at fault has not been
-  established.
+- **Produce the artifacts before you connect.** This is the one that bites. The
+  server exits `1` when it cannot find an artifacts root, and the message saying
+  so goes to stderr, which the client discards — so all you see is
+  `failed: Connection closed`. Run the suite and `npm run defects:collect` first,
+  or pass `--root <dir>`.
+- **Use absolute paths.** A client spawns the server from _your_ project
+  directory, not from this checkout, so a relative root resolves somewhere that
+  does not exist. When that happens the server falls back to this checkout and
+  says so on stderr — but only if this checkout has artifacts to serve, which is
+  the previous point.
+- **Spell the runner out.** `["npx", "tsx", ...]` works, and it is the shorter
+  thing to type, but it took ~3.6 s to answer `initialize` here against ~0.9 s
+  for the `node` form above, and OpenCode's documented default MCP timeout is
+  5000 ms. That is a thin margin on a slower machine, so if `npx` ever fails to
+  connect, swap in the spelled-out command before debugging anything else.
+- **The key is `mcp`, not `mcp.servers`.** OpenCode's published JSON schema and
+  its own documentation use the flat form shown above. `opencode mcp add` writes
+  a different one — `mcp.servers.<name>` — and OpenCode v2.0.16 accepts both: a
+  copy of the block above and a copy of the same block wrapped in `"servers"`
+  each connected, each serving three tools. Expect the two forms to differ if you
+  let `mcp add` write the file for you.
+
+**Kilo and MiMo are untested.** An earlier version of this README claimed one
+block covered all three clients. Only OpenCode was ever connected, so that claim
+was not evidence of anything: Kilo and MiMo may expect a different shape
+entirely, and this block says nothing about whether they accept it.
 
 | Tool                     | What it answers                                                       |
 | ------------------------ | --------------------------------------------------------------------- |

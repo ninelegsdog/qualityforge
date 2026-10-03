@@ -131,23 +131,48 @@ traversal, percent-encoded traversal and an absolute path — expecting all thre
 be refused. It produces its own evidence to check against, by running step 3, so
 it works on a clean checkout and on a green commit.
 
-To connect a client, add this to its MCP configuration:
+To connect a client, add this to its MCP configuration. This is the OpenCode
+v2.0.16 form, verified by copying it into an `opencode.json` and connecting;
+Kilo and MiMo were not tested and may expect something else:
 
 ```jsonc
 {
+  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "qualityforge": {
       "enabled": true,
       "type": "local",
-      "command": ["npx", "tsx", "/absolute/path/to/qualityforge/src/mcp/index.ts"],
+      "command": [
+        "node",
+        "/absolute/path/to/qualityforge/node_modules/tsx/dist/cli.mjs",
+        "/absolute/path/to/qualityforge/src/mcp/index.ts",
+      ],
     },
   },
 }
 ```
 
-OpenCode, Kilo and MiMo all read the same shape. Use an absolute path: the
-server resolves its artifacts root relative to the working directory it is
-started in. Add `--root <dir>` to serve artifacts from elsewhere.
+`opencode mcp list` should then print `✓ qualityforge  connected`. Re-run it
+before you believe it: in a directory OpenCode had not seen before, the first
+invocation or two printed `No MCP servers configured` and the status arrived
+several runs later, with a config file that was present and correct throughout.
+
+Three notes, and the [README](../README.md#the-mcp-server) has the detail:
+
+- **Both paths are absolute on purpose.** A client starts the server from _your_
+  project directory, so a relative root resolves somewhere that does not exist.
+  The server then falls back to this checkout — which only helps if step 4 has
+  already produced `artifacts/defects/`. If it has not, the server exits and all
+  the client reports is `failed: Connection closed`.
+- **`["npx", "tsx", ...]` also works**, and is shorter, but it is several times
+  slower to answer than the `node` form above. If a client refuses to connect,
+  try that swap before anything else.
+- **`opencode mcp add` writes `mcp.servers.<name>`** rather than the `mcp.<name>`
+  above. OpenCode v2.0.16 accepts both; the two forms just will not match each
+  other in review.
+
+Add `--root <dir>` to serve artifacts from somewhere other than the default
+`artifacts/defects`.
 
 | Tool                     | What it answers                                                       |
 | ------------------------ | --------------------------------------------------------------------- |

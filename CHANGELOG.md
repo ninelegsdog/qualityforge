@@ -65,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `npm run docs:check` — verifies that every relative link in the markdown
+  resolves, wired into the CI `verify` job. A broken relative link has already
+  shipped once (`docs/selectors-and-testid.md` pointing at a non-existent
+  `../architecture.md`, found by hand); GitHub renders a missing target as plain
+  text, so it is invisible in review. Fenced code blocks are skipped, and anchors
+  are verified as files only.
+
 - `defects:collect --report <path>` and `--out <dir>`, so a run can be collected
   from a report other than the default and written outside the configured
   directory. The library already accepted both; only the CLI hardcoded them.

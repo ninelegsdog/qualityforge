@@ -52,6 +52,13 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      # GitHub renders a missing link target as plain text instead of failing,
+      # so a broken relative link is invisible in review. One has already
+      # shipped: docs/selectors-and-testid.md pointed at ../architecture.md.
+      # Anchors are not checked, only file existence.
+      - name: Check documentation links
+        run: npm run docs:check
+
   test:
     # Node versions live in the matrix, not in `node-version`. Passing an array
     # to setup-node inside a job that already declares strategy.matrix is

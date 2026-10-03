@@ -54,6 +54,61 @@ directly as a CI step.
 npm run defects:collect -- --json    # machine-readable summary on stdout
 ```
 
+## Signals
+
+`signals` is the second most useful block for triage after the error message
+itself. A failure reading "element not found" is a symptom; "the page threw a
+TypeError" or "GET /api/items returned 500" is the cause.
+
+The Playwright JSON reporter carries none of this — its `stdout` and `stderr`
+fields were empty on a real failing run — so it is captured live by the
+QualityForge fixture:
+
+```ts
+import { test, expect } from "../fixtures.js"; // not "@playwright/test"
+```
+
+That single import change is the whole integration. The `signals` fixture is
+declared `auto`, so console errors and warnings, uncaught page errors, failed
+requests and HTTP responses at or above 400 are captured for every test that
+drives a page, and attached as `quality-context` when — and only when — the test
+fails.
+
+```jsonc
+"signals": {
+  "consoleErrors": [
+    {
+      "type": "error",
+      "text": "diagnostic: fetching with token=[redacted]",
+      "location": { "url": "http://127.0.0.1:4311/app.js", "line": 6, "column": 12 }
+    }
+  ],
+  "consoleWarnings": [
+    { "type": "warning", "text": "Authorization: Bearer [redacted]" }
+  ],
+  "pageErrors": [],
+  "requestFailures": [],
+  "httpErrors": [],
+  "dropped": 0
+}
+```
+
+Rules a consumer can rely on:
+
+- **Absent versus empty.** `signals` absent means "not observed", because the
+  test drove no page or captured nothing. An empty array means "observed, found
+  nothing". Those are different claims and are not conflated.
+- **Redacted at the source.** URLs keep scheme, host, port and path; query
+  strings, fragments and credentials are removed. Console text has sensitive
+  assignments, `Authorization` values and bare JWTs replaced with `[redacted]`.
+  The auth _scheme_ is deliberately preserved, because "Bearer" versus "Basic"
+  is diagnostically useful and the token is not.
+- **Bounded.** At most 40 entries per category. `dropped` records how many hit
+  the cap, so a truncated capture never looks complete.
+- **An auth-scheme word is not a secret.** Redaction that turns
+  `Authorization: Bearer [redacted]` into `Authorization: [redacted] [redacted]`
+  destroys the diagnostic value while protecting nothing extra.
+
 ## Shape
 
 ```jsonc
@@ -104,6 +159,12 @@ npm run defects:collect -- --json    # machine-readable summary on stdout
     "failedAttempts": 1,
   },
 
+  "signals": {
+    "consoleErrors": [{ "type": "error", "text": "TypeError: entities is not a function" }],
+    "httpErrors": [{ "method": "GET", "url": "https://api.example.com/items", "status": 500 }],
+    "dropped": 0,
+  },
+
   "tags": ["demo", "smoke"],
 }
 ```
@@ -129,12 +190,16 @@ npm run defects:collect -- --json    # machine-readable summary on stdout
    dressed up as a verdict.
 8. **`errorContextRef` may be absent** when `defects.referenceErrorContext` is
    false in configuration.
+9. **`signals` is never invented.** It is written only when the fixture actually
+   captured something. There is no empty-object placeholder, because "nothing was
+   observed" and "nothing was found" are different facts.
 
 ## Versioning
 
 `schemaVersion` is semantic. The file name carries `v1` to match.
 
-- Adding an optional field: minor bump.
+- Adding an optional field: minor bump. That is how `signals` arrived in
+  `1.1.0`, the file suffix staying `v1` and every `1.0.0` reader still working.
 - Removing a field, renaming one, or changing a type or meaning: major bump,
   and the file suffix changes to `v2`.
 
@@ -155,5 +220,6 @@ Two layers, deliberately:
 ## Related
 
 - [`architecture.md`](architecture.md) — where this fits in the flow
+- [`../src/quality/redact.ts`](../src/quality/redact.ts) — what redaction guarantees
 - [`selectors-and-testid.md`](selectors-and-testid.md)
 - [`../AGENTS.md`](../AGENTS.md) — rules for agents working in this repo

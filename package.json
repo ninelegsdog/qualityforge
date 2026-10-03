@@ -36,7 +36,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "serve:fixtures": "node scripts/serve.mjs",
-    "verify": "npm run lint && npm run typecheck && npm run format:check"
+    "verify": "npm run lint && npm run typecheck && npm run format:check",
+    "ci:validate": "python3 scripts/validate-ci.py ."
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

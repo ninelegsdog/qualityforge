@@ -207,6 +207,85 @@
         "failedAttempts": { "type": "integer", "minimum": 0 }
       }
     },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Console, uncaught-error and network evidence captured while the test ran. Absent when the test drove no page, or when nothing was captured. Values are redacted at the source: URLs keep scheme, host and path only, and console text has sensitive assignments stripped.",
+      "properties": {
+        "consoleErrors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "text"],
+            "properties": {
+              "type": { "type": "string" },
+              "text": { "type": "string" },
+              "location": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["url", "line", "column"],
+                "properties": {
+                  "url": { "type": "string" },
+                  "line": { "type": "integer" },
+                  "column": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "consoleWarnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "text"],
+            "properties": {
+              "type": { "type": "string" },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "pageErrors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Uncaught exceptions thrown by page scripts."
+        },
+        "requestFailures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["method", "url"],
+            "properties": {
+              "method": { "type": "string" },
+              "url": { "type": "string" },
+              "resourceType": { "type": "string" },
+              "failure": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "httpErrors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["method", "url", "status"],
+            "properties": {
+              "method": { "type": "string" },
+              "url": { "type": "string" },
+              "status": { "type": "integer", "minimum": 100 },
+              "statusText": { "type": "string" }
+            }
+          }
+        },
+        "dropped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many entries hit the per-category cap. Present so a truncated capture never looks complete."
+        }
+      }
+    },
     "tags": {
       "type": "array",
       "items": { "type": "string" },

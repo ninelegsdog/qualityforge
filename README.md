@@ -146,6 +146,23 @@ than duplicating it: it records a path to that file and adds stable identity,
 run correlation, VCS context, evidence pointers and a flakiness verdict. See
 [`docs/defect-schema.md`](docs/defect-schema.md).
 
+It also carries a `signals` block — console errors, uncaught page errors, failed
+requests and HTTP errors above 400 — because "element not found" is a symptom
+while "the page threw a TypeError" is the cause. The Playwright JSON reporter
+carries none of this, so it is collected live by the bundled fixture:
+
+```ts
+import { test, expect } from "../fixtures.js"; // not "@playwright/test"
+```
+
+That one import change is the whole integration. Everything captured is redacted
+at the source: URLs keep scheme, host and path with query strings and
+credentials removed, console text has tokens and JWTs replaced, and sensitive
+header values are masked while their names are kept.
+
+Capture is bounded at 40 entries per category, and `signals.dropped` records how
+many were cut, so a truncated capture never looks complete.
+
 `npm run defects:collect` doubles as a CI quality gate. It exits `0` when the
 gate passes, `1` when thresholds are violated, and `2` when collection could
 not run at all.

@@ -114,6 +114,34 @@ artifacts/
 A monorepo split is planned, not yet created. It stays a single package until
 the MCP server genuinely needs its own version line.
 
+## What the fixture adds
+
+Browser tests import `test` and `expect` from `tests/fixtures.ts` rather than
+from `@playwright/test`. That single change is the whole integration:
+
+```
+src/quality/signals.ts       listeners for console, pageerror, requestfailed, response
+src/quality/redact.ts        redaction applied at capture time
+src/fixtures/quality-context.ts   the auto fixture that attaches it on failure
+```
+
+On failure it attaches one `quality-context` payload, which the collector folds
+into `defect.signals`. Nothing is attached on success: an artifact about a
+passing test is noise.
+
+Two properties are enforced structurally:
+
+- **Redaction happens at capture, never at write.** By the time the collector
+  runs, the secret has already touched a file. Query strings are dropped
+  wholesale rather than filtered by parameter name, because a filter only knows
+  the names it was told about.
+- **Capture is bounded.** Forty entries per category, with `signals.dropped`
+  recording how many were cut. An artifact is read by a language model, and one
+  unbounded stack dump crowds out everything else in the context window.
+
+The workflow has a static validator, `scripts/validate-ci.py`, because Actions
+cannot run without a remote. See `npm run ci:validate`.
+
 ## Evidence flow
 
 1. A test fails.

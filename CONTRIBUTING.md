@@ -30,6 +30,23 @@ Both must pass. If you touched test infrastructure, say in the description which
 failure modes you verified — for example, that you confirmed a test can still
 fail.
 
+## Checking the CI workflow
+
+A workflow cannot be exercised without a remote, so it gets a static check:
+
+```bash
+npm run ci:validate
+```
+
+This verifies that the workflow parses, that every `npm run` target it uses
+exists in `package.json`, that every artifact path it uploads is actually
+produced by something in the repository, and that no end-of-life Node version is
+pinned.
+
+It needs Python 3 with PyYAML, which is why it is a separate script rather than
+part of `npm run verify`: `verify` must stay runnable with only Node installed.
+If you change the workflow or the artifact paths, run it.
+
 ## Pull request rules
 
 - One concern per pull request.

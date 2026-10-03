@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures.js";
 
 /**
  * Overview page: renders, is healthy, reports a 404 for unknown paths.

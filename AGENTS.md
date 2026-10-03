@@ -119,6 +119,39 @@ Artifacts under `artifacts/defects/` are a published contract. Read
    changelog entry. Adding an optional field is a minor bump. Consumers must be
    able to ignore unknown fields.
 
+## Writing a browser test
+
+Import `test` and `expect` from `../fixtures.js`, never from `@playwright/test`:
+
+```ts
+import { expect, test } from "../fixtures.js";
+```
+
+That single change is what makes console, page-error and network capture
+automatic. It works because the `signals` fixture is declared `auto`; evidence
+should never depend on a test remembering to ask for it.
+
+Pure logic tests are the exception: they keep importing `@playwright/test`
+directly, launch no browser, and stay fast.
+
+### Redaction is not optional
+
+Captured console text and request URLs are attacker-adjacent. An application
+under test will print a token into a warning, and a failing request will carry
+one in its query string. So:
+
+1. Redact at capture time, in `src/quality/redact.ts`. Never at write time in
+   the collector — by then the secret has already touched a file.
+2. Drop query strings wholesale rather than filtering by parameter name. A
+   filter only knows the names it was told about.
+3. Preserve what is not secret. `Authorization: Bearer [redacted]` is useful;
+   `Authorization: [redacted] [redacted]` protects nothing extra and destroys
+   the diagnostic value.
+4. Mask sensitive header values but keep the header names. The name is the
+   signal; the value is never needed for triage.
+5. Keep capture bounded. An artifact is read by a language model, and one
+   unbounded stack dump crowds out everything else in the context window.
+
 ## Current state
 
 Early alpha. The MCP server and the defect schema do not exist yet. See

@@ -11,7 +11,13 @@
  * the runtime mirror of it.
  */
 
-export const DEFECT_SCHEMA_VERSION = "1.0.0" as const;
+/**
+ * 1.1.0 added the optional `signals` block. Per the versioning rule in
+ * docs/defect-schema.md, an additive optional field is a minor bump: the file
+ * suffix stays `v1`, and a 1.0.0 reader keeps working because it ignores
+ * unknown fields.
+ */
+export const DEFECT_SCHEMA_VERSION = "1.1.0" as const;
 
 /** Outcome of a single attempt. Mirrors Playwright's status vocabulary. */
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
@@ -82,6 +88,47 @@ export interface DefectContext {
   durationMs?: number;
 }
 
+export interface ConsoleEntry {
+  type: string;
+  text: string;
+  location?: { url: string; line: number; column: number };
+}
+
+export interface RequestFailureEntry {
+  method: string;
+  url: string;
+  resourceType?: string;
+  failure?: string | null;
+}
+
+export interface HttpErrorEntry {
+  method: string;
+  url: string;
+  status: number;
+  statusText?: string;
+}
+
+/**
+ * Console, uncaught-error and network evidence captured while the test ran.
+ *
+ * Every array is optional and may be empty. The whole block is absent when the
+ * test drove no page or captured nothing, which is why it is optional rather
+ * than an empty object: an absent field means "not observed", an empty array
+ * means "observed, nothing found", and the two should not be confused.
+ *
+ * Values arrive already redacted. URLs keep scheme, host and path; query
+ * strings, fragments and credentials are removed at capture time.
+ */
+export interface DefectSignals {
+  consoleErrors?: ConsoleEntry[];
+  consoleWarnings?: ConsoleEntry[];
+  pageErrors?: string[];
+  requestFailures?: RequestFailureEntry[];
+  httpErrors?: HttpErrorEntry[];
+  /** Entries that hit the per-category cap, so a truncated capture is visible. */
+  dropped?: number;
+}
+
 export interface RetryEntry {
   attempt: number;
   status: TestStatus;
@@ -109,6 +156,7 @@ export interface DefectV1 {
   context: DefectContext;
   retryHistory?: RetryEntry[];
   flakiness: DefectFlakiness;
+  signals?: DefectSignals;
   tags?: string[];
 }
 
@@ -200,6 +248,32 @@ export function validateDefect(value: unknown): ValidationResult {
       problems.push(
         `flakiness.verdict must be one of ${verdicts.join(" | ")}, got ${String(value.flakiness.verdict)}`,
       );
+    }
+  }
+
+  if (value.signals !== undefined) {
+    if (!isRecord(value.signals)) {
+      problems.push("signals must be an object when present");
+    } else {
+      for (const field of [
+        "consoleErrors",
+        "consoleWarnings",
+        "pageErrors",
+        "requestFailures",
+        "httpErrors",
+      ]) {
+        const entries = value.signals[field];
+        if (entries !== undefined && !Array.isArray(entries)) {
+          problems.push(`signals.${field} must be an array when present`);
+        }
+      }
+      const dropped = value.signals.dropped;
+      if (
+        dropped !== undefined &&
+        (typeof dropped !== "number" || !Number.isInteger(dropped) || dropped < 0)
+      ) {
+        problems.push("signals.dropped must be a non-negative integer when present");
+      }
     }
   }
 

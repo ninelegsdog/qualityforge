@@ -25,12 +25,19 @@ const RESET = `${ESC}[39m`;
  * verified against a live run rather than assumed. Field names, the absolute
  * attachment paths and the ANSI codes in error.message are all load-bearing.
  */
+interface TestAttachment {
+  name: string;
+  path?: string;
+  /** Inline content, base64 encoded exactly as the JSON reporter writes it. */
+  body?: string;
+}
+
 function reportWith(
   root: string,
   results: {
     status: string;
     retry?: number;
-    attachments?: { name: string; path: string }[];
+    attachments?: TestAttachment[];
   }[],
 ): string {
   return JSON.stringify({
@@ -503,3 +510,228 @@ type DefectStatusProbe = "failed" | "timedOut" | "skipped" | "interrupted";
 // table above stops type-checking.
 const _probe: readonly TestStatus[] = ["failed", "timedOut", "interrupted"];
 void _probe;
+
+test.describe("signal enrichment", () => {
+  /** Write a quality-context attachment into the sandbox and return its path. */
+  async function seedSignals(root: string, payload: Record<string, unknown>): Promise<string> {
+    const target = path.join(root, "test-results/x/quality-context.json");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    return target;
+  }
+
+  test("folds a quality-context attachment into the artifact", async () => {
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: {
+        consoleErrors: [{ type: "error", text: "Uncaught TypeError" }],
+        pageErrors: ["TypeError: x is not a function"],
+        httpErrors: [{ method: "GET", url: "https://api.example.com/items", status: 500 }],
+        requestFailures: [],
+      },
+      dropped: 0,
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    const signals = defects[0]?.signals;
+    expect(signals?.consoleErrors).toHaveLength(1);
+    expect(signals?.pageErrors?.[0]).toContain("TypeError");
+    expect(signals?.httpErrors?.[0]?.status).toBe(500);
+  });
+
+  test("omits signals entirely when the attachment is absent", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": reportWith(sandbox, [{ status: "failed" }]),
+    }));
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    // Absent means "not observed". An empty object would mean "observed, found
+    // nothing", and those are different claims.
+    expect(defects[0]).not.toHaveProperty("signals");
+  });
+
+  test("omits signals when the attachment contains nothing worth reporting", async () => {
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: {
+        consoleErrors: [],
+        consoleWarnings: [],
+        pageErrors: [],
+        requestFailures: [],
+        httpErrors: [],
+      },
+      dropped: 0,
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]).not.toHaveProperty("signals");
+  });
+
+  test("keeps the dropped count so a truncated capture is visible", async () => {
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: { pageErrors: ["first"] },
+      dropped: 17,
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]?.signals?.dropped).toBe(17);
+  });
+
+  test("reads an inline attachment carried as base64, not as a path", async () => {
+    // This is the shape testInfo.attach({ body }) produces: nothing is written
+    // to disk, so a reader that requires `path` sees no attachment at all.
+    const root = await scaffold(() => ({}));
+    const payload = Buffer.from(
+      JSON.stringify({
+        signals: { pageErrors: ["TypeError: entities is not a function"] },
+        dropped: 0,
+      }),
+      "utf8",
+    ).toString("base64");
+
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        {
+          status: "failed",
+          attachments: [{ name: "quality-context", body: payload }],
+        },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]?.signals?.pageErrors?.[0]).toContain("TypeError");
+  });
+
+  test("prefers inline body over path when both are somehow present", async () => {
+    const root = await scaffold(() => ({}));
+    const decoy = path.join(root, "test-results/x/decoy.json");
+    await mkdir(path.dirname(decoy), { recursive: true });
+    await writeFile(decoy, JSON.stringify({ signals: { pageErrors: ["from path"] } }), "utf8");
+
+    const payload = Buffer.from(
+      JSON.stringify({ signals: { pageErrors: ["from body"] }, dropped: 0 }),
+      "utf8",
+    ).toString("base64");
+
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        {
+          status: "failed",
+          attachments: [{ name: "quality-context", path: decoy, body: payload }],
+        },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]?.signals?.pageErrors?.[0]).toBe("from body");
+  });
+
+  test("undecodable inline body leaves signals absent instead of throwing", async () => {
+    const root = await scaffold(() => ({}));
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", body: "" }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]).not.toHaveProperty("signals");
+  });
+
+  test("a malformed attachment does not fail collection", async () => {
+    const root = await scaffold(() => ({}));
+    const target = path.join(root, "test-results/x/quality-context.json");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, "{ this is not json", "utf8");
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: target }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    // The defect is still worth recording even if its context file is corrupt.
+    expect(defects).toHaveLength(1);
+    expect(defects[0]).not.toHaveProperty("signals");
+  });
+});

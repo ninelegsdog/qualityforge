@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Signal capture: `src/quality/signals.ts` records console errors and warnings,
+  uncaught page errors, failed requests and HTTP responses at or above 400.
+- Redaction: `src/quality/redact.ts` strips sensitive assignments, `Authorization`
+  values and bare JWTs from captured text, drops query strings, fragments and
+  credentials from URLs, and masks sensitive header values while keeping the
+  header names. The auth scheme is preserved, because it is diagnostically
+  useful and the token is not.
+- QualityForge test fixture: `src/fixtures/quality-context.ts`, re-exported as
+  `tests/fixtures.ts`. Importing `test` and `expect` from it makes signal capture
+  automatic for every test that drives a page, and attaches a `quality-context`
+  artifact on failure. Declared `auto` so evidence never depends on a test
+  remembering to opt in.
+- `signals` block in the defect artifact. Schema moves to **1.1.0**: an additive
+  optional field, so the file suffix stays `v1` and a 1.0.0 reader still works.
+- 28 unit tests covering redaction, the signal collector and signal enrichment.
+
+### Changed
+
+- Browser tests import from `../fixtures.js` instead of `@playwright/test`.
+- The defect collector reads attachments that carry inline base64 `body` as well
+  as those that carry a `path`. Only the latter is written to disk by
+  `testInfo.attach({ body })`, so a reader requiring `path` silently ignored
+  every inline attachment.
+
 - `defect.v1` artifact contract: `schemas/defect.v1.schema.json` (JSON Schema
   2020-12), runtime types and a hand-written validator in `src/defect/types.ts`.
 - Defect collector in `src/defect/collect.ts`, reading Playwright's JSON report

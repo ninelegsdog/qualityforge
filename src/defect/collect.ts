@@ -31,6 +31,7 @@ import type { ProjectConfig } from "../config/types.js";
 import {
   DEFECT_SCHEMA_VERSION,
   type DefectLocation,
+  type DefectSignals,
   type DefectStatus,
   type DefectV1,
   type FlakinessVerdict,
@@ -39,9 +40,20 @@ import {
   validateDefect,
 } from "./types.js";
 
+/**
+ * An attachment as the JSON reporter writes it.
+ *
+ * Two shapes exist, and the difference matters. `path` is set when the runner
+ * wrote a file (trace, screenshot, video, error-context). `body` is base64 for
+ * content attached from memory with `testInfo.attach({ body })`, which writes
+ * nothing to disk. A reader that assumes `path` is always present silently
+ * ignores every inline attachment.
+ */
 interface PwAttachment {
   name: string;
+  contentType?: string;
   path?: string;
+  body?: string;
 }
 
 interface PwErrorLocation {
@@ -234,6 +246,73 @@ const EVIDENCE_BY_ATTACHMENT: Record<string, "trace" | "screenshot" | "video"> =
   video: "video",
 };
 
+/** Attachment written by the QualityForge fixture on a failing test. */
+const SIGNALS_ATTACHMENT = "quality-context";
+
+interface SignalsPayload {
+  signals?: DefectSignals;
+  dropped?: number;
+}
+
+/**
+ * Read an attachment's text from either shape.
+ *
+ * Inline `body` wins over `path`: an attachment is one or the other, never both.
+ */
+async function readAttachmentText(attachment: PwAttachment): Promise<string | undefined> {
+  if (attachment.body !== undefined) {
+    try {
+      return Buffer.from(attachment.body, "base64").toString("utf8");
+    } catch {
+      return undefined;
+    }
+  }
+  if (attachment.path !== undefined && (await isFile(attachment.path))) {
+    try {
+      return await readFile(attachment.path, "utf8");
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Read the fixture's captured signals.
+ *
+ * Returns undefined when there is nothing to report, which is different from an
+ * empty signals object: absent means "not observed", empty means "observed and
+ * found nothing". Consumers should not have to guess which they are looking at.
+ */
+async function readSignals(attachment: PwAttachment): Promise<DefectSignals | undefined> {
+  const text = await readAttachmentText(attachment);
+  if (text === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // A malformed attachment must not fail the whole collection. The defect
+    // itself is still worth recording.
+    return undefined;
+  }
+
+  // Parsed as unknown and checked at runtime, because a file on disk is not a
+  // trustworthy source of a type.
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const payload = parsed as SignalsPayload;
+  const signals = payload.signals ?? {};
+  const hasAny = Object.values(signals).some(
+    (entries) => Array.isArray(entries) && entries.length > 0,
+  );
+  if (!hasAny) return undefined;
+
+  return {
+    ...signals,
+    ...(typeof payload.dropped === "number" ? { dropped: payload.dropped } : {}),
+  };
+}
+
 export interface CollectOptions {
   /** Absolute project root. Every recorded path is relative to it. */
   projectRoot: string;
@@ -395,7 +474,13 @@ export async function collectDefects(options: CollectOptions): Promise<{
     // guessing file names, because the runner knows what it actually wrote.
     const evidence: DefectV1["evidence"] = {};
     let errorContextRef: string | undefined;
+    let signals: DefectSignals | undefined;
     for (const attachment of lastAttempt?.attachments ?? []) {
+      if (attachment.name === SIGNALS_ATTACHMENT) {
+        // Inline attachment: read the content, there is no file to point at.
+        signals = await readSignals(attachment);
+        continue;
+      }
       if (attachment.path === undefined) continue;
       if (!(await isFile(attachment.path))) continue;
       const field = EVIDENCE_BY_ATTACHMENT[attachment.name];
@@ -461,6 +546,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
         passedAttempts,
         failedAttempts,
       },
+      ...(signals === undefined ? {} : { signals }),
       ...(tags.length === 0 ? {} : { tags }),
     };
 

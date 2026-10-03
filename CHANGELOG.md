@@ -85,6 +85,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   absolute path was silently re-rooted inside the project, and the resulting
   "missing file" error named the wrong path. All three now use `path.resolve`.
 
+- `server/discover` answered with `protocolVersions`. The client's `DiscoverResult`
+  schema validates against `supportedVersions`, and it does not know the other
+  spelling — in the OpenCode 2.0.16 binary one string appears eight times and the
+  other zero. The probe failed validation, was discarded as "no modern evidence",
+  and 2026-07-28 became unreachable: every negotiation mode fell back to legacy
+  silently, and pinned mode failed with a message about negotiation rather than
+  about a field name. One field name was the entire modern path.
+
+- The `_meta` envelope is now required on 2026-07-28 and answered on every
+  result. Previously it was read from requests but never written to responses,
+  `META_CLIENT_CAPABILITIES` was declared and never used, and the envelope was
+  optional — so a conforming 2026-07-28 client and this server could not actually
+  talk. The 2025-11-25 path is untouched and still needs no envelope.
+
+- `initialize` with an explicit `--root` did not do what its comment claimed. The
+  checkout fallback applied to an explicitly passed relative path too, not only
+  to the default.
+
 ### Added
 
 - `npm run docs:check` — verifies that every relative link in the markdown
@@ -100,6 +118,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AGENTS.md` and `package.json` are integrator-only during a wave, because each
   was touched by 5 of the last 5 commits. Verified before adoption: two agents ran
   the suite simultaneously on separate ports, both green, main tree untouched.
+
+- `scripts/agent-scope.sh`, installed as a pre-commit hook per worktree, rejects
+  a commit touching a file outside the agent's zone. A zone written in a document
+  is a memory test with four agents running; a hook is a gate. A worktree created
+  without a zone gets a hook that refuses every commit.
 
 - `defects:collect --report <path>` and `--out <dir>`, so a run can be collected
   from a report other than the default and written outside the configured

@@ -29,6 +29,7 @@ it cannot carry:
 | `context.baseUrl`                  | Reduced to an origin; the runner records the full value        |
 | `context.targetSource`             | The origin alone is ambiguous — it does not say what it claims |
 | `page.url`, `page.title`           | The file carries an aria snapshot and **no URL**               |
+| `failure.attribution`              | The file shows the message, not where it was raised            |
 | `evidence.*`                       | Machine-readable pointers rather than a human-readable list    |
 | `flakiness`                        | Requires reasoning across attempts, which the file does not do |
 | `retryHistory`                     | Same                                                           |
@@ -284,9 +285,21 @@ moved.
     path was written by a version that predates this guarantee.
 15. **A spec whose failure was raised outside its own test body may produce no
     artifact at all.** One failure cannot be the body of four tests, so when every
-    failed spec in a file reports the same error at the same source location, the
-    suite aborted rather than failed, and the run summary counts those specs under
-    `aborted` instead of listing them as defects. The gate still fails. See gap G3.
+    failed spec in a file reports the same message at the same source location, the
+    suite aborted rather than failed. Those specs produce no artifact, and the run
+    summary counts them under `counts.aborted` instead of listing them as defects —
+    `counts.failed` excludes them. **The quality gate still fails**, with a violation
+    naming the file and the raise site, because suppressing four tickets must not turn
+    a broken build green. An artifact listing `counts.aborted: 0` predates this rule,
+    as does one whose gate passed while the target was unreachable.
+16. **`failure.attribution` says where the error was raised, not whose fault it is.**
+    `suite` means the raise site is provably outside that spec's body — a different
+    file, or a line above the spec's own declaration. `unknown` means the runner
+    reported no location. Absent, which is the ordinary case, means the raise site
+    was at or after the declaration in its own file and carries no information; it is
+    _not_ a claim that the body raised it. The vocabulary deliberately stops there:
+    `application` and `environment` would require judgement no producer can make, and
+    a value nobody can justify is worse than no value. See gap G3.
 
 ## Meeting an application we did not build
 
@@ -381,7 +394,7 @@ The end state alone still cannot recover a redirect chain: the login probe was
 answered with a 302 and landed on a different page, and nothing anywhere records
 that it moved.
 
-#### G3 · An outage is indistinguishable from a defect
+#### G3 · ~~An outage is indistinguishable from a defect~~ — fixed
 
 _What could not be expressed:_ "this failure is the target being unavailable".
 With the target pointed at a dead port, the run produced **four** artifacts. All
@@ -409,8 +422,19 @@ for the right reason, without four tickets. Rule 15 states it for consumers.
 
 _The residual case_ — a single spec failing on an error raised outside its own
 body — cannot be identified as such, because the evidence that settles four specs
-settles none when there is only one. That is the case additive `failure.attribution`
-exists for.
+settles none when there is only one. That is the case additive
+`failure.attribution` exists for: the artifact is kept, flagged `suite` when the
+raise site is provably above the spec's own declaration or in another file, and
+recorded `unknown` when the runner gave no location at all. See rule 16.
+
+_Departure from this gap's own proposal, deliberately._ G3 originally suggested an
+`application | environment | test | unknown` enum. The first two cannot be written
+without judgement the collector does not have — nothing in a Playwright report says
+whether a failure is the application's fault or the network's — and a field whose
+values are guesses is worse than a field that only says what it can prove. The
+vocabulary was cut to `suite | unknown`, and the distinction between "raised in the
+suite" and "raised in the test" was kept by making absence meaningful rather than by
+inventing a value for it.
 
 #### G4 · ~~`id` is not unique within a run, and collisions destroy artifacts~~ — fixed
 

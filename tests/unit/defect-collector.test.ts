@@ -1510,3 +1510,434 @@ test.describe("signal enrichment", () => {
     expect(defects[0]).not.toHaveProperty("signals");
   });
 });
+
+test.describe("an outage is not four defects", () => {
+  const OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: THRESHOLDS,
+  } as const;
+
+  /**
+   * A report shaped like the one a real `beforeAll` failure produces.
+   *
+   * Every spec in the file carries the same message and the same error location,
+   * because there was one `throw` and it ran four times. This is the exact shape
+   * captured from a live run against a dead port, including the fact that the
+   * report carries no `stage` field at all — verified against the 1.63.0
+   * reporter source, which serialises `result.error` straight through.
+   */
+  function outageReport(
+    root: string,
+    count: number,
+    override: {
+      specLine?: number;
+      raiseLine?: number;
+      sameMessage?: boolean;
+      withLocation?: boolean;
+    } = {},
+  ): string {
+    const { specLine = 20, raiseLine = 13, sameMessage = true, withLocation = true } = override;
+    const specFile = path.join(root, "tests/smoke/demo.spec.ts");
+    return JSON.stringify({
+      config: { rootDir: root },
+      stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 30 },
+      suites: [
+        {
+          title: "tests/smoke/demo.spec.ts",
+          file: "smoke/demo.spec.ts",
+          specs: Array.from({ length: count }, (_unused, i) => ({
+            id: `spec-${i}`,
+            title: `probe ${i + 1}`,
+            file: "smoke/demo.spec.ts",
+            line: specLine,
+            column: 1,
+            tests: [
+              {
+                projectName: "chromium",
+                expectedStatus: "passed",
+                results: [
+                  {
+                    status: "failed",
+                    retry: 0,
+                    duration: 3,
+                    startTime: "2026-10-03T00:00:00.000Z",
+                    attachments: [],
+                    error: {
+                      message: sameMessage
+                        ? "Error: Third-party target http://127.0.0.1:9 is unreachable, so this suite did not run."
+                        : `Error: probe ${i + 1} failed for its own reason.`,
+                      ...(withLocation
+                        ? { location: { file: specFile, line: raiseLine, column: 11 } }
+                        : {}),
+                    },
+                  },
+                ],
+              },
+            ],
+          })),
+        },
+      ],
+    });
+  }
+
+  async function collect(root: string): Promise<{
+    defects: Awaited<ReturnType<typeof collectDefects>>["defects"];
+    summary: Awaited<ReturnType<typeof collectDefects>>["summary"];
+    runDir: string;
+  }> {
+    return collectDefects({ ...OPTIONS, projectRoot: root });
+  }
+
+  test("four specs that failed on one raise site produce no artifact at all", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 4),
+    }));
+
+    const { defects, summary, runDir } = await collect(root);
+
+    // The reported harm: four artifacts with distinct ids, identical messages,
+    // and one ticket each opened against somebody else's codebase.
+    expect(defects).toHaveLength(0);
+    expect(summary.counts.aborted).toBe(4);
+    // Not counted as failures: they are not defects.
+    expect(summary.counts.failed).toBe(0);
+    expect(summary.counts.specs).toBe(4);
+    expect(summary.defects).toEqual([]);
+
+    // Nothing on disk claims a defect either.
+    expect(await readdir(runDir)).toEqual(["quality-summary.v1.json"]);
+  });
+
+  test("the gate still fails, and says why, so an outage cannot pass silently", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 4),
+    }));
+
+    const { summary } = await collect(root);
+
+    // Suppressing the artifacts must not turn a broken build green. The violation
+    // names the file and the raise site, which is the whole diagnosis.
+    expect(summary.gate.passed).toBe(false);
+    const violation = summary.gate.violations.join("\n");
+    expect(violation).toContain("smoke/demo.spec.ts");
+    expect(violation).toContain("never ran");
+    expect(violation).toContain("is unreachable");
+  });
+
+  test("two specs on one raise site are enough, because one throw cannot be two tests", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 2),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(0);
+    expect(summary.counts.aborted).toBe(2);
+  });
+
+  test("one spec alone proves nothing and is still recorded", async () => {
+    // A single failure is a defect even when the error came from a shared helper.
+    // Requiring two is what stops this rule eating real bugs.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 1),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(1);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("identical messages at different lines are two assertions, not one hook", async () => {
+    // Two tests waiting for the same absent element produce byte-identical
+    // messages. Only the location tells them apart, so the location is required.
+    const root = await scaffold((sandbox) => {
+      const report = JSON.parse(outageReport(sandbox, 2)) as {
+        suites: [{ specs: { tests: { results: { error: unknown }[] }[] }[] }];
+      };
+      const specs = report.suites[0]?.specs ?? [];
+      (specs[0]?.tests[0]?.results[0]?.error as { location: { line: number } }).location.line = 41;
+      (specs[1]?.tests[0]?.results[0]?.error as { location: { line: number } }).location.line = 42;
+      return { "artifacts/json/playwright-results.json": JSON.stringify(report) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(2);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("one outlier means the bodies ran, so nothing is suppressed", async () => {
+    // Two specs on one raise site plus a third that failed at its own line: the
+    // file did not abort, it partially ran, and all three failures are worth
+    // keeping. Suppressing all three to save two would be the wrong trade.
+    const root = await scaffold((sandbox) => {
+      const report = JSON.parse(outageReport(sandbox, 3)) as {
+        suites: [
+          {
+            specs: {
+              file: string;
+              tests: {
+                results: { error: { message: string; location: { file: string; line: number } } }[];
+              }[];
+            }[];
+          },
+        ];
+      };
+      const odd = report.suites[0]?.specs[2]?.tests[0]?.results[0]?.error;
+      if (odd !== undefined) {
+        odd.message = "Error: this one is a real assertion failure.";
+        odd.location.line = 37;
+      }
+      return { "artifacts/json/playwright-results.json": JSON.stringify(report) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(3);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("no error location means no comparison, so nothing is suppressed", async () => {
+    // Guessing here is how data goes missing. Without a location there is nothing
+    // to compare, so the rule declines to act.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 4, { withLocation: false }),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(4);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("an aborted file does not suppress a real failure in another file", async () => {
+    const root = await scaffold((sandbox) => {
+      const aborted = JSON.parse(outageReport(sandbox, 3)) as {
+        suites: { file?: string; specs: unknown[] }[];
+      };
+      const genuine = JSON.parse(outageReport(sandbox, 1)) as {
+        suites: { file?: string; specs: unknown[] }[];
+      };
+      (genuine.suites[0] as { file: string }).file = "smoke/other.spec.ts";
+      for (const spec of (genuine.suites[0] as { specs: { file: string }[] }).specs) {
+        spec.file = "smoke/other.spec.ts";
+      }
+      const merged = JSON.parse(outageReport(sandbox, 0)) as { suites: unknown[] };
+      merged.suites = [aborted.suites[0], genuine.suites[0]];
+      return { "artifacts/json/playwright-results.json": JSON.stringify(merged) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(summary.counts.aborted).toBe(3);
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.test.file).toBe("tests/smoke/other.spec.ts");
+  });
+
+  test("the same raise site with different messages is not one outage", async () => {
+    // The message is part of the failure's identity, not decoration. Two failures
+    // that read differently are two facts even when they share a line, and keeping
+    // them costs nothing - suppressing them would lose data for no gain.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 2, { sameMessage: false }),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(2);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("a passing spec in the file neither counts nor vetoes the rule", async () => {
+    // A beforeAll inside one describe takes that describe's specs down and leaves a
+    // sibling describe green. Those green results say nothing about whether the
+    // failing bodies ran, so the abort still stands.
+    const root = await scaffold((sandbox) => {
+      const report = JSON.parse(outageReport(sandbox, 2)) as {
+        suites: {
+          specs: {
+            title: string;
+            tests: { results: { status: string; error?: unknown }[] }[];
+          }[];
+        }[];
+      };
+      report.suites[0]?.specs.push({
+        title: "probe 3",
+        tests: [{ results: [{ status: "passed" }] }],
+      });
+      return { "artifacts/json/playwright-results.json": JSON.stringify(report) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(summary.counts.aborted).toBe(2);
+    expect(summary.counts.passed).toBe(1);
+    expect(defects).toHaveLength(0);
+  });
+
+  test("the flakiness verdict of an aborted spec is not silently counted as flaky", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 2),
+    }));
+
+    const { summary } = await collect(root);
+
+    expect(summary.counts.flaky).toBe(0);
+  });
+});
+
+test.describe("failure attribution", () => {
+  const OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: THRESHOLDS,
+  } as const;
+
+  /** One failing spec whose error is raised at `raiseLine` of the demo file. */
+  async function oneFailure(root: string, raiseLine: number, withLocation = true): Promise<string> {
+    const specFile = path.join(root, "tests/smoke/demo.spec.ts");
+    const report = JSON.stringify({
+      config: { rootDir: root },
+      stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 10 },
+      suites: [
+        {
+          title: "tests/smoke/demo.spec.ts",
+          file: "smoke/demo.spec.ts",
+          specs: [
+            {
+              id: "one",
+              title: "shows the status",
+              file: "smoke/demo.spec.ts",
+              line: 20,
+              column: 1,
+              tests: [
+                {
+                  projectName: "chromium",
+                  expectedStatus: "passed",
+                  results: [
+                    {
+                      status: "failed",
+                      retry: 0,
+                      duration: 5,
+                      startTime: "2026-10-03T00:00:00.000Z",
+                      attachments: [],
+                      error: {
+                        message: "Error: something went wrong",
+                        ...(withLocation ? { location: { file: specFile, line: raiseLine } } : {}),
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    await writeFile(path.join(root, "artifacts/json/playwright-results.json"), report, "utf8");
+    return root;
+  }
+
+  test("an error raised above the test is attributed to the suite, not the test", async () => {
+    // A beforeEach, a file-level fixture or a helper declared above the test all
+    // raise from above it. A test body never does, so this is provable.
+    const root = await oneFailure(await scaffold(() => ({})), 4);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.failure.attribution).toBe("suite");
+  });
+
+  test("an error raised inside the test carries no attribution", async () => {
+    // Absence is the ordinary case and means nothing was noteworthy. It is not a
+    // claim that the body raised it: a helper defined below the test is equally
+    // consistent with it, and a line number cannot tell those apart.
+    const root = await oneFailure(await scaffold(() => ({})), 24);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]).not.toHaveProperty("failure.attribution");
+  });
+
+  test("the test's own declaration line counts as inside, not above", async () => {
+    const root = await oneFailure(await scaffold(() => ({})), 20);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]).not.toHaveProperty("failure.attribution");
+  });
+
+  test("an error raised in another file is attributed to the suite", async () => {
+    // The spec's own file does not even contain the throw.
+    const root = await oneFailure(await scaffold(() => ({})), 24);
+    const report = JSON.parse(
+      await readFile(path.join(root, "artifacts/json/playwright-results.json"), "utf8"),
+    ) as {
+      suites: [
+        {
+          specs: {
+            tests: { results: { error: { location: { file: string; line: number } } }[] }[];
+          }[];
+        },
+      ];
+    };
+    const spec = report.suites[0]?.specs[0];
+    if (spec !== undefined) {
+      spec.tests[0]!.results[0]!.error.location = {
+        file: path.join(root, "tests/smoke/helpers.ts"),
+        line: 9,
+      };
+    }
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      JSON.stringify(report),
+      "utf8",
+    );
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.failure.attribution).toBe("suite");
+  });
+
+  test("no location at all is recorded as unknown rather than guessed", async () => {
+    const root = await oneFailure(await scaffold(() => ({})), 24, false);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.failure.attribution).toBe("unknown");
+  });
+
+  test("a suite attribution does not stop the artifact being written", async () => {
+    // The residual case is precisely a single spec that failed on an error raised
+    // outside its body: indistinguishable from a real defect by message alone, and
+    // the artifact is what a triage agent reads. It is flagged, not hidden.
+    const root = await oneFailure(await scaffold(() => ({})), 4);
+
+    const { defects, summary } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects).toHaveLength(1);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("validateDefect rejects an attribution outside the vocabulary", () => {
+    const result = validateDefect({
+      schemaVersion: "1.2.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom", attribution: "the-applications-fault" },
+      evidence: {},
+      context: {},
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.problems.join()).toContain("failure.attribution");
+  });
+});

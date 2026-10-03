@@ -73,6 +73,35 @@ export interface DefectLocation {
   column?: number;
 }
 
+/**
+ * Where the failure was raised, as far as the report shows.
+ *
+ * This says **where the error came from**, not whose fault it is. A collector
+ * cannot decide whether a failure is the application's, the environment's or the
+ * suite's — that needs judgement the report does not contain, and writing a
+ * value it cannot justify would be a guess dressed up as a verdict. So the
+ * vocabulary is limited to what source locations actually prove:
+ *
+ * - `suite` — raised outside this spec's own body. Proven two ways: the error's
+ *   source location is in a different file, or it is at a line *before* this
+ *   spec's declaration. A `beforeEach`, a file-level fixture, or a helper
+ *   declared above the test all land here, and none of them is a defect in the
+ *   test body.
+ * - `unknown` — the runner reported no source location at all, so nothing can be
+ *   said in either direction.
+ *
+ * Absent means the error was raised at or after this spec's own declaration in
+ * its own file, which is the ordinary case and carries no information. It is not
+ * a claim that the error was raised in the body: an error thrown by a helper
+ * defined *below* the test also lands here, because "not provably above" is all a
+ * line number can establish.
+ *
+ * Where a whole file failed on one identical error, no artifact is written at
+ * all and this field has nothing to say — see `counts.aborted` on the run
+ * summary.
+ */
+export type FailureAttribution = "suite" | "unknown";
+
 export interface DefectFailure {
   message: string;
   location?: DefectLocation;
@@ -80,6 +109,8 @@ export interface DefectFailure {
   stack?: string;
   /** Relative path to Playwright's error-context.md, when it was captured. */
   errorContextRef?: string;
+  /** Absent for the ordinary case; see {@link FailureAttribution}. */
+  attribution?: FailureAttribution;
 }
 
 /**
@@ -267,8 +298,19 @@ export function validateDefect(value: unknown): ValidationResult {
 
   if (!isRecord(value.failure)) {
     problems.push("failure must be an object");
-  } else if (typeof value.failure.message !== "string") {
-    problems.push("failure.message must be a string");
+  } else {
+    if (typeof value.failure.message !== "string") {
+      problems.push("failure.message must be a string");
+    }
+    const attribution = value.failure.attribution;
+    if (attribution !== undefined) {
+      const allowed: FailureAttribution[] = ["suite", "unknown"];
+      if (!allowed.includes(attribution as FailureAttribution)) {
+        problems.push(
+          `failure.attribution must be one of ${allowed.join(" | ")}, got ${JSON.stringify(attribution)}`,
+        );
+      }
+    }
   }
 
   if (!isRecord(value.evidence)) {

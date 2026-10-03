@@ -139,7 +139,10 @@ async function main(): Promise<number> {
       console.log(
         `  specs ${summary.counts.specs} · passed ${summary.counts.passed} · ` +
           `failed ${summary.counts.failed} · skipped ${summary.counts.skipped} · ` +
-          `flaky ${summary.counts.flaky}`,
+          `flaky ${summary.counts.flaky}` +
+          // Only when non-zero: an aborted suite is not a normal run and should
+          // not have to be hunted for in the gate violations.
+          (summary.counts.aborted === 0 ? "" : ` · aborted ${summary.counts.aborted}`),
       );
       console.log(`  artifacts in ${path.relative(ROOT, runDir)}/ (${written.length} files)`);
       for (const defect of defects) {

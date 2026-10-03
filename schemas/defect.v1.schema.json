@@ -120,6 +120,10 @@
         "errorContextRef": {
           "type": "string",
           "description": "Relative path to Playwright's error-context.md. This artifact complements that file, it does not replace it."
+        },
+        "attribution": {
+          "enum": ["suite", "unknown"],
+          "description": "Where the failure was raised, as far as the report shows - not whose fault it is, which no producer can decide. suite: proven raised outside this spec's own body, because the error's source location names a different file or a line before this spec's declaration. unknown: the runner reported no source location. Absent is the ordinary case: the error was raised at or after this spec's own declaration in its own file, which carries no information. A file whose every failure shares one raise site produces no artifact at all; see the run summary's counts.aborted."
         }
       }
     },

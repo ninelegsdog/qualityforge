@@ -35,6 +35,7 @@ import {
   type DefectSignals,
   type DefectStatus,
   type DefectV1,
+  type FailureAttribution,
   type FlakinessVerdict,
   type RetryEntry,
   type TargetSource,
@@ -507,6 +508,11 @@ export interface RunSummary {
     timedOut: number;
     skipped: number;
     flaky: number;
+    /**
+     * Specs that failed on an error raised outside their own bodies, and for
+     * which no artifact was written. `failed` excludes them; the gate does not.
+     */
+    aborted: number;
   };
   durationMs?: number;
   startedAt?: string;
@@ -528,6 +534,165 @@ function firstError(result: PwResult | undefined): PwError {
 
 function relativize(projectRoot: string, absolute: string): string {
   return path.relative(projectRoot, absolute).split(path.sep).join("/");
+}
+
+/**
+ * One spec that produced a non-passing, non-skipped outcome, reduced to what the
+ * abort rule needs.
+ *
+ * Collected before anything is written, because deciding whether a failure is a
+ * defect needs its siblings: whether a `beforeAll` aborted a file is a fact about
+ * all of that file's failures together, not about any one of them.
+ */
+export interface AbortableFailure {
+  /** `spec.file` as the report names it; the grouping key. */
+  file: string;
+  /** Stripped failure message, exactly as it would be written to an artifact. */
+  message: string;
+  /** The runner's source location for the error, when it reported one. */
+  errorLocation?: { file?: string; line?: number; column?: number };
+}
+
+/** A file whose specs all failed on one raise site. */
+export interface SuiteAbort {
+  file: string;
+  /** How many specs never ran. */
+  count: number;
+  /** The message every one of them carries. */
+  message: string;
+  /** `file:line:column` the error was raised at. */
+  site: string;
+}
+
+/**
+ * One failing spec, held between the walk and the write.
+ *
+ * The walk counts and classifies; the write happens after the abort decision, so
+ * nothing derived from the report is computed twice and no artifact is written
+ * for a spec that turns out to have been aborted.
+ */
+interface PendingFailure {
+  spec: PwSpec;
+  /** `spec.file` as the report names it. */
+  pwFile: string;
+  /** Resolved against testDir, for comparing against error locations. */
+  absoluteTestFile: string;
+  relativeTestFile: string;
+  attempts: PwResult[];
+  statuses: TestStatus[];
+  finalStatus: TestStatus;
+  lastAttempt: PwResult | undefined;
+  projectName: string | undefined;
+  error: PwError;
+  message: string;
+  verdict: FlakinessVerdict;
+  passedAttempts: number;
+  failedAttempts: number;
+  retryHistory: RetryEntry[];
+}
+
+/**
+ * Identify the raise site of an error, so two failures can be compared.
+ *
+ * The message alone is not enough: two tests waiting for the same element produce
+ * byte-identical messages while failing at different lines, and those are two real
+ * defects. The location is what distinguishes one `throw` executed four times from
+ * four separate assertions.
+ */
+function raiseSite(location: AbortableFailure["errorLocation"]): string | undefined {
+  if (location?.file === undefined || location.line === undefined) return undefined;
+  return `${location.file}:${location.line}:${location.column ?? 0}`;
+}
+
+/**
+ * Decide which files were aborted by a failure raised outside their test bodies.
+ *
+ * ## Why the report cannot answer this directly
+ *
+ * The obvious key does not exist. Playwright 1.63.0's JSON reporter serialises
+ * `result.error` straight through, and `TestError` carries no `stage` field — there
+ * is no `before-all-hook` marker anywhere in the report to key off. Verified by
+ * reading the reporter source and by running a real `beforeAll` failure end to end.
+ * In the report, a hook failure and a spec failure are structurally identical.
+ *
+ * ## What does distinguish them
+ *
+ * One `throw` cannot be the body of four tests. When every failed spec in a file
+ * reports the same error at the same source location, the failure was raised once,
+ * outside the test bodies, and those specs never ran. Pointed at a dead port, the
+ * third-party suite produced four artifacts that said `status: failed` with
+ * identical messages; a triage agent would have opened four tickets on somebody
+ * else's codebase for one outage.
+ *
+ * ## Why every condition is required
+ *
+ * Each one exists because without it the rule would swallow a real defect:
+ *
+ * - **At least two specs.** One spec failing alone proves nothing: a helper called
+ *   by a single test raises from the helper, and that is a defect worth recording.
+ * - **Every** failing spec in the file accounted for. One outlier means the bodies
+ *   did run, and a file that half ran did not abort.
+ * - **Every one of them carries a location.** No location means no comparison to
+ *   make, and guessing here is how data goes missing.
+ * - **One single message at one single site across all of them.** Two tests failing
+ *   at different lines are two assertions, not one hook, and two failures that
+ *   read differently are two facts even when they share a line.
+ *
+ * Passing specs in the file are not counted and do not veto the rule. A
+ * `beforeAll` inside one describe takes that describe's specs down and leaves a
+ * sibling describe green, and those green results say nothing about whether the
+ * failing bodies ran.
+ */
+export function findSuiteAborts(failures: AbortableFailure[]): Map<string, SuiteAbort> {
+  const byFile = new Map<string, AbortableFailure[]>();
+  for (const failure of failures) {
+    const list = byFile.get(failure.file);
+    if (list === undefined) byFile.set(failure.file, [failure]);
+    else list.push(failure);
+  }
+
+  const aborts = new Map<string, SuiteAbort>();
+  for (const [file, list] of byFile) {
+    if (list.length < 2) continue;
+    const sites = list.map((failure) => raiseSite(failure.errorLocation));
+    if (sites.some((site) => site === undefined)) continue;
+    const site = sites[0];
+    if (site === undefined) continue;
+    if (sites.some((other) => other !== site)) continue;
+    // The message is part of the identity of the failure, not decoration. One
+    // raise site producing four different messages is four facts, not one outage.
+    const message = list[0]?.message ?? "";
+    if (list.some((failure) => failure.message !== message)) continue;
+    aborts.set(file, { file, count: list.length, message, site });
+  }
+  return aborts;
+}
+
+/**
+ * Whether this failure was raised outside the spec's own body.
+ *
+ * Sound in both the directions it claims and silent in the one it cannot:
+ *
+ * - `suite` — the location names a different file, or a line before the spec's
+ *   declaration. Both are outside the body, because a test body is at or after its
+ *   own `test(` call.
+ * - `unknown` — no location at all.
+ * - absent — at or after the declaration in its own file. Not a claim that the body
+ *   raised it: an error from a helper defined *below* the test is equally
+ *   consistent with that, and "not provably above" is all a line number proves.
+ */
+export function attributionFor(input: {
+  errorLocation?: { file?: string; line?: number; column?: number };
+  specLine: number | undefined;
+  absoluteTestFile: string;
+  projectRoot: string;
+}): FailureAttribution | undefined {
+  const { file, line } = input.errorLocation ?? {};
+  if (file === undefined || line === undefined) return "unknown";
+  const absolute = path.isAbsolute(file) ? file : path.resolve(input.projectRoot, file);
+  if (absolute !== input.absoluteTestFile) return "suite";
+  if (input.specLine !== undefined && line < input.specLine) return "suite";
+  return undefined;
 }
 
 /**
@@ -601,6 +766,22 @@ export async function collectDefects(options: CollectOptions): Promise<{
   let skipped = 0;
   let timedOut = 0;
   let flakySpecs = 0;
+  /**
+   * Every non-passing, non-skipped spec, in report order.
+   *
+   * Filled during the walk below and consulted once, before anything is written:
+   * whether a file was aborted by a `beforeAll` is a fact about all of that file's
+   * failures together, so the decision cannot be made one spec at a time.
+   */
+  const abortable: AbortableFailure[] = [];
+  /** Every failing spec with its derived data, held until the abort decision. */
+  const pending: PendingFailure[] = [];
+  /** Specs whose file turned out to be aborted, so no artifact is written. */
+  const suppressedSpecs = new Set<PwSpec>();
+  /** Specs that never ran because something outside their bodies raised. */
+  let aborted = 0;
+  /** Built here so an abort violation is reported before the threshold ones. */
+  const gateViolations: string[] = [];
 
   for (const spec of walkSpecs(report.suites)) {
     specs += 1;
@@ -642,6 +823,75 @@ export async function collectDefects(options: CollectOptions): Promise<{
 
     const error = firstError(lastAttempt);
     const message = stripAnsi(error.message ?? "");
+
+    pending.push({
+      spec,
+      pwFile,
+      absoluteTestFile,
+      relativeTestFile,
+      attempts,
+      statuses,
+      finalStatus,
+      lastAttempt,
+      projectName,
+      error,
+      message,
+      passedAttempts,
+      failedAttempts,
+      verdict,
+      retryHistory,
+    });
+
+    abortable.push({
+      file: pwFile,
+      message,
+      ...(error.location === undefined ? {} : { errorLocation: error.location }),
+    });
+
+    continue;
+  }
+
+  // The decision that needs every spec at once, taken before anything is written.
+  const aborts = findSuiteAborts(abortable);
+  for (const abort of aborts.values()) {
+    for (const entry of pending) {
+      if (entry.pwFile === abort.file) suppressedSpecs.add(entry.spec);
+    }
+    aborted += abort.count;
+    gateViolations.push(
+      `${abort.count} spec(s) in ${abort.file} never ran: every one failed on the same ` +
+        `error raised at ${abort.site}, outside the test bodies.\n` +
+        `    This is a suite or environment failure, not ${abort.count} defects, so no ` +
+        `artifact was written for them.\n` +
+        `    message: ${abort.message.split("\n")[0] ?? ""}`,
+    );
+  }
+
+  for (const entry of pending) {
+    const {
+      spec,
+      pwFile,
+      absoluteTestFile,
+      relativeTestFile,
+      statuses,
+      finalStatus,
+      lastAttempt,
+      projectName,
+      error,
+      message,
+      passedAttempts,
+      failedAttempts,
+      verdict,
+      retryHistory,
+    } = entry;
+    if (suppressedSpecs.has(spec)) continue;
+
+    const attribution = attributionFor({
+      ...(error.location === undefined ? {} : { errorLocation: error.location }),
+      specLine: spec.line,
+      absoluteTestFile,
+      projectRoot,
+    });
 
     // Evidence comes from the runner's own attachment list rather than from
     // guessing file names, because the runner knows what it actually wrote.
@@ -702,6 +952,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
         ...(error.snippet === undefined ? {} : { snippet: stripAnsi(error.snippet) }),
         ...(error.stack === undefined ? {} : { stack: stripAnsi(error.stack) }),
         ...(errorContextRef === undefined ? {} : { errorContextRef }),
+        ...(attribution === undefined ? {} : { attribution }),
       },
       evidence,
       context: {
@@ -760,7 +1011,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
 
   const failureCount = defects.length;
   const failureRate = specs === 0 ? 0 : failureCount / specs;
-  const violations: string[] = [];
+  const violations = gateViolations;
   if (specs > 0 && failureRate > thresholds.maxFailureRate) {
     violations.push(
       `failure rate ${(failureRate * 100).toFixed(1)}% exceeds maxFailureRate ` +
@@ -796,6 +1047,13 @@ export async function collectDefects(options: CollectOptions): Promise<{
       timedOut,
       skipped,
       flaky: flakySpecs,
+      /**
+       * Specs whose failure was raised outside their own bodies, so no artifact
+       * exists for them. `failed` deliberately excludes them: they are not
+       * defects, and counting them is what produced four tickets for one outage.
+       * They still fail the gate, which is why an outage cannot pass silently.
+       */
+      aborted,
     },
     ...(runDuration === undefined ? {} : { durationMs: Math.round(runDuration) }),
     ...(report.stats?.startTime === undefined ? {} : { startedAt: report.stats.startTime }),

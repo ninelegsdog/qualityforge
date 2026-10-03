@@ -142,7 +142,7 @@ test.describe("protocol envelope", () => {
       await dispatch(context, { jsonrpc: "2.0", id: 1, method: "server/discover" }),
     );
 
-    expect(payload.protocolVersions).toContain(LATEST_PROTOCOL_VERSION);
+    expect(payload.supportedVersions).toContain(LATEST_PROTOCOL_VERSION);
     expect((payload.serverInfo as Record<string, unknown>).name).toBe("qualityforge-mcp");
   });
 

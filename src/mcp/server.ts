@@ -171,7 +171,15 @@ export async function dispatch(
           ok(id, {
             resultType: RESULT_TYPE_COMPLETE,
             serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-            protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
+            // `supportedVersions`, not `protocolVersions`. The field name is
+            // what the client's DiscoverResult schema validates against, and it
+            // does not know the other spelling: in the OpenCode 2.0.16 binary,
+            // "supportedVersions" appears and "protocolVersions" appears zero
+            // times. With the wrong name the probe fails validation, the client
+            // discards it as "no modern evidence", and 2026-07-28 becomes
+            // unreachable - every mode silently falls back to legacy, and pin
+            // mode fails outright. One field name was the whole modern path.
+            supportedVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
             capabilities: capabilitiesFor(clientCapabilitiesOf(request)),
             instructions: SERVER_INSTRUCTIONS,
           }),

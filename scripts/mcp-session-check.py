@@ -241,7 +241,7 @@ def resources_capability(frame: dict) -> dict:
     return resources if isinstance(resources, dict) else {}
 
 disc = by_id.get(1, {}).get("result", {})
-if "2026-07-28" not in (disc.get("protocolVersions") or []):
+if "2026-07-28" not in (disc.get("supportedVersions") or []):
     problems.append("server/discover did not advertise 2026-07-28")
 
 tl = by_id.get(2, {}).get("result", {})

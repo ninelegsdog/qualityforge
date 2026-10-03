@@ -48,6 +48,55 @@ Do not report a task as done on the basis of a green build alone. Confirm the
 observable behaviour: the test ran, and it failed when the thing it guards was
 broken.
 
+## The rule: nothing is done until it has run in the real environment
+
+**A check is not finished until it has been executed where it will actually
+run, and observed to fail for the right reason. A green local build is not
+evidence that anything works — it is evidence that nothing objected.**
+
+This is not a warning about carelessness. It is an empirical finding from this
+repository, where five separate things were each believed finished, each passed
+every check available at the time, and each was found broken the first time it
+was run for real:
+
+| Thing                    | Looked finished because                                | Actually broken because                                                                                                                                                                                         |
+| ------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI workflow              | `validate-ci.py` passed, YAML parsed, nine rules green | GitHub rejected the workflow at validation. `node-version` as an array inside a job that also declared `strategy.matrix`. Every push failed in **0 seconds** with no jobs and no logs.                          |
+| `mcp:check:tools`        | Passed locally, repeatedly                             | Required a failing suite to have been run first. It was green because stale artifacts from earlier deliberate failures were lying around. On a green commit it failed for a reason unrelated to the MCP server. |
+| `mcp:check`              | Not previously run in isolation                        | Same dependency, and it reported **eight** protocol symptoms instead of "the artifacts directory does not exist".                                                                                               |
+| `scripts/check-links.py` | Passed on the real docs                                | Skipped only the line holding a fence marker, so links inside documented code blocks were judged as real links. Found by injecting a deliberately broken link.                                                  |
+| The vault backup         | Mirror created, `git push` reported success            | The bare repository's `HEAD` pointed at `refs/heads/master` while the branch was `main`. A plain `git clone` produced an **empty directory**.                                                                   |
+
+And two defects that no local check could ever have reached, because the tests
+did not exercise the shape:
+
+- The MCP server resolved a relative `--root` against the working directory. A
+  real client spawns it from the user's project directory, so the root did not
+  exist and the client reported only `Connection closed` — the message naming
+  the cause went to stderr, which clients discard.
+- `initialize` answered with the server's newest protocol version regardless of
+  what the client requested. OpenCode, whose default is `legacy`, refused the
+  connection outright. Our checks never sent an `initialize`.
+
+Three rules follow, and they are checkable:
+
+1. **Run it where it runs.** A validator that parses a file cannot know what a
+   platform's runtime will accept. Push the workflow and read the run. Start the
+   server the way a client starts it, from a different directory, with no
+   `npx`.
+2. **Break it on purpose.** Every new check gets a negative test: inject the
+   defect it exists to catch and confirm it goes red. A check that has never
+   failed is an untested assumption. If you cannot make it fail, you have not
+   verified that it works — only that it is quiet.
+3. **Test the shape the client uses.** Coverage of the easy path is not coverage.
+   If a client may send a handshake, your test sends that handshake. If a
+   platform validates a field, your tests exercise a run that contains it. Ask
+   what your tests _cannot_ reach, and go reach it.
+
+The pattern behind all five: the checks agreed with the code, because both were
+written from the same assumption. Agreement between a check and the thing it
+checks is only evidence when the assumption was tested independently.
+
 If you changed the evidence policy or the capture path, prove it:
 
 ```bash
@@ -122,6 +171,23 @@ Check changes over the wire, not only by calling functions:
 ```bash
 npm run mcp:check:all
 ```
+
+But understand what those checks do **not** cover, or you will believe more than
+they prove:
+
+- Neither check sends an `initialize` handshake. Protocol negotiation is therefore
+  untested by them, which is how `initialize` came to answer with a fixed version
+  and was rejected by a real client.
+- Neither check sends the `_meta` envelope, which 2026-07-28 makes mandatory.
+  `_meta` is read but never written, and `META_CLIENT_CAPABILITIES` is declared
+  and unused. The modern path is effectively unimplemented.
+- Both checks spawn the server from the project root with `npx`. A client
+  spawns it from elsewhere; that difference is what broke the artifacts root.
+
+So: after changing this directory, also start the server the way a client does,
+from a different working directory, send an `initialize` with each supported
+version, and send a request carrying `_meta`. The scripted checks cannot do that
+for you, and a client will.
 
 ## The defect contract
 

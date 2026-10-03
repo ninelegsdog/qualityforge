@@ -1,0 +1,216 @@
+# Quick start
+
+A hands-on path from a fresh clone to an agent reading a real failure. Every
+command here is meant to be run and watched, not just read. If one of them
+behaves differently from what is written below, that is a bug worth reporting.
+
+The [README](../README.md) describes what the project is and why. This document
+describes how to use it in the next ten minutes.
+
+## Requirements
+
+| Need              | Version                                                      |
+| ----------------- | ------------------------------------------------------------ |
+| Node.js           | 22 or newer. Node 20 reached end-of-life in March 2026       |
+| Playwright driver | installed via `npx playwright install`, not a global install |
+| Python 3          | only for `npm run mcp:check*` and `npm run ci:validate`      |
+
+`npm run verify` deliberately needs no Python, so the bulk of the project stays
+usable on a Node-only machine.
+
+## 1. Install
+
+```bash
+git clone https://github.com/ninelegsdog/qualityforge.git
+cd qualityforge
+npm ci
+npx playwright install --with-deps chromium
+```
+
+`npm ci` runs with lifecycle scripts disabled by default in CI; locally it does
+not need to, because nothing in this dependency tree runs install-time code that
+the project relies on. `--with-deps` installs the browser's system libraries and
+needs `sudo` on Linux.
+
+## 2. Run the suite
+
+```bash
+npm test
+```
+
+This starts the bundled demo app in `fixtures/` on `http://127.0.0.1:4311`,
+runs 139 specs and shuts the server down again. A clean clone is green with no
+configuration and no third-party network access.
+
+Expect two skips. They are deliberate: see step 3.
+
+Look at the report:
+
+```bash
+npm run report
+```
+
+It serves the HTML report on `http://localhost:9323` and stays in the foreground
+until you press Ctrl+C. That is Playwright's behaviour, not a hang.
+
+## 3. See a real failure with evidence
+
+The project's core promise is that a failure leaves enough evidence to diagnose
+it. That is a testable claim, so there is a test for it — one that fails on
+purpose and is skipped unless you ask for it:
+
+```bash
+QUALITYFORGE_EVIDENCE_CHECK=1 npx playwright test tests/smoke/evidence-pipeline.spec.ts
+```
+
+The exit code is non-zero by design. Afterwards:
+
+```bash
+ls test-results/
+```
+
+Each failure directory holds a screenshot, a video, and an `error-context.md`.
+Open the report to watch the trace:
+
+```bash
+npm run report
+```
+
+The trace viewer is the better tool when diagnosing a real failure: it gives the
+DOM snapshot at every action plus the full network log, which a screenshot and a
+video cannot.
+
+`error-context.md` is worth reading directly. Playwright already writes it as an
+instruction to an assistant — "explain why, be concise, respect best practices"
+— followed by the test name, its location, the error and a diff of what was
+expected. It is free, and QualityForge points at it rather than re-implementing
+it.
+
+## 4. Turn failures into artifacts
+
+A failing test is only useful if the failure can be read later without re-running
+anything:
+
+```bash
+npm run defects:collect
+```
+
+This reads the JSON report from the last run and writes one normalized artifact
+per failure into `artifacts/defects/<runId>/`. Read one:
+
+```bash
+cat artifacts/defects/*/*.v1.json | head -40
+```
+
+The exit code is the gate: `0` when thresholds hold, `1` when they are violated,
+`2` when collection could not run. In the step above it exits `1`, because every
+spec failed and `thresholds.maxFailureRate` is `0.05`. That is the gate working.
+
+The contract is [`defect-schema.md`](defect-schema.md). It is versioned, and a
+breaking change is a major bump, so an artifact written today stays readable.
+
+## 5. Let an agent read the evidence
+
+The server is read-only and speaks MCP over stdio. Start it by hand first:
+
+```bash
+npm run mcp
+```
+
+It prints a banner to **stderr** and then waits for JSON-RPC frames on stdin,
+staying in the foreground until you close it. Nothing else may ever go to stdout
+— a stray log line is a corrupt frame. Check it properly with:
+
+```bash
+npm run mcp:check:all
+```
+
+This drives the real binary over a real pipe, asserts that stdout carries frames
+and nothing else, and tries three ways of escaping the artifacts root — `..`
+traversal, percent-encoded traversal and an absolute path — expecting all three to
+be refused. It produces its own evidence to check against, by running step 3, so
+it works on a clean checkout and on a green commit.
+
+To connect a client, add this to its MCP configuration:
+
+```jsonc
+{
+  "mcp": {
+    "qualityforge": {
+      "enabled": true,
+      "type": "local",
+      "command": ["npx", "tsx", "/absolute/path/to/qualityforge/src/mcp/index.ts"],
+    },
+  },
+}
+```
+
+OpenCode, Kilo and MiMo all read the same shape. Use an absolute path: the
+server resolves its artifacts root relative to the working directory it is
+started in. Add `--root <dir>` to serve artifacts from elsewhere.
+
+| Tool                     | What it answers                                                       |
+| ------------------------ | --------------------------------------------------------------------- |
+| `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed       |
+| `quality_list_failures`  | Compact records: id, status, test location, flakiness                 |
+| `quality_get_defect`     | One defect in full, including console, network and page-error signals |
+
+There is a prompt too, `triage_failure`, which asks for facts before
+hypotheses.
+
+## 6. Point it at your own application
+
+```bash
+cp .env.example .env
+```
+
+Set `BASE_URL` in `.env`, then:
+
+```bash
+npm test
+```
+
+Everything else — selectors, fixtures, thresholds — is per project and belongs
+under `tests/`. `config/project.json` holds the origin under test, the evidence
+policy, the gate thresholds and where artifacts are written; it is validated on
+load and reports every problem at once with the exact path.
+
+Your own tests should import from the bundled fixture rather than from
+`@playwright/test`:
+
+```ts
+import { expect, test } from "../fixtures.js";
+```
+
+That single change is what makes console, page-error and network capture
+automatic. See [`AGENTS.md`](../AGENTS.md) for the rules that apply to writing
+tests here, and [`selectors-and-testid.md`](selectors-and-testid.md) for locator
+priority.
+
+## 7. When something goes wrong
+
+**`npm test` fails to start the demo app.** Port 4311 is in use. `BASE_URL`
+overrides it, but then the bundled suite has nothing to test against. Free the
+port.
+
+**No screenshot or video appears.** Both are `only-on-failure` and
+`retain-on-failure`. A passing test produces neither, by design. Also check
+`test-results/` rather than `playwright-report/` for the raw files.
+
+**No trace.** The policy is `on-first-retry`. A local run has no retry, so pass
+`--trace on` when you actually need it.
+
+**`quality_list_failures` returns nothing.** Correct behaviour on a green run:
+there are no defects. Step 3 produces some on purpose.
+
+**A check passes locally and fails in CI.** Run `npm run verify`,
+`npm run ci:validate` and `npm run mcp:check:all` in that order — they are the
+same three things CI runs, in the same order.
+
+## Where to go next
+
+- [`architecture.md`](architecture.md) — how the pieces fit together
+- [`defect-schema.md`](defect-schema.md) — the artifact contract
+- [`selectors-and-testid.md`](selectors-and-testid.md) — how to write selectors
+- [`roadmap.md`](roadmap.md) — what is planned
+- [`../AGENTS.md`](../AGENTS.md) — rules for agents and contributors

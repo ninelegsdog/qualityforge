@@ -14,7 +14,7 @@ QualityForge is an open-source Playwright-based foundation for:
 ## Status
 
 **Early alpha.** The project is under active development. Expect breaking
-changes. The GitHub repository is not public yet.
+changes. Published at <https://github.com/ninelegsdog/qualityforge>, green on CI.
 
 ## Why this exists
 
@@ -52,6 +52,11 @@ Open the HTML report:
 ```bash
 npm run report
 ```
+
+For a step-by-step path — seeing a real failure with evidence, collecting defect
+artifacts, connecting an agent, pointing it at your own application — see
+[`docs/quick-start.md`](docs/quick-start.md), or
+[`docs/quick-start.ru.md`](docs/quick-start.ru.md).
 
 ## The bundled demo app
 

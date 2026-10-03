@@ -1,0 +1,47 @@
+{
+  "name": "qualityforge",
+  "version": "0.1.0-alpha.0",
+  "private": false,
+  "description": "Evidence-first browser quality automation for modern web applications.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ninelegsdog/qualityforge.git"
+  },
+  "keywords": [
+    "playwright",
+    "testing",
+    "e2e",
+    "quality",
+    "accessibility",
+    "observability",
+    "mcp"
+  ],
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test --project=chromium",
+    "test:debug": "playwright test --debug",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "serve:fixtures": "node scripts/serve.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run format:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^20.19.43",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.0"
+  }
+}

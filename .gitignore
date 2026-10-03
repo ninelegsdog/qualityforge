@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Secrets — never commit. Use .env.example as the template.
+.env
+.env.*
+!.env.example
+
+# Playwright test artifacts — these are the product's output, not source.
+artifacts/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.playwright/
+
+# Screenshots / videos / traces produced ad hoc
+*.png
+*.jpeg
+*.jpg
+*.webm
+*.zip
+
+# Coverage
+coverage/
+*.lcov
+
+# Editor / OS noise
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local caches
+.cache/

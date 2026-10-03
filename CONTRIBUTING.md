@@ -1,0 +1,73 @@
+# Contributing to QualityForge
+
+Thanks for considering it. This project is early alpha, so the design is still
+moving — a conversation before a large patch will save everyone time.
+
+## Getting set up
+
+Requires **Node.js 22 or newer** (Node 20 reached end-of-life in March 2026).
+CI runs Node 22 and 24.
+
+```bash
+git clone https://github.com/ninelegsdog/qualityforge.git
+cd qualityforge
+npm ci
+npx playwright install --with-deps chromium
+npm test
+```
+
+The suite starts its own fixture server. You do not need a running application
+to run it.
+
+## Before opening a pull request
+
+```bash
+npm run verify   # lint + typecheck + format check
+npm test
+```
+
+Both must pass. If you touched test infrastructure, say in the description which
+failure modes you verified — for example, that you confirmed a test can still
+fail.
+
+## Pull request rules
+
+- One concern per pull request.
+- Explain **why**, not just what. The diff already shows what.
+- If behaviour changes, update `CHANGELOG.md` under `[Unreleased]`.
+- If evidence fields change, that is a schema version bump — see `AGENTS.md`.
+- Conventional Commits for the commit subject: `feat:`, `fix:`, `docs:`,
+  `test:`, `chore:`, `security:`, `refactor:`.
+
+## Writing tests
+
+Read `AGENTS.md` first. The short version:
+
+- Assert user-visible behaviour, never CSS classes or XPath.
+- No `page.waitForTimeout()`.
+- No `test.only()`.
+- Use web-first assertions so they retry.
+- Stub third-party services instead of depending on their uptime.
+
+## AI-assisted contributions
+
+Fine, and encouraged — this is an AI-native project. Two expectations:
+
+1. Say which parts were agent-generated. Reviewers weigh unreviewed generated
+   code accordingly.
+2. The agent must have actually run `npm run verify` and `npm test`, and the
+   output belongs in the description. "The agent says it passes" is not
+   evidence.
+
+## Reporting bugs
+
+Open an issue with: what you ran, what you expected, what happened, and the
+trace or report if you have one. A failing test is the ideal bug report.
+
+## Security
+
+Do not open a public issue for a security problem. See `SECURITY.md`.
+
+## Code of conduct
+
+Be straightforward and assume good faith. See `CODE_OF_CONDUCT.md`.

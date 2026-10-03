@@ -132,9 +132,9 @@ Three things that document does not need to repeat, learned by hitting them:
 - **Zones catch file overlap, not meaning.** A collector that refuses colliding
   ids and a browser matrix were each correct, each in its own zone, each passing
   its own checks — and together they meant a multi-browser run could not collect
-  a single artifact. Only running the checks *after* the merge finds that.
+  a single artifact. Only running the checks _after_ the merge finds that.
 - **Never leave a path unowned.** `docs/` belonged to nobody in one wave, so two
-  parties edited the same file. Zones must say who *cannot* touch a path, not
+  parties edited the same file. Zones must say who _cannot_ touch a path, not
   only who can.
 - **The gate is per-worktree or it is not a gate.** `core.hooksPath` needs
   `extensions.worktreeConfig`; without it every agent overwrites the previous

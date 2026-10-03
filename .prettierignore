@@ -24,3 +24,7 @@ package-lock.json
 *.webm
 *.zip
 *.log
+
+# Per-agent task briefs, written by the integrator into each worktree and
+# never committed. They are instructions to an agent, not source.
+AGENT-TASK.md

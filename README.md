@@ -36,6 +36,11 @@ final release was in March 2026 — so CI runs Node 22 and 24. The package's
 `engines` field stays permissive at `>=20.19.0` so consumers on an older runtime
 are not blocked.
 
+`.nvmrc` pins **22** for contributors. That is not cosmetic: `tsc` dies with a
+segmentation fault under one Node 24.21.0 build, on this machine, reproducibly —
+4 runs in 8 failed on 24 and 0 in 30 on 22. If you use a version manager, run
+`nvm use` before anything else.
+
 ```bash
 git clone https://github.com/ninelegsdog/qualityforge.git
 cd qualityforge

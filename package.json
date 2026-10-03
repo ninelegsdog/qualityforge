@@ -30,7 +30,7 @@
     "report": "playwright show-report",
     "report:clean": "node scripts/clean.mjs",
     "defects:collect": "tsx src/cli/collect-defects.ts",
-    "typecheck": "node scripts/typecheck.mjs",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

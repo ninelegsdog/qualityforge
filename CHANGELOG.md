@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Demo application under `fixtures/`: overview with an entity list fetched from
+  `/api/items`, a documentation page, and a contact form with client-side
+  validation and accessible error reporting.
+- Fixture server rewritten with clean URLs (`/docs`, `/contact`), a JSON API
+  route, and a deliberately failing `/boom` route for evidence work.
+- Navigation smoke tests: link-based journeys in both directions, plus a
+  direct-URL entry point.
+- Contact form validation tests covering every error branch, the happy path, and
+  recovery after a failed submission is corrected.
+- `tests/setup/global-setup.ts`: validates `BASE_URL` and fails once, with an
+  actionable message, instead of producing a wall of timeouts.
+- `tests/smoke/evidence-pipeline.spec.ts`: opt-in suite of deliberately failing
+  tests that proves screenshot, video and trace capture. Skipped unless
+  `QUALITYFORGE_EVIDENCE_CHECK=1`.
+- `docs/selectors-and-testid.md`: locator priority order, forbidden patterns,
+  and the rules for introducing a `data-testid`.
+
+### Changed
+
+- Overview smoke test now asserts on the entity list rendered from the API,
+  using an auto-retrying assertion instead of any fixed wait.
+- Fixture server rejects path traversal before touching disk, and logs handler
+  failures instead of swallowing them.
+
+### Verified
+
+- 13 tests pass on Chromium; suite is green from a clean clone.
+- Mutation checks: breaking validation fails 4 form tests, removing one nav
+  link fails exactly 1 navigation test, and breaking `/api/items` fails exactly
+  1 entity-list test. The suite discriminates rather than failing broadly.
+- All three evidence types observed on a real failure: `test-failed-1.png`,
+  `video.webm`, and `trace.zip` (the latter with `--trace on`, since a local run
+  has no retry).
 
 ## [0.1.0-alpha.0] — 2026-10-03
 

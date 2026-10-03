@@ -58,19 +58,45 @@ it is going. Where a decision is not yet final, it says so.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## What exists today (Day 1)
+## What exists today (Day 2)
 
 ```
-playwright.config.ts   runner config, evidence policy, fixture webServer
-scripts/serve.mjs      zero-dependency static server, loopback only
-fixtures/index.html    the page the smoke suite runs against
-tests/smoke/           three smoke tests: render, health, 404
-src/index.ts           package entry point
+playwright.config.ts      runner config, evidence policy, fixture webServer
+                          globalSetup wired to tests/setup/global-setup.ts
+scripts/serve.mjs         zero-dependency server: clean URLs, /api/items, /boom
+fixtures/                 the demo app: overview, docs, contact form, JS, CSS
+tests/smoke/              13 active tests + 2 opt-in deliberate failures
+tests/setup/              global setup: validates BASE_URL, fails loudly
+src/index.ts              package entry point
 .github/workflows/ci.yml  lint + typecheck + format + test, artifacts on failure
+docs/selectors-and-testid.md  locator policy
 ```
 
 `src/index.ts` is intentionally thin. It exists so the package has a real entry
 point; the schema and collector modules land here in later steps.
+
+## The demo app
+
+`fixtures/` is a genuine small application, not a stub. It exists so the suite
+tests behaviour rather than markup:
+
+| Route        | Purpose                                                        |
+| ------------ | -------------------------------------------------------------- |
+| `/`          | Heading, status readout, entity list fetched from `/api/items` |
+| `/docs`      | Documentation with the evidence policy                         |
+| `/contact`   | Form with client-side validation, `role="alert"` errors        |
+| `/api/items` | JSON payload, three entities                                   |
+| `/boom`      | Always 500 — a target for evidence-pipeline work               |
+
+Two properties are enforced structurally:
+
+- The server resolves every request inside `fixtures/` and rejects traversal
+  before touching disk.
+- The server logs handler failures instead of swallowing them, because a fixture
+  that hides errors turns a broken run into a confusing one.
+
+The entity list is fetched asynchronously on purpose: it forces the tests to use
+auto-retrying assertions rather than a sleep.
 
 ## Planned layout
 
@@ -92,11 +118,20 @@ the MCP server genuinely needs its own version line.
 
 1. A test fails.
 2. Playwright writes trace, screenshot and video according to the evidence policy.
-3. A collector reads those plus the JSON report and writes a normalized defect
+3. Playwright also writes `error-context.md` next to them: a markdown summary
+   containing the test name, the file and line, the error, and the expected
+   versus received values.
+4. A collector reads those plus the JSON report and writes a normalized defect
    artifact.
-4. The MCP server exposes read-only tools over those artifacts.
+5. The MCP server exposes read-only tools over those artifacts.
 
-Step 3 does not exist yet. It is the substance of the project.
+Steps 4 and 5 do not exist yet. They are the substance of the project.
+
+Step 3 is worth noting: `error-context.md` is already phrased as an instruction
+to an assistant. It has been observed to contain lines like "Explain why, be
+concise, respect Playwright best practices", followed by the structured facts.
+The raw material for agent triage exists today, for free, and any defect
+schema should be built around extending it rather than duplicating it.
 
 ## MCP design constraints
 

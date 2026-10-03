@@ -25,6 +25,7 @@ const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:4311";
 export default defineConfig({
   testDir: "./tests",
   outputDir: "./test-results",
+  globalSetup: "./tests/setup/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

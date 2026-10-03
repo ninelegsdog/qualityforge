@@ -44,14 +44,55 @@ npx playwright install --with-deps chromium
 npm test
 ```
 
-`npm test` starts a bundled fixture web server automatically, so a fresh clone
-runs green with no configuration and no third-party network dependency.
+`npm test` starts the bundled demo app automatically, so a fresh clone runs green
+with no configuration and no third-party network dependency.
 
 Open the HTML report:
 
 ```bash
 npm run report
 ```
+
+## The bundled demo app
+
+`fixtures/` is a small multi-page app that exists so the suite has something real
+to test. It is not a mock: it renders, validates and fetches.
+
+| Route        | What it does                                                                            |
+| ------------ | --------------------------------------------------------------------------------------- |
+| `/`          | Overview with a heading, a status readout, and an entity list fetched from `/api/items` |
+| `/docs`      | Documentation page with the evidence policy                                             |
+| `/contact`   | Form with client-side validation and accessible error reporting                         |
+| `/api/items` | JSON payload backing the entity list                                                    |
+| `/boom`      | Deliberately returns 500, for exercising the evidence pipeline                          |
+
+Every control is labelled, every message has a role, and every element the tests
+need has a stable handle — so the suite asserts on what a user perceives, not on
+markup structure.
+
+## Verifying the evidence pipeline
+
+The project's core promise is that a failure leaves enough evidence to diagnose
+it. That claim is testable, so it is tested:
+
+```bash
+QUALITYFORGE_EVIDENCE_CHECK=1 npx playwright test tests/smoke/evidence-pipeline.spec.ts
+```
+
+This runs two deliberately failing tests and exits non-zero. Afterwards
+`test-results/` contains, per failure:
+
+| Artifact            | Produced because                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `test-failed-1.png` | `screenshot: "only-on-failure"`                                                              |
+| `video.webm`        | `video: "retain-on-failure"`                                                                 |
+| `trace.zip`         | `trace: "on-first-retry"` — add `--trace on` locally, since there is no retry on a local run |
+| `error-context.md`  | Structured failure summary: test name, location, error, expected, received                   |
+
+`error-context.md` is the most interesting one for this project: it is already
+written as an instruction to an assistant — "explain why, be concise, respect
+best practices" — followed by the test name, file location, error and diff of
+expectations. It is the raw material an agent needs, and it is free.
 
 ## Running against your own application
 
@@ -94,11 +135,15 @@ npm run verify        # lint + typecheck + format check (what CI runs first)
   Playwright call makes a test quietly assert nothing.
 - Formatting and type checks must pass.
 
+Selector policy — which locator to reach for, and why — is in
+[`docs/selectors-and-testid.md`](docs/selectors-and-testid.md).
+
 ## Sprint 1 scope
 
-- Chromium smoke tests
+- Chromium smoke tests over a bundled demo app
 - HTML, GitHub and JUnit reports
 - Trace on retry, screenshot and video on failure
+- Global setup that fails fast when the target is unreachable
 - GitHub Actions CI publishing artifacts even on failure
 
 ## Documentation

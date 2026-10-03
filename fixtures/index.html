@@ -3,13 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>QualityForge fixture app</title>
+    <title>QualityForge — Browser Quality Core demo</title>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <header>
+      <a href="/">QualityForge</a>
+      <nav aria-label="Main">
+        <a href="/docs">Documentation</a>
+        <a href="/contact">Contact</a>
+      </nav>
+    </header>
+
     <main>
-      <h1>QualityForge</h1>
+      <h1>Browser Quality Core</h1>
       <p>Evidence-first browser quality automation.</p>
+
+      <h2>Monitored entities</h2>
+      <!-- Populated from /api/items. Tests wait on the rendered text, never on a timer. -->
+      <ul id="entities" data-testid="entities">
+        <li>loading…</li>
+      </ul>
+
       <p id="status" data-testid="status">ready</p>
     </main>
+
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

@@ -48,6 +48,29 @@ Do not report a task as done on the basis of a green build alone. Confirm the
 observable behaviour: the test ran, and it failed when the thing it guards was
 broken.
 
+If you changed the evidence policy or the capture path, prove it:
+
+```bash
+QUALITYFORGE_EVIDENCE_CHECK=1 npx playwright test tests/smoke/evidence-pipeline.spec.ts
+```
+
+That run is supposed to fail. Confirm the artifacts landed in `test-results/`.
+
+## The demo app
+
+`fixtures/` is a real, working app, not a mock stub. It exists so the suite has
+genuine behaviour to observe.
+
+- `fixtures/*.html`, `fixtures/*.js` are **browser** code. They are linted as
+  plain JS and excluded from the TypeScript project.
+- `scripts/serve.mjs` is **Node** code. It must stay dependency-free and must
+  keep rejecting path traversal.
+- Every control gets a `<label>`. Every message gets a `role`.
+- Keep the app boring. It is a test target, not a showcase.
+
+If you add a page, register it in `ROUTES` in `scripts/serve.mjs` and give it a
+smoke test that asserts something a user would notice.
+
 ## Style
 
 - TypeScript, ESM, Node 22+ (Node 20 reached end-of-life in March 2026).
@@ -64,8 +87,12 @@ broken.
 path`, not `testGet404`.
 - Prefer a web-first assertion (`await expect(x).toBeVisible()`) over asserting
   on a value you just awaited yourself — the latter does not retry.
+- Follow the locator priority in `docs/selectors-and-testid.md`: role, then
+  label, then text, and `data-testid` only as a last resort.
 - If a test needs a real third-party service, stub it with `page.route` rather
   than depending on someone else's uptime.
+- Every new test must be able to fail. Add it, then break the thing it guards
+  and confirm it goes red. A test that has never failed is unverified.
 
 ## Adding evidence fields
 

@@ -63,7 +63,7 @@ export default tseslint.config(
     // The fixture web server is plain Node ESM, not part of the TS project.
     // Spread first so the explicit settings below win: ESLint flat config has
     // no implicit globals, so the ones this file uses must be declared.
-    files: ["scripts/**/*.mjs", "eslint.config.js"],
+    files: ["scripts/**/*.mjs", "fixtures/**/*.js", "eslint.config.js"],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       // These files are plain Node ESM and are deliberately outside the
@@ -75,6 +75,9 @@ export default tseslint.config(
       },
       globals: {
         console: "readonly",
+        document: "readonly",
+        fetch: "readonly",
+        FormData: "readonly",
         process: "readonly",
         URL: "readonly",
         Buffer: "readonly",

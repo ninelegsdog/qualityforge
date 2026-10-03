@@ -48,6 +48,15 @@ Do not report a task as done on the basis of a green build alone. Confirm the
 observable behaviour: the test ran, and it failed when the thing it guards was
 broken.
 
+**Check the exit code, not a line of output.** Grepping for the string you expect
+is a claim that you looked, not a check: it passes while the build is green and
+stays silent when the build is red — the worst way to fail. Not hypothetical here:
+twelve lint errors reached `main` because a grep for the prettier line was taken
+for the result of `verify`. CI caught it, because CI reads the exit code.
+
+Being inside your zone does not make it true either, and neither does six green
+jobs. Those describe the tree you committed, not whether your report is accurate.
+
 ## The rule: nothing is done until it has run in the real environment
 
 **A check is not finished until it has been executed where it will actually
@@ -117,6 +126,19 @@ and fixture port, and **read [`docs/parallel-work.md`](docs/parallel-work.md)
 before splitting work**. It documents the file-exclusivity zones, which files are
 integrator-only, the `FIXTURE_PORT`/`BASE_URL` trap, the wave plan, and the
 failure modes.
+
+Three things that document does not need to repeat, learned by hitting them:
+
+- **Zones catch file overlap, not meaning.** A collector that refuses colliding
+  ids and a browser matrix were each correct, each in its own zone, each passing
+  its own checks — and together they meant a multi-browser run could not collect
+  a single artifact. Only running the checks *after* the merge finds that.
+- **Never leave a path unowned.** `docs/` belonged to nobody in one wave, so two
+  parties edited the same file. Zones must say who *cannot* touch a path, not
+  only who can.
+- **The gate is per-worktree or it is not a gate.** `core.hooksPath` needs
+  `extensions.worktreeConfig`; without it every agent overwrites the previous
+  hook and they all end up gated by whoever wrote last.
 
 Two things to keep in mind:
 

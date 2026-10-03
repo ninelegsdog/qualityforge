@@ -100,5 +100,5 @@ arrangement, express it in a `beforeEach` or a fixture, not in ordering.
 ## Related
 
 - [`../AGENTS.md`](../AGENTS.md) — hard rules
-- [`../docs/architecture.md`](../architecture.md)
+- [`architecture.md`](architecture.md)
 - <https://playwright.dev/docs/best-practices>

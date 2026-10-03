@@ -215,13 +215,32 @@ export function resolveTarget(input: {
   return {};
 }
 
-/** Turn a test identity into a stable kebab-case defect id. */
-export function defectIdFrom(file: string, title: string): string {
+/**
+ * Turn a test identity into a stable kebab-case defect id.
+ *
+ * `project` is part of the identity only when the run had more than one project.
+ * A single-project report is the common case and its ids are unchanged; a matrix
+ * run needs the engine in the id, because the same spec in chromium and in
+ * firefox is two different observations and would otherwise collide into one
+ * filename — which the collector now refuses rather than silently overwriting.
+ */
+export function defectIdFrom(file: string, title: string, project?: string): string {
   const withExt = path.basename(file);
   // Drop the extension, then a trailing .spec/.test, so
   // "homepage.smoke.spec.ts" contributes "homepage-smoke" rather than
   // "homepage-smoke-spec". The suffix carries no information an id needs.
   const base = withExt.replace(/\.(?:spec|test)\.[cm]?[jt]sx?$/, "").replace(/\.[cm]?[jt]sx?$/, "");
+
+  // Slug the project separately, then append, so a project name cannot eat the
+  // 120-character budget the title was given.
+  const suffix =
+    project === undefined || project === ""
+      ? ""
+      : `-${project
+          .toLowerCase()
+          .normalize("NFKD")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")}`;
 
   const slug = `${base} ${title}`
     .toLowerCase()
@@ -232,7 +251,7 @@ export function defectIdFrom(file: string, title: string): string {
     .slice(0, 120)
     .replace(/-+$/g, "");
   // A title made entirely of symbols would slugify to nothing.
-  return slug.length > 0 ? slug : "unknown-defect";
+  return slug.length > 0 ? `${slug}${suffix}` : `unknown-defect${suffix}`;
 }
 
 /** Build a run id: sortable timestamp plus a short digest for uniqueness. */
@@ -783,7 +802,34 @@ export async function collectDefects(options: CollectOptions): Promise<{
   /** Built here so an abort violation is reported before the threshold ones. */
   const gateViolations: string[] = [];
 
+  // One unit per spec *per project*.
+  //
+  // A Playwright report holds one entry per (spec, project) inside
+  // `spec.tests[]`, and flattening them into a single attempts list treats
+  // "ran in three engines" as "retried three times". That was invisible while
+  // every leg was Chromium. With a matrix it means two things are wrong at once:
+  // a test that passes in chromium and fails in firefox is recorded as one
+  // defect attributed to chromium with a `passedAfterRetry` verdict, and the
+  // same spec in several engines produces several identical ids, which the
+  // duplicate guard then refuses — so a multi-browser run collects nothing.
+  const units: Array<{ spec: PwSpec; test: PwTest | undefined }> = [];
   for (const spec of walkSpecs(report.suites)) {
+    const entries = spec.tests ?? [];
+    if (entries.length === 0) {
+      units.push({ spec, test: undefined });
+      continue;
+    }
+    for (const entry of entries) {
+      units.push({ spec, test: entry });
+    }
+  }
+  // The engine only joins the id when more than one engine ran, so a
+  // single-project report keeps the ids it always had.
+  const projectCount = new Set(
+    units.map((u) => u.test?.projectName).filter((n): n is string => typeof n === "string"),
+  ).size;
+
+  for (const { spec, test: pwTest } of units) {
     specs += 1;
 
     const pwFile = spec.file ?? "unknown.spec.ts";
@@ -795,11 +841,11 @@ export async function collectDefects(options: CollectOptions): Promise<{
       ? relativize(projectRoot, pwFile)
       : relativize(projectRoot, absoluteTestFile);
 
-    const attempts = spec.tests?.flatMap((t) => t.results ?? []) ?? [];
+    const attempts = pwTest?.results ?? [];
     const statuses = attempts.length > 0 ? attempts.map((a) => attemptStatus(a.status)) : [];
     const finalStatus: TestStatus = statuses[statuses.length - 1] ?? "failed";
     const lastAttempt = attempts[attempts.length - 1];
-    const projectName = spec.tests?.[0]?.projectName;
+    const projectName = pwTest?.projectName;
 
     if (finalStatus === "passed") {
       passed += 1;
@@ -933,7 +979,11 @@ export async function collectDefects(options: CollectOptions): Promise<{
     const defect: DefectV1 = {
       $schema: "https://qualityforge.dev/schemas/defect.v1.schema.json",
       schemaVersion: DEFECT_SCHEMA_VERSION,
-      id: defectIdFrom(pwFile, spec.title ?? "untitled"),
+      id: defectIdFrom(
+        pwFile,
+        spec.title ?? "untitled",
+        projectCount > 1 ? projectName : undefined,
+      ),
       runId,
       createdAt,
       status: toDefectStatus(finalStatus),

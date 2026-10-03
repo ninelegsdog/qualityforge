@@ -185,5 +185,6 @@ one in its query string. So:
 
 Early alpha, and the core is in place: the `defect.v1` contract, the collector
 with its quality gate, signal capture with redaction, and a read-only MCP server
-speaking protocol 2026-07-28. Not yet done: a public remote, packaging, and a
-check against a live agent client. See [`docs/roadmap.md`](docs/roadmap.md).
+speaking protocol 2026-07-28. Published at <https://github.com/ninelegsdog/qualityforge>
+and green on CI. Not yet done: packaging, and a check against a live agent
+client. See [`docs/roadmap.md`](docs/roadmap.md).

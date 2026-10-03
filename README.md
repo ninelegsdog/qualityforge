@@ -254,6 +254,13 @@ npm run verify              # lint + typecheck + format check (what CI runs firs
 `mcp:check*` and `ci:validate` need Python 3. They are separate scripts because
 `verify` must stay runnable with only Node installed.
 
+`mcp:check:tools` produces its own evidence to check against: it runs the
+deliberately failing `tests/smoke/evidence-pipeline.spec.ts`, collects the real
+artifacts, and serves those. So it works on a clean checkout and on a green
+commit, instead of needing a failing suite to have been run first. Nothing is
+written inside the project — the seed report, the artifacts and the served root
+all live in a temporary directory, which is kept only if the check fails.
+
 ## Quality rules enforced in CI
 
 - `page.waitForTimeout()` is banned by a lint rule. It is the main cause of

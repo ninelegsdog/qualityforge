@@ -31,6 +31,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   summary can be handed straight to `quality_get_defect` as `defectPath`.
   One canonical form, rather than a caller having to guess which it holds.
 
+### Fixed
+
+- CI never ran. The test job passed an array to setup-node's `node-version` while
+  also declaring `strategy.matrix`, and GitHub rejects that combination when it
+  validates the workflow: the run failed in zero seconds, with no jobs and no
+  logs, reported only as "this run likely failed because of a workflow file
+  issue". The YAML is valid and PyYAML parses it, so every local check passed.
+  Node versions now live in the matrix, and `scripts/validate-ci.py` rejects both
+  that form and artifact names that omit a matrix dimension.
+
+- `scripts/mcp-tools-check.py` required a failing suite to have been run first,
+  and failed with "expected at least one defect to list" on an empty artifacts
+  store. On a green commit the store is empty by design, so the check went red
+  for a reason unrelated to the MCP server — which is how the first CI run that
+  actually executed failed. It now seeds its own evidence with the project's own
+  deliberately failing `evidence-pipeline` spec, in a temporary directory, and
+  asserts that the failure-rate gate trips on it. It no longer depends on prior
+  state and no longer clears `test-results/` from the run before it.
+
+- `collectDefects()` resolved `reportPath`, `outputDir` and `testDir` with
+  `path.join`, which concatenates even when the given path is absolute. An
+  absolute path was silently re-rooted inside the project, and the resulting
+  "missing file" error named the wrong path. All three now use `path.resolve`.
+
+### Added
+
+- `defects:collect --report <path>` and `--out <dir>`, so a run can be collected
+  from a report other than the default and written outside the configured
+  directory. The library already accepted both; only the CLI hardcoded them.
+  Unknown flags are now rejected instead of ignored.
+
+- `QUALITYFORGE_OUTPUT_DIR`, `PLAYWRIGHT_JSON_OUTPUT_NAME` and
+  `PLAYWRIGHT_HTML_OUTPUT_DIR` are honoured in `playwright.config.ts`, so a
+  run can be redirected away from the project's evidence directories.
+
 ### Notes
 
 - The MCP protocol surface is hand-written. `@modelcontextprotocol/sdk@1.32.0`,

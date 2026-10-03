@@ -5,6 +5,7 @@
  * Usage:
  *   npm run defects:collect
  *   npm run defects:collect -- --config config/project.json --json
+ *   npm run defects:collect -- --report other-results.json --out /tmp/scratch
  *
  * Exit codes:
  *   0  collected, quality gate passed
@@ -24,26 +25,62 @@ const ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 const DEFAULT_REPORT = "artifacts/json/playwright-results.json";
 const DEFAULT_TEST_DIR = "tests";
 
-function parseArgs(argv: string[]): { configPath: string | undefined; asJson: boolean } {
+interface Args {
+  configPath: string | undefined;
+  reportPath: string | undefined;
+  outDir: string | undefined;
+  asJson: boolean;
+}
+
+/** Flags that take a value, so a missing one gets a message and not a guess. */
+const VALUE_FLAGS = new Set(["--config", "--report", "--out"]);
+
+function parseArgs(argv: string[]): Args {
   let configPath: string | undefined;
+  let reportPath: string | undefined;
+  let outDir: string | undefined;
   let asJson = false;
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === "--config" && argv[i + 1] !== undefined) {
-      configPath = argv[i + 1];
+    const arg = argv[i];
+    if (arg === undefined) continue;
+    if (VALUE_FLAGS.has(arg)) {
+      const value = argv[i + 1];
+      // A bare value flag followed by another flag means the value was
+      // forgotten. Silently accepting the next flag would write artifacts
+      // somewhere derived from a flag name.
+      if (value === undefined || value.startsWith("--")) {
+        console.error(`Configuration error:\n  ${arg} requires a value`);
+        process.exit(2);
+      }
+      if (arg === "--config") configPath = value;
+      if (arg === "--report") reportPath = value;
+      if (arg === "--out") outDir = value;
       i += 1;
-    } else if (argv[i] === "--json") {
+    } else if (arg === "--json") {
       asJson = true;
-    } else if (argv[i] === "--help" || argv[i] === "-h") {
+    } else if (arg === "--help" || arg === "-h") {
       console.log(
-        "Usage: npm run defects:collect -- [--config <path>] [--json]\n" +
+        "Usage: npm run defects:collect -- [--config <path>] [--report <path>] " +
+          "[--out <dir>] [--json]\n" +
           "\n" +
           "  --config <path>  configuration file (default config/project.json)\n" +
+          "  --report <path>  Playwright JSON report to read (default " +
+          DEFAULT_REPORT +
+          ")\n" +
+          "  --out <dir>      where to write run artifacts (default " +
+          "defects.directory from the config)\n" +
           "  --json           print the run summary as JSON and nothing else\n",
       );
       process.exit(0);
+    } else {
+      // Unknown flags used to be ignored, which meant a typo silently changed
+      // nothing at all. A collector that quietly collects from the wrong report
+      // is worse than one that refuses.
+      console.error(`Configuration error:\n  unknown argument: ${arg}`);
+      process.exit(2);
     }
   }
-  return { configPath, asJson };
+  return { configPath, reportPath, outDir, asJson };
 }
 
 /**
@@ -89,7 +126,7 @@ async function gitInfo(root: string): Promise<{ commit: string | null; branch: s
 }
 
 async function main(): Promise<number> {
-  const { configPath, asJson } = parseArgs(process.argv.slice(2));
+  const { configPath, reportPath, outDir, asJson } = parseArgs(process.argv.slice(2));
 
   let config;
   try {
@@ -108,8 +145,8 @@ async function main(): Promise<number> {
     const { defects, summary, runDir } = await collectDefects({
       projectRoot: ROOT,
       testDir: DEFAULT_TEST_DIR,
-      outputDir: config.defects.directory,
-      reportPath: DEFAULT_REPORT,
+      outputDir: outDir ?? config.defects.directory,
+      reportPath: reportPath ?? DEFAULT_REPORT,
       baseUrl: config.baseUrl,
       referenceErrorContext: config.defects.referenceErrorContext,
       tags: config.tags,

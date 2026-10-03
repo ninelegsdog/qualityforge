@@ -404,7 +404,12 @@ export async function collectDefects(options: CollectOptions): Promise<{
     retries = 0,
   } = options;
 
-  const absoluteReport = path.join(projectRoot, reportPath);
+  // path.resolve, not path.join: join concatenates even when the second
+  // argument is absolute, so passing --report /tmp/x.json would silently read
+  // <projectRoot>/tmp/x.json and report that as the missing path. resolve
+  // honours an absolute argument and resolves a relative one against the root,
+  // which is the behaviour a caller passing a flag expects.
+  const absoluteReport = path.resolve(projectRoot, reportPath);
   let report: PwJsonReport;
   try {
     report = JSON.parse(await readFile(absoluteReport, "utf8")) as PwJsonReport;
@@ -418,7 +423,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
 
   const runId = makeRunId(now);
   const createdAt = now.toISOString();
-  const runDir = path.join(projectRoot, outputDir, runId);
+  const runDir = path.resolve(projectRoot, outputDir, runId);
   await mkdir(runDir, { recursive: true });
 
   const origin = originOf(options.baseUrl);
@@ -436,7 +441,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     // spec.file is relative to testDir, not to the project root.
     const absoluteTestFile = path.isAbsolute(pwFile)
       ? pwFile
-      : path.join(projectRoot, testDir, pwFile);
+      : path.resolve(projectRoot, testDir, pwFile);
     const relativeTestFile = path.isAbsolute(pwFile)
       ? relativize(projectRoot, pwFile)
       : relativize(projectRoot, absoluteTestFile);

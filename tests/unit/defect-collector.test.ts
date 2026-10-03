@@ -10,6 +10,7 @@ import {
   originOf,
   stripAnsi,
 } from "../../src/defect/collect.js";
+import { readGitInfo } from "../../src/defect/git-info.js";
 import { validateDefect } from "../../src/defect/types.js";
 import type { TestStatus } from "../../src/defect/types.js";
 
@@ -225,6 +226,153 @@ test.describe("validateDefect", () => {
     });
 
     expect(result.problems.join()).toContain("ISO 8601");
+  });
+});
+
+test.describe("git context", () => {
+  const SHA = "7f9da99b76aed67545e6449fe0ee65fbeb59abcd";
+
+  /**
+   * Build a throwaway checkout.
+   *
+   * `git` is a map of path -> contents, and may be a function of the sandbox
+   * root because a worktree pointer holds an absolute path: git writes
+   * `gitdir: /abs/path`, and a helper that quietly rooted that at the sandbox
+   * would produce a green test of a broken resolution.
+   */
+  async function checkout(
+    git: Record<string, string> | ((root: string) => Record<string, string>),
+  ): Promise<string> {
+    const root = await mkdtemp(path.join(tmpdir(), "qf-git-"));
+    for (const [name, contents] of Object.entries(typeof git === "function" ? git(root) : git)) {
+      const target = path.join(root, name);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, contents, "utf8");
+    }
+    return root;
+  }
+
+  test("reads the branch and commit from a plain repository", async () => {
+    const root = await checkout({
+      ".git/HEAD": "ref: refs/heads/main\n",
+      ".git/refs/heads/main": `${SHA}\n`,
+    });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("main");
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("follows the gitdir pointer a worktree leaves behind", async () => {
+    // The shape `git worktree add` actually produces: `.git` is a file holding
+    // an absolute path, HEAD is in the worktree's own directory, and the ref
+    // lives in the main repository's, which `commondir` points at.
+    const root = await checkout((r) => ({
+      ".git": `gitdir: ${path.join(r, "repo/.git/worktrees/defects")}\n`,
+      "repo/.git/worktrees/defects/HEAD": "ref: refs/heads/qf/defects\n",
+      "repo/.git/worktrees/defects/commondir": "../..\n",
+      "repo/.git/refs/heads/qf/defects": `${SHA}\n`,
+    }));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("qf/defects");
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("reads a worktree branch that only exists in packed-refs", async () => {
+    const root = await checkout((r) => ({
+      ".git": `gitdir: ${path.join(r, "repo/.git/worktrees/defects")}\n`,
+      "repo/.git/worktrees/defects/HEAD": "ref: refs/heads/qf/defects\n",
+      "repo/.git/worktrees/defects/commondir": "../..\n",
+      "repo/.git/packed-refs": `# pack-refs with: peeled\n${SHA} refs/heads/qf/defects\n`,
+    }));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("qf/defects");
+  });
+
+  test("follows a gitdir pointer that is relative to the pointer file", async () => {
+    // Submodules and older git versions write a relative pointer, resolved
+    // against the directory holding the pointer file.
+    const root = await checkout({
+      ".git": "gitdir: repo/.git/worktrees/defects\n",
+      "repo/.git/worktrees/defects/HEAD": "ref: refs/heads/main\n",
+      "repo/.git/worktrees/defects/commondir": "../..\n",
+      "repo/.git/refs/heads/main": `${SHA}\n`,
+    });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("main");
+  });
+
+  test("a detached HEAD is a commit with no branch, and that is not a problem", async () => {
+    const root = await checkout({ ".git/HEAD": `${SHA}\n` });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBeNull();
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("no git at all is a legitimate absence, not a failure to report", async () => {
+    // A tarball export, or a Docker layer copied without .git. `null` is the
+    // right answer here and there is nothing to warn about.
+    const root = await mkdtemp(path.join(tmpdir(), "qf-git-"));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBeNull();
+    expect(info.branch).toBeNull();
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("a gitdir pointer to nowhere says so instead of returning null in silence", async () => {
+    const root = await checkout((r) => ({
+      ".git": `gitdir: ${path.join(r, "repo/.git/worktrees/gone")}\n`,
+    }));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBeNull();
+    // The difference that matters: this null is "I could not tell", and it is
+    // reported as such rather than looking identical to "there is no git here".
+    expect(info.problem).toContain("gitdir");
+  });
+
+  test("a .git file without a gitdir pointer says so", async () => {
+    const root = await checkout({ ".git": "this is not a git pointer\n" });
+
+    const info = await readGitInfo(root);
+
+    expect(info.problem).toContain("gitdir");
+  });
+
+  test("a branch with no ref anywhere names the missing ref", async () => {
+    const root = await checkout({ ".git/HEAD": "ref: refs/heads/gone\n" });
+
+    const info = await readGitInfo(root);
+
+    expect(info.branch).toBe("gone");
+    expect(info.commit).toBeNull();
+    expect(info.problem).toContain("refs/heads/gone");
+  });
+
+  test("an unrecognised HEAD shape says so rather than returning null in silence", async () => {
+    const root = await checkout({ ".git/HEAD": "garbage\n" });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBeNull();
+    expect(info.problem).toContain("HEAD");
   });
 });
 

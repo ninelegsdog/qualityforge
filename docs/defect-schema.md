@@ -201,7 +201,13 @@ Rules a consumer can rely on:
 11. **`httpErrors[].statusText` is frequently an empty string** and must not be
     branched on. Chromium does not expose a reason phrase for HTTP/2 or for a
     response that crossed a TLS-terminating proxy. `status` is the reliable field.
-12. **A defect produced by an expected failure (`test.fail()`) carries no
+12. **`context.commit` is `null` in two different situations, and only one of them
+    is quiet.** A checkout with no git at all records `commit: null, branch: null`
+    and prints nothing. A checkout whose git directory exists but could not be
+    read — an unfollowed `gitdir:` pointer, a missing ref — records the same
+    values _and_ makes the collector warn on stderr. Treat a null commit from a
+    git-backed run as a problem to investigate, not as an absence.
+13. **A defect produced by an expected failure (`test.fail()`) carries no
     evidence.** The fixture attaches `quality-context` only when
     `testInfo.status !== testInfo.expectedStatus`, which is false for an expected
     failure, and the runner attaches no screenshot or video for one either. The
@@ -447,18 +453,23 @@ _Proposed:_ producer — attach on `testInfo.status === "failed"` rather than on
 comparison with `expectedStatus`, so evidence follows the outcome. Documented as
 rule 12 until then.
 
-#### G13 · `commit` and `branch` are silently null in a git worktree
+#### G13 · ~~`commit` and `branch` are silently null in a git worktree~~ — fixed
 
-Every artifact from every run in a worktree records `commit: null, branch: null`,
-while `git rev-parse HEAD` succeeds. `gitInfo()` reads `<root>/.git` expecting
+Every artifact from every run in a worktree recorded `commit: null, branch: null`,
+while `git rev-parse HEAD` succeeded. `gitInfo()` read `<root>/.git` expecting
 either `ref: refs/heads/…` or a bare SHA; in a worktree that path is a _file_
 containing `gitdir: /…/.git/worktrees/<name>`, which matches neither, so it
 returns nothing rather than failing.
 
-_Risk:_ history joined on commit degrades to no history without saying so, and two
-artifacts from different commits look identical.
-
-_Proposed:_ producer — follow `gitdir:` and read `HEAD` and its ref from there.
+_Fixed in `src/defect/git-info.ts`._ The `gitdir:` pointer is followed, a
+relative one is resolved against the directory holding the pointer file, and
+`commondir` is honoured — a linked worktree keeps its own `HEAD` but shares the
+ref store with the main repository, so the branch ref is in the common
+directory. The loader now also separates the two reasons for a null commit:
+**absent** `problem` means there is no git here (a tarball export, which is
+legitimate and silent), while a set `problem` means git is here and could not be
+read. The collector prints the second to stderr, so `--json` output stays pure
+JSON and a lost VCS context cannot pass unnoticed again.
 
 #### G14 · `error-context.md` is unbounded, and it is the file this contract points at
 

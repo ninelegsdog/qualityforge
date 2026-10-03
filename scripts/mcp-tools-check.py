@@ -6,6 +6,11 @@ The session check proves the envelope. This one proves the tools answer with
 real data, and that the path boundary holds as a client experiences it — over a
 pipe, through the tool interface, not just by calling a function.
 
+The 2026-07-28 requests below carry the `_meta` envelope that revision makes
+mandatory, and one deliberately omits it: a tool call is not exempt from a rule
+that applies to every request, and the tools check is where the data path gets
+exercised rather than the tool list.
+
 Self-seeding, deliberately.
 
 This check used to require the operator to run a failing suite first: it listed
@@ -30,6 +35,25 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import evidence_seed  # noqa: E402  (needs the path above)
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+
+# --- The 2026-07-28 `_meta` envelope ---------------------------------------
+#
+# Taken from the protocol implementation inside the OpenCode 2.0.16 binary: that
+# revision requires io.modelcontextprotocol/protocolVersion and
+# io.modelcontextprotocol/clientCapabilities on every request, so the data path
+# below is driven with the envelope a real client sends, and with the envelope
+# left off, because a tool call is no exception to the rule.
+MODERN = "2026-07-28"
+META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion"
+META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities"
+META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+
+UNSUPPORTED_PROTOCOL_VERSION = -32022
+
+
+def envelope() -> dict:
+    """The `_meta` a 2026-07-28 client attaches to every request."""
+    return {META_PROTOCOL_VERSION: MODERN, META_CLIENT_CAPABILITIES: {}}
 
 
 def run(requests: list[dict], root: pathlib.Path) -> tuple[dict, list, int]:
@@ -113,6 +137,28 @@ def main() -> int:
                 "method": "prompts/get",
                 "params": {"name": "triage_failure", "arguments": {"defectPath": "x/y.v1.json"}},
             },
+            # The data path on the modern path: same tool, envelope attached.
+            {
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {
+                    "name": "quality_list_failures",
+                    "arguments": {},
+                    "_meta": envelope(),
+                },
+            },
+            # The same tool, declared 2026-07-28, envelope left off.
+            {
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {
+                    "name": "quality_get_latest_run",
+                    "arguments": {},
+                    "protocolVersion": MODERN,
+                },
+            },
         ],
         served_root,
     )
@@ -161,13 +207,42 @@ def main() -> int:
     if not messages or "quality_get_defect" not in json.dumps(messages):
         problems.append("triage prompt missing or empty")
 
+    # --- the envelope, on the data path -----------------------------------
+    enveloped = frames.get(11, {})
+    if "error" in enveloped:
+        problems.append(f"tools/call with a {MODERN} envelope failed: {enveloped['error']}")
+    else:
+        structured = (enveloped.get("result") or {}).get("structuredContent") or {}
+        if not structured.get("defects"):
+            problems.append("tools/call with an envelope returned no defects")
+        meta = (enveloped.get("result") or {}).get("_meta")
+        if not isinstance(meta, dict) or not isinstance(
+            (meta.get(META_SERVER_INFO) or {}).get("name"), str
+        ):
+            problems.append(f"tools/call result does not carry _meta.{META_SERVER_INFO}")
+
+    without = frames.get(12, {}).get("error", {}).get("code")
+    if without != UNSUPPORTED_PROTOCOL_VERSION:
+        problems.append(
+            f"tools/call declaring {MODERN} with no `_meta` answered {without}, "
+            f"expected {UNSUPPORTED_PROTOCOL_VERSION}"
+        )
+
+    print(
+        f"envelope: tools/call with `_meta` served, without it {without}"
+    )
+
     if defect_path:
         followup = [
             {
                 "jsonrpc": "2.0",
                 "id": 7,
                 "method": "tools/call",
-                "params": {"name": "quality_get_defect", "arguments": {"defectPath": defect_path}},
+                "params": {
+                    "name": "quality_get_defect",
+                    "arguments": {"defectPath": defect_path},
+                    "_meta": envelope(),
+                },
             }
         ]
         frames2, corrupt2, _ = run(followup, served_root)
@@ -200,7 +275,10 @@ def main() -> int:
         return 1
 
     evidence_seed.discard(scratch)
-    print("OK: tools answer with real data, all three traversal shapes refused with -32602")
+    print(
+        "OK: tools answer with real data, all three traversal shapes refused with -32602, "
+        f"the {MODERN} envelope required and answered"
+    )
     return 0
 
 

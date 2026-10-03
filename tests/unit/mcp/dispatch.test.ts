@@ -135,6 +135,66 @@ test.describe("protocol envelope", () => {
     expect(payload.capabilities).toBeDefined();
   });
 
+  test("initialize echoes the version the client asked for", async () => {
+    // Negotiation, not assertion. OpenCode's default mode is "legacy" and
+    // speaks only up to 2025-11-25; answering 2026-07-28 to it gets the
+    // connection refused with "Server's protocol version is not supported".
+    const context = await makeContext();
+
+    const legacy = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "c", version: "1" },
+        },
+      }),
+    );
+    expect(legacy.protocolVersion).toBe("2025-11-25");
+
+    const modern = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "c", version: "1" },
+        },
+      }),
+    );
+    expect(modern.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+  });
+
+  test("initialize falls back to the newest version it serves when it cannot echo", async () => {
+    // Two cases that must not produce an absent or invented version: a client
+    // that states nothing, and one asking for something unheard of.
+    const context = await makeContext();
+
+    const unstated = result(
+      await dispatch(context, { jsonrpc: "2.0", id: 1, method: "initialize" }),
+    );
+    expect(unstated.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+
+    const unknown = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: {
+          protocolVersion: "1999-01-01",
+          capabilities: {},
+          clientInfo: { name: "c", version: "1" },
+        },
+      }),
+    );
+    expect(unknown.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+  });
+
   test("tools/list returns a stable order, so a client cache does not churn", async () => {
     const context = await makeContext();
     const first = result(await dispatch(context, { jsonrpc: "2.0", id: 1, method: "tools/list" }));

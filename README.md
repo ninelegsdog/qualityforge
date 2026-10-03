@@ -196,6 +196,19 @@ three:
 Add `--root <dir>` to serve artifacts from somewhere other than
 `artifacts/defects`.
 
+Two things worth knowing, both found by connecting a real client rather than by
+reading the code:
+
+- If a relative root does not exist under the client's working directory, the
+  server falls back to this checkout and says so on stderr. Without that
+  fallback a client spawning the server from another directory reported only
+  "Connection closed", because the actionable message went to stderr and was
+  discarded.
+- Spell the runner out rather than relying on `npx`. `["npx", "tsx", ...]` did
+  not start under OpenCode, while `["node", "<abs>/node_modules/tsx/dist/cli.mjs",
+"<abs>/src/mcp/index.ts"]` did. Which of the two is at fault has not been
+  established.
+
 | Tool                     | What it answers                                                       |
 | ------------------------ | --------------------------------------------------------------------- |
 | `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed       |

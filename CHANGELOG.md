@@ -33,6 +33,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The MCP server resolved a relative `--root` against the working directory only.
+  An MCP client does not `cd` into this repository: OpenCode, Kilo and MiMo spawn
+  the server from the user's project directory, so the root resolved somewhere
+  that does not exist, the store failed to initialise, and the client reported
+  only `Connection closed` — the message naming the cause went to stderr, which
+  clients discard. It now falls back to this checkout when the working-directory
+  root is absent, and says on stderr that it did.
+
+- `initialize` answered with the server's newest protocol version regardless of
+  the version the client asked for. Negotiation requires echoing the client's
+  version when it is one we can serve. OpenCode, whose default negotiation mode
+  is "legacy" and therefore speaks only up to 2025-11-25, refused the connection
+  with `Server's protocol version is not supported: 2026-07-28`.
+
+- `npm run typecheck` failed about half the time on this machine with
+  `Segmentation fault`, exit 139. Not a project fault: `tsc` crashes the same way
+  on an unrelated one-file project, and under Node 22 it failed 0 of 14 runs
+  against 4 of 8 on Node 24.21.0. `scripts/typecheck.mjs` now retries only on
+  death by signal, which takes the failure rate to about 1 in 12 without
+  weakening the check. The real fix is running the project on Node 22.
+
 - CI never ran. The test job passed an array to setup-node's `node-version` while
   also declaring `strategy.matrix`, and GitHub rejects that combination when it
   validates the workflow: the run failed in zero seconds, with no jobs and no

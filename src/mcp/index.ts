@@ -29,7 +29,9 @@
  *
  * Nothing here writes to stdout except JSON-RPC frames.
  */
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "./stdio.js";
 import { stderrLogger } from "./server.js";
 import { ArtifactStore } from "./store.js";
@@ -37,6 +39,9 @@ import { SERVER_NAME, SERVER_VERSION } from "./protocol.js";
 
 /** Default root: where `npm run defects:collect` writes. */
 const DEFAULT_ROOT = "artifacts/defects";
+
+/** Root of this checkout, used to resolve a relative root when cwd has none. */
+const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 function usage(): string {
   return [
@@ -83,10 +88,29 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  // Resolve relative to the invocation directory, not to this file, so the
-  // server can be started from anywhere.
+  // Resolution order, and the reason for it.
+  //
+  // A relative root is resolved against the invocation directory first, because
+  // that is what someone who `cd`s into a project expects. But an MCP client
+  // does not do that: OpenCode, Kilo and MiMo spawn the server with their own
+  // working directory, which is the user's project, not this repository. The
+  // relative root then resolves to a directory that does not exist, the store
+  // fails to initialise, and the client reports only "Connection closed" - the
+  // actionable message goes to stderr, which the client discards.
+  //
+  // So when the working-directory root is absent, fall back to the root of the
+  // checkout this file lives in. An explicit --root is always honoured as given.
   const cwd = process.cwd();
-  const absoluteRoot = path.resolve(cwd, root ?? DEFAULT_ROOT);
+  const fromCwd = path.resolve(cwd, root ?? DEFAULT_ROOT);
+  let absoluteRoot = fromCwd;
+  let usedFallback = false;
+  if (!existsSync(fromCwd)) {
+    const fromPackage = path.resolve(PACKAGE_ROOT, root ?? DEFAULT_ROOT);
+    if (existsSync(fromPackage)) {
+      absoluteRoot = fromPackage;
+      usedFallback = true;
+    }
+  }
 
   const store = new ArtifactStore({ root: absoluteRoot });
   try {
@@ -97,6 +121,14 @@ async function main(): Promise<number> {
   }
 
   // stderr, not stdout: a startup banner on stdout is a corrupt frame.
+  // Say so when the root came from the fallback, because the user did not ask
+  // for that path and would otherwise have no idea which directory is served.
+  if (usedFallback) {
+    console.error(
+      `[qualityforge-mcp] no artifacts root at ${fromCwd} relative to the ` +
+        `working directory; falling back to this checkout at ${absoluteRoot}`,
+    );
+  }
   console.error(
     `[qualityforge-mcp] serving ${absoluteRoot} (read-only). ` +
       "Protocol 2026-07-28 with 2025-11-25 handshake accepted.",

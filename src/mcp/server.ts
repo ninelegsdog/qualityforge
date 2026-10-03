@@ -123,16 +123,34 @@ export async function dispatch(
       // Compatibility with clients that still perform the 2025-11-25
       // handshake. Removed in 2026-07-28, but such a client must still get
       // tools/list, and answering costs nothing.
-      case "initialize":
+      //
+      // The version must be negotiated, not asserted. Answering with our
+      // latest regardless of what the client asked for is a protocol
+      // violation: OpenCode, whose default mode is "legacy" and therefore only
+      // speaks up to 2025-11-25, refuses the connection outright with
+      // "Server's protocol version is not supported: 2026-07-28". Echo the
+      // client's version when we can serve it, and fall back to our latest only
+      // when the client stated nothing usable.
+      case "initialize": {
+        const stated = request.params?.protocolVersion;
+        const requested = typeof stated === "string" && stated !== "" ? stated : undefined;
+        // canServe(undefined) is true on purpose - a client that states nothing
+        // still deserves an answer - so it cannot be the condition here, or the
+        // reply would echo an absent version.
+        const version =
+          requested !== undefined && canServe(requested)
+            ? requested
+            : SUPPORTED_PROTOCOL_VERSIONS[0];
         return reply(
           ok(id, {
             resultType: RESULT_TYPE_COMPLETE,
-            protocolVersion: SUPPORTED_PROTOCOL_VERSIONS[0],
+            protocolVersion: version,
             capabilities: CAPABILITIES,
             serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
             instructions: SERVER_INSTRUCTIONS,
           }),
         );
+      }
 
       case "notifications/initialized":
       case "notifications/cancelled":

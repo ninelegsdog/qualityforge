@@ -59,20 +59,33 @@ jobs:
       - name: Check documentation links
         run: npm run docs:check
 
-  test:
-    # Node versions live in the matrix, not in `node-version`. Passing an array
-    # to setup-node inside a job that already declares strategy.matrix is
-    # rejected by GitHub at workflow validation, and the run fails in zero
-    # seconds with no jobs and no logs. That failure mode is invisible locally:
-    # the YAML is valid and PyYAML parses it happily.
-    name: Tests (${{ matrix.browser }}, node ${{ matrix.node }})
+  # The Node axis, spent where Node-version sensitivity actually lives.
+  #
+  # The pure-logic tests are the Node-sensitive half of this repository: config
+  # loading, path handling, ANSI stripping, JSON parsing and the MCP store are
+  # all Node APIs, and none of them run a browser. The smoke suite drives a
+  # browser and touches almost no Node API whose behaviour differs between two
+  # LTS lines, and it is also the expensive half: a browser leg is dominated by
+  # `playwright install`, not by the suite. So both active lines run the unit
+  # project here and the three engines run on the newer line only.
+  #
+  # The saving is larger than it looks, because the two self-seeding MCP checks
+  # are not cheap either and they run per leg: 50s and 51s measured, against a
+  # unit suite of 14s. Node 22 x {firefox, webkit} would have added two legs
+  # that each download a browser and then spend ~100s on checks that exercise
+  # no browser at all.
+  #
+  # This job exists mostly so the `unit` project is not orphaned. `--project`
+  # selects exactly one project, so browser legs on their own would quietly stop
+  # running these 135 tests, and the failure mode is invisible until somebody
+  # notices a test that has not run in weeks.
+  unit:
+    name: Unit tests (node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    # Browser download plus a suite is minutes, not hours.
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium]
         # Node 20 is past end-of-life; these are the two active LTS lines.
         node: [22, 24]
     steps:
@@ -87,21 +100,14 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      # Install only the browser this job needs. Installing all of them wastes
-      # both time and disk on the runner.
-      - name: Install browser
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Run unit tests
+        run: npx playwright test --project=unit
 
-      - name: Run tests
-        run: npm test
-
-      # A failing run must still publish its evidence, otherwise the whole point
-      # of trace/screenshot/video is lost.
       - name: Upload artifacts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report-${{ matrix.browser }}-node${{ matrix.node }}
+          name: playwright-report-unit-node${{ matrix.node }}
           path: |
             playwright-report/
             test-results/
@@ -112,7 +118,114 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: junit-${{ matrix.browser }}-node${{ matrix.node }}
+          name: junit-unit-node${{ matrix.node }}
+          path: test-results/junit.xml
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # The same evidence pipeline as the browser legs, on a run that cannot
+      # produce a browser failure. If the collector or the MCP checks only work
+      # when something interesting happened, this is the leg that notices.
+      - name: Collect defect artifacts
+        if: ${{ !cancelled() }}
+        run: npm run defects:collect
+
+      - name: Check MCP session and tool confinement
+        if: ${{ !cancelled() }}
+        run: |
+          python3 scripts/mcp-session-check.py .
+          python3 scripts/mcp-tools-check.py .
+
+      - name: Upload defect artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: defects-unit-node${{ matrix.node }}
+          path: artifacts/defects/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # Cost per leg, measured on this repository at 2 workers with retries on:
+  #
+  #   leg      suite    + collect + 2 MCP checks   browser download
+  #   unit       14s          ~100s                     none
+  #   chromium   17s          ~118s                 393M + 261M
+  #   firefox    49s          ~150s                  306M
+  #   webkit     51s          ~152s                  294M
+  #
+  # Five legs, and the MCP checks rather than the tests are now the largest
+  # single item in every one of them. Downloads above measured against the
+  # Playwright CDN from this host (109M in 13s, 102M in 14s) and will be
+  # slower on a GitHub runner, which is why they are quoted as size rather than
+  # time: the transfer is the part that varies, and `--with-deps` on top of it
+  # is apt work whose duration is not ours to predict.
+  test:
+    # Node versions live in the matrix, not in `node-version`. Passing an array
+    # to setup-node inside a job that already declares strategy.matrix is
+    # rejected by GitHub at workflow validation, and the run fails in zero
+    # seconds with no jobs and no logs. That failure mode is invisible locally:
+    # the YAML is valid and PyYAML parses it happily.
+    name: Tests (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    # Browser download plus a suite is minutes, not hours.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      # Install only the browser this job needs. Installing all of them wastes
+      # both time and disk on the runner. WebKit on Linux is the leg most likely
+      # to fail here for want of a system library rather than a bug; `--with-deps`
+      # is what installs them, and this step is the dominant cost of a leg.
+      - name: Install browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      # --project, not the bare `npm test`, for two reasons.
+      #
+      # 1. This leg installed exactly one browser. `npm test` runs every project
+      #    in playwright.config.ts, and the two projects whose executable is
+      #    missing would fail, so the leg would go red for a reason that has
+      #    nothing to do with the code.
+      # 2. It keeps one browser process tree per leg. Running all three projects
+      #    at once at four local workers was reported to SIGSEGV the Playwright
+      #    worker twice while this matrix was being written; four subsequent
+      #    full-matrix runs at four workers did not reproduce it. Treat it as
+      #    unproven, not established - but a leg that runs one engine cannot hit
+      #    it, and the unit project that this would otherwise drop is run by the
+      #    `unit` job above.
+      - name: Run tests
+        run: npx playwright test --project=${{ matrix.browser }}
+
+      # A failing run must still publish its evidence, otherwise the whole point
+      # of trace/screenshot/video is lost.
+      - name: Upload artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report-${{ matrix.browser }}-node24
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload JUnit results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: junit-${{ matrix.browser }}-node24
           path: test-results/junit.xml
           retention-days: 14
           if-no-files-found: ignore
@@ -138,7 +251,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: defects-${{ matrix.browser }}-node${{ matrix.node }}
+          name: defects-${{ matrix.browser }}-node24
           path: artifacts/defects/
           retention-days: 30
           if-no-files-found: ignore

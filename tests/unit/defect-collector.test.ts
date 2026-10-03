@@ -11,7 +11,11 @@ import {
   stripAnsi,
 } from "../../src/defect/collect.js";
 import { readGitInfo } from "../../src/defect/git-info.js";
-import { shouldAttachContext } from "../../src/defect/page-context.js";
+import {
+  capturePageContext,
+  shouldAttachContext,
+  type PageLike,
+} from "../../src/defect/page-context.js";
 import { validateDefect } from "../../src/defect/types.js";
 import type { TestStatus } from "../../src/defect/types.js";
 
@@ -210,6 +214,61 @@ test.describe("validateDefect", () => {
 
     expect(result.valid).toBe(false);
     expect(result.problems.join()).toContain("kebab-case");
+  });
+
+  test("accepts an artifact carrying a page", () => {
+    const result = validateDefect({
+      schemaVersion: "1.1.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom" },
+      evidence: {},
+      context: {},
+      page: { url: "https://example.com/form" },
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.problems).toEqual([]);
+  });
+
+  test("rejects a page with no url, which states nothing actionable", () => {
+    const result = validateDefect({
+      schemaVersion: "1.1.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom" },
+      evidence: {},
+      context: {},
+      page: { title: "Contact form" },
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.problems.join()).toContain("page.url");
+  });
+
+  test("rejects a targetSource outside the vocabulary", () => {
+    const result = validateDefect({
+      schemaVersion: "1.1.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom" },
+      evidence: {},
+      context: { targetSource: "guesswork" },
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.problems.join()).toContain("context.targetSource");
   });
 
   test("rejects a createdAt that is not ISO 8601", () => {
@@ -608,7 +667,7 @@ test.describe("collectDefects", () => {
 
 test.describe("what the fixture decides to record", () => {
   /**
-   * The rule the fixture used before this fix, kept so the tests below can be
+   * The rule the fixture used before this fix, kept so the expectations below
    * read as a difference rather than as a preference.
    *
    * It is what `testInfo.status !== testInfo.expectedStatus` evaluates to.
@@ -622,23 +681,22 @@ test.describe("what the fixture decides to record", () => {
     // them produced no attachment at all: evidence deleted at exactly the moment
     // someone wanted it. This is the whole defect, in one line.
     expect(previousRule("failed", "failed")).toBe(false);
-    expect(shouldAttachContext("failed", "failed")).toBe(true);
+    expect(shouldAttachContext("failed", "failed", true)).toBe(true);
   });
 
   test("an expected failure that passes unexpectedly attaches nothing", () => {
     // test.fail() and the test passed: the runner reports status "passed" against
-    // an expected "failed", so this is a wrong claim about the application
-    // rather than a defect in it. Both rules agree, which is why it is worth
-    // saying out loud that the fix did not widen this case.
-    expect(shouldAttachContext("passed", "failed")).toBe(false);
+    // an expected "failed". Both rules agree this is not a failure to record, and
+    // it is worth saying out loud that the fix did not widen this case.
+    expect(shouldAttachContext("passed", "failed", true)).toBe(false);
   });
 
   test("a genuinely unexpected failure attaches", () => {
-    expect(shouldAttachContext("failed", "passed")).toBe(true);
+    expect(shouldAttachContext("failed", "passed", true)).toBe(true);
   });
 
   test("a passing test attaches nothing, expected or not", () => {
-    expect(shouldAttachContext("passed", "passed")).toBe(false);
+    expect(shouldAttachContext("passed", "passed", true)).toBe(false);
   });
 
   test("a timeout attaches, because the page state at a timeout is the evidence", () => {
@@ -647,22 +705,217 @@ test.describe("what the fixture decides to record", () => {
     // timed-out test has more page state worth recording than a passing one.
     // The previous rule already attached here, so this is not a widening.
     expect(previousRule("timedOut", "passed")).toBe(true);
-    expect(shouldAttachContext("timedOut", "passed")).toBe(true);
+    expect(shouldAttachContext("timedOut", "passed", true)).toBe(true);
   });
 
   test("an interrupted test attaches too", () => {
     expect(previousRule("interrupted", "passed")).toBe(true);
-    expect(shouldAttachContext("interrupted", "passed")).toBe(true);
+    expect(shouldAttachContext("interrupted", "passed", true)).toBe(true);
   });
 
   test("a skipped test is not a failure and attaches nothing", () => {
-    expect(shouldAttachContext("skipped", "passed")).toBe(false);
+    expect(shouldAttachContext("skipped", "passed", true)).toBe(false);
   });
 
   test("an absent status is not a failure", () => {
-    // Fail closed on the evidence question, open on the outcome: an unknown
-    // status is not claimed to be a failure just in case.
-    expect(shouldAttachContext(undefined, undefined)).toBe(false);
+    // Open on the outcome: an unknown status is not claimed to be a failure just
+    // in case, even though the collector fails closed on what it does not know.
+    expect(shouldAttachContext(undefined, undefined, true)).toBe(false);
+  });
+
+  test("a failure with nothing at all to record attaches nothing", () => {
+    // The page counts as something to record, which is why this is the fixture's
+    // argument and not the rule's: a failing test that drove no page and captured
+    // no signal has an empty payload, and an empty payload reads as "we looked
+    // and found nothing", which is not what happened.
+    expect(shouldAttachContext("failed", "passed", false)).toBe(false);
+  });
+});
+
+test.describe("the page a failure happened on", () => {
+  /** A Page stand-in, so the rule is checked without a browser. */
+  function fakePage(over: Partial<PageLike> = {}): PageLike {
+    return {
+      url: () => "http://127.0.0.1:4411/form",
+      title: () => Promise.resolve("Contact form"),
+      ...over,
+    };
+  }
+
+  test("records the url and the title", async () => {
+    const context = await capturePageContext(fakePage());
+
+    expect(context).toEqual({ url: "http://127.0.0.1:4411/form", title: "Contact form" });
+  });
+
+  test("a page with no title records the url alone rather than an empty string", async () => {
+    // An empty title would read as "the page's title is empty", which is a claim
+    // about the application. What happened is that we did not get one.
+    const context = await capturePageContext(fakePage({ title: () => Promise.resolve("") }));
+
+    expect(context).toEqual({ url: "http://127.0.0.1:4411/form" });
+    expect(context).not.toHaveProperty("title");
+  });
+
+  test("the url is redacted, so a token in the query never reaches an artifact", async () => {
+    const context = await capturePageContext(
+      fakePage({ url: () => "https://app.example.com/reset?token=secret123#step-2" }),
+    );
+
+    expect(context?.url).toBe("https://app.example.com/reset");
+    expect(context?.url).not.toContain("secret123");
+  });
+
+  test("credentials in the url are removed", async () => {
+    const context = await capturePageContext(
+      fakePage({ url: () => "https://user:pass@app.example.com/private" }),
+    );
+
+    expect(context?.url).toBe("https://app.example.com/private");
+  });
+
+  test("no page at all is absent rather than a placeholder", async () => {
+    // The contract distinguishes "not observed" from "observed and empty", and
+    // that applies to the page too.
+    expect(await capturePageContext(fakePage({ url: () => "" }))).toBeUndefined();
+  });
+
+  test("a title that rejects does not fail the test", async () => {
+    // page.title() can reject on a page that navigated away mid-teardown.
+    // Losing a title is never worth failing a test over.
+    const context = await capturePageContext(
+      fakePage({
+        title: () => Promise.reject(new Error("Execution context was destroyed")),
+      }),
+    );
+
+    expect(context).toEqual({ url: "http://127.0.0.1:4411/form" });
+  });
+
+  test("a url that throws is treated as no page rather than crashing the fixture", async () => {
+    const context = await capturePageContext(
+      fakePage({
+        url: () => {
+          throw new Error("page is closed");
+        },
+      }),
+    );
+
+    expect(context).toBeUndefined();
+  });
+});
+
+test.describe("which application was under test", () => {
+  const OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+  } as const;
+
+  /** A one-failure report, optionally carrying a webServer block. */
+  async function failing(root: string, webServerUrl?: string): Promise<string> {
+    const report = JSON.parse(reportWith(root, [{ status: "failed" }])) as Record<string, unknown>;
+    if (webServerUrl !== undefined) {
+      (report["config"] as Record<string, unknown>)["webServer"] = { url: webServerUrl };
+    }
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      JSON.stringify(report),
+      "utf8",
+    );
+    return root;
+  }
+
+  test("BASE_URL wins, because it is the value the runner's config reads", async () => {
+    const root = await failing(await scaffold(() => ({})), "http://127.0.0.1:4311");
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+      environmentBaseUrl: "https://quotes.toscrape.com",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://quotes.toscrape.com");
+    expect(defects[0]?.context.targetSource).toBe("environment");
+  });
+
+  test("without BASE_URL the report's webServer url is used", async () => {
+    const root = await failing(await scaffold(() => ({})), "https://app.example.com");
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://app.example.com");
+    expect(defects[0]?.context.targetSource).toBe("report");
+  });
+
+  test("with neither, the configured value is the fallback and says so", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("http://127.0.0.1:4311");
+    expect(defects[0]?.context.targetSource).toBe("config");
+  });
+
+  test("a BASE_URL that is not absolute is ignored rather than recorded", async () => {
+    // Playwright reports a relative BASE_URL far more clearly than this can.
+    // Recording "/api" as an origin would put a meaningless claim in an artifact.
+    const root = await failing(await scaffold(() => ({})), "https://app.example.com");
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+      environmentBaseUrl: "/relative/path",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://app.example.com");
+    expect(defects[0]?.context.targetSource).toBe("report");
+  });
+
+  test("the recorded origin drops credentials, path and query", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      environmentBaseUrl: "https://user:token@app.example.com/tenant?x=1",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://app.example.com");
+  });
+
+  test("no source at all leaves baseUrl absent rather than guessing", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.context.baseUrl).toBeUndefined();
+    expect(defects[0]?.context.targetSource).toBeUndefined();
+  });
+
+  test("the run summary carries the same target and source as the artifacts", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { summary } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+      environmentBaseUrl: "https://quotes.toscrape.com",
+    });
+
+    expect(summary.baseUrl).toBe("https://quotes.toscrape.com");
+    expect(summary.targetSource).toBe("environment");
   });
 });
 
@@ -1044,6 +1297,106 @@ test.describe("signal enrichment", () => {
     });
 
     expect(defects[0]?.signals?.dropped).toBe(17);
+  });
+
+  test("folds the page the failure happened on into the artifact", async () => {
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: { pageErrors: ["TypeError"] },
+      dropped: 0,
+      page: { url: "https://quotes.toscrape.com/login", title: "Quotes to Scrape: Login" },
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]?.page).toEqual({
+      url: "https://quotes.toscrape.com/login",
+      title: "Quotes to Scrape: Login",
+    });
+  });
+
+  test("records the page even when the test captured no signals at all", async () => {
+    // The two blocks have different rules. Signals are absent unless something
+    // was observed; the page is present whenever the test drove a page, because
+    // a page that threw no console error is still the page the failure was on.
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: { consoleErrors: [], consoleWarnings: [], pageErrors: [], requestFailures: [] },
+      dropped: 0,
+      page: { url: "https://quotes.toscrape.com/" },
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]?.page).toEqual({ url: "https://quotes.toscrape.com/" });
+    expect(defects[0]).not.toHaveProperty("signals");
+  });
+
+  test("a page with a title only and no url is dropped rather than half-recorded", async () => {
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: { pageErrors: ["TypeError"] },
+      dropped: 0,
+      page: { title: "no url here" },
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    // A page block with no url states nothing a consumer can act on.
+    expect(defects[0]).not.toHaveProperty("page");
+    expect(defects[0]).toHaveProperty("signals");
+  });
+
+  test("omits the page when the fixture recorded none", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": reportWith(sandbox, [{ status: "failed" }]),
+    }));
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]).not.toHaveProperty("page");
   });
 
   test("reads an inline attachment carried as base64, not as a path", async () => {

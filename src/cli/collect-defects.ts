@@ -98,6 +98,12 @@ async function main(): Promise<number> {
     throw error;
   }
 
+  // BASE_URL is what playwright.config.ts reads, so when it is set it is the
+  // best available evidence of the application the browser was actually on. The
+  // collector records which input it used, so an artifact never claims an
+  // origin without saying where that claim came from.
+  const environmentBaseUrl = process.env.BASE_URL;
+
   const { commit, branch, problem } = await readGitInfo(ROOT);
   if (problem !== undefined) {
     // stderr, never stdout: --json promises that stdout carries the summary and
@@ -115,6 +121,7 @@ async function main(): Promise<number> {
       outputDir: outDir ?? config.defects.directory,
       reportPath: reportPath ?? DEFAULT_REPORT,
       baseUrl: config.baseUrl,
+      ...(environmentBaseUrl === undefined ? {} : { environmentBaseUrl }),
       referenceErrorContext: config.defects.referenceErrorContext,
       tags: config.tags,
       thresholds: config.thresholds,

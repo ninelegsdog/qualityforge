@@ -31,11 +31,13 @@ import type { ProjectConfig } from "../config/types.js";
 import {
   DEFECT_SCHEMA_VERSION,
   type DefectLocation,
+  type DefectPage,
   type DefectSignals,
   type DefectStatus,
   type DefectV1,
   type FlakinessVerdict,
   type RetryEntry,
+  type TargetSource,
   type TestStatus,
   validateDefect,
 } from "./types.js";
@@ -102,7 +104,14 @@ interface PwSuite {
 }
 
 interface PwJsonReport {
-  config?: { rootDir?: string };
+  config?: {
+    rootDir?: string;
+    /**
+     * Present only when the project declares a `webServer`. Verified against
+     * 1.63.0: `use` is serialised as null, so `use.baseURL` is not available.
+     */
+    webServer?: { url?: string } | null;
+  };
   stats?: {
     startTime?: string;
     duration?: number;
@@ -156,6 +165,53 @@ export function originOf(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The application under test, and where that answer came from.
+ *
+ * `config/project.json`'s `baseUrl` is what *this project* is usually pointed at,
+ * which is not the same claim as what the browser was on. Pointing the suite at a
+ * third party with `BASE_URL` leaves the configured value untouched, and
+ * Playwright's JSON report does not serialise `use.baseURL` — so every artifact
+ * from a third-party run claimed the bundled fixture's origin while the browser
+ * was somewhere else entirely. A consumer grouping defects by origin then
+ * silently merged two applications' failures.
+ *
+ * Three inputs, most trustworthy first:
+ *
+ * - `environment` — `BASE_URL`. This is the strongest available evidence, since
+ *   it is the very value the runner's config reads. Not absolute proof: a
+ *   project whose Playwright config derives its base URL some other way would
+ *   report `environment` incorrectly. That is why the source is recorded.
+ * - `report` — `webServer.url` from the report. The runner's own view of what it
+ *   serves, but present only when the project declares a `webServer`, and it
+ *   describes the fixture rather than the target in a `BASE_URL`-driven run.
+ * - `config` — `config/project.json`. The fallback, and correct exactly when
+ *   nothing overrode it.
+ */
+export interface TargetResolution {
+  origin?: string;
+  source?: TargetSource;
+}
+
+export function resolveTarget(input: {
+  environmentBaseUrl?: string;
+  reportWebServerUrl?: string;
+  configuredBaseUrl?: string;
+}): TargetResolution {
+  for (const [value, source] of [
+    [input.environmentBaseUrl, "environment"],
+    [input.reportWebServerUrl, "report"],
+    [input.configuredBaseUrl, "config"],
+  ] as const) {
+    const origin = originOf(value);
+    // Only an absolute, parseable URL counts. A relative BASE_URL is a
+    // configuration error that Playwright will report far more clearly than
+    // this function could, so it must not become a recorded origin.
+    if (origin !== undefined) return { origin, source };
+  }
+  return {};
 }
 
 /** Turn a test identity into a stable kebab-case defect id. */
@@ -296,6 +352,28 @@ function duplicateIdError(id: string, first: DefectV1, second: DefectV1): Error 
 interface SignalsPayload {
   signals?: DefectSignals;
   dropped?: number;
+  page?: DefectPage;
+}
+
+/**
+ * Read the page the failure happened on.
+ *
+ * A URL is required and non-empty; anything else is dropped rather than
+ * half-recorded, because a page block with no URL states nothing a consumer can
+ * act on. The title is optional and left absent when the page had none.
+ */
+function readPageContext(payload: SignalsPayload): DefectPage | undefined {
+  const page = payload.page;
+  if (page === undefined) return undefined;
+  if (typeof page !== "object" || page === null) return undefined;
+  const candidate = page as { url?: unknown; title?: unknown };
+  if (typeof candidate.url !== "string" || candidate.url === "") return undefined;
+  return {
+    url: candidate.url,
+    ...(typeof candidate.title === "string" && candidate.title !== ""
+      ? { title: candidate.title }
+      : {}),
+  };
 }
 
 /**
@@ -322,15 +400,22 @@ async function readAttachmentText(attachment: PwAttachment): Promise<string | un
 }
 
 /**
- * Read the fixture's captured signals.
+ * The fixture's context payload: captured signals plus the page.
  *
- * Returns undefined when there is nothing to report, which is different from an
- * empty signals object: absent means "not observed", empty means "observed and
- * found nothing". Consumers should not have to guess which they are looking at.
+ * Split from `readSignals` because the two blocks have genuinely different
+ * rules. Signals are absent unless something was observed; the page is present
+ * whenever the test drove a page, because a page with no console errors and no
+ * failed requests is still the page the failure happened on. Returning them
+ * together from one function would force one of those rules to be wrong.
  */
-async function readSignals(attachment: PwAttachment): Promise<DefectSignals | undefined> {
+interface FixtureContext {
+  signals?: DefectSignals;
+  page?: DefectPage;
+}
+
+async function readFixtureContext(attachment: PwAttachment): Promise<FixtureContext> {
   const text = await readAttachmentText(attachment);
-  if (text === undefined) return undefined;
+  if (text === undefined) return {};
 
   let parsed: unknown;
   try {
@@ -338,22 +423,30 @@ async function readSignals(attachment: PwAttachment): Promise<DefectSignals | un
   } catch {
     // A malformed attachment must not fail the whole collection. The defect
     // itself is still worth recording.
-    return undefined;
+    return {};
   }
 
   // Parsed as unknown and checked at runtime, because a file on disk is not a
   // trustworthy source of a type.
-  if (typeof parsed !== "object" || parsed === null) return undefined;
+  if (typeof parsed !== "object" || parsed === null) return {};
   const payload = parsed as SignalsPayload;
+
   const signals = payload.signals ?? {};
   const hasAny = Object.values(signals).some(
     (entries) => Array.isArray(entries) && entries.length > 0,
   );
-  if (!hasAny) return undefined;
+  const page = readPageContext(payload);
 
   return {
-    ...signals,
-    ...(typeof payload.dropped === "number" ? { dropped: payload.dropped } : {}),
+    ...(hasAny
+      ? {
+          signals: {
+            ...signals,
+            ...(typeof payload.dropped === "number" ? { dropped: payload.dropped } : {}),
+          },
+        }
+      : {}),
+    ...(page === undefined ? {} : { page }),
   };
 }
 
@@ -366,8 +459,20 @@ export interface CollectOptions {
   outputDir: string;
   /** Playwright JSON report path, relative to projectRoot. */
   reportPath: string;
-  /** Origin under test; reduced to an origin before recording. */
+  /**
+   * The configured origin, from config/project.json.
+   *
+   * A fallback, not the answer: see `resolveTarget`. Reduced to an origin before
+   * recording.
+   */
   baseUrl?: string;
+  /**
+   * `BASE_URL` from the environment, when set.
+   *
+   * Preferred over the configured value, because it is what the runner's config
+   * actually reads. Ignored unless it parses as an absolute URL.
+   */
+  environmentBaseUrl?: string;
   /**
    * Record a path to error-context.md on each defect.
    *
@@ -393,6 +498,8 @@ export interface RunSummary {
   runId: string;
   createdAt: string;
   baseUrl?: string;
+  /** Which input `baseUrl` came from, so a consumer can weigh it. */
+  targetSource?: TargetSource;
   counts: {
     specs: number;
     passed: number;
@@ -470,7 +577,15 @@ export async function collectDefects(options: CollectOptions): Promise<{
   const runDir = path.resolve(projectRoot, outputDir, runId);
   await mkdir(runDir, { recursive: true });
 
-  const origin = originOf(options.baseUrl);
+  const { origin, source: targetSource } = resolveTarget({
+    ...(options.environmentBaseUrl === undefined
+      ? {}
+      : { environmentBaseUrl: options.environmentBaseUrl }),
+    ...(report.config?.webServer?.url === undefined
+      ? {}
+      : { reportWebServerUrl: report.config.webServer.url }),
+    ...(options.baseUrl === undefined ? {} : { configuredBaseUrl: options.baseUrl }),
+  });
   const defects: DefectV1[] = [];
   /**
    * Id to artifact, for the run being collected.
@@ -533,10 +648,13 @@ export async function collectDefects(options: CollectOptions): Promise<{
     const evidence: DefectV1["evidence"] = {};
     let errorContextRef: string | undefined;
     let signals: DefectSignals | undefined;
+    let page: DefectPage | undefined;
     for (const attachment of lastAttempt?.attachments ?? []) {
       if (attachment.name === SIGNALS_ATTACHMENT) {
         // Inline attachment: read the content, there is no file to point at.
-        signals = await readSignals(attachment);
+        const context = await readFixtureContext(attachment);
+        signals = context.signals;
+        page = context.page;
         continue;
       }
       if (attachment.path === undefined) continue;
@@ -588,6 +706,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
       evidence,
       context: {
         ...(origin === undefined ? {} : { baseUrl: origin }),
+        ...(targetSource === undefined ? {} : { targetSource }),
         commit,
         branch,
         ci,
@@ -597,6 +716,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
           ? {}
           : { durationMs: Math.round(report.stats.duration) }),
       },
+      ...(page === undefined ? {} : { page }),
       ...(retryHistory.length > 1 ? { retryHistory } : {}),
       flakiness: {
         verdict,
@@ -668,6 +788,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     runId,
     createdAt,
     ...(origin === undefined ? {} : { baseUrl: origin }),
+    ...(targetSource === undefined ? {} : { targetSource }),
     counts: {
       specs,
       passed,

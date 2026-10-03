@@ -20,7 +20,7 @@
 # Both must be set, and this script sets both from one slot number.
 #
 # Usage:
-#   scripts/agent-worktree.sh create <name> [base-ref]
+#   scripts/agent-worktree.sh create <name> [base-ref] [zone-file]
 #   scripts/agent-worktree.sh list
 #   scripts/agent-worktree.sh env <name>
 #   scripts/agent-worktree.sh verify <name>
@@ -79,8 +79,8 @@ assert_free() {
 }
 
 cmd_create() {
-  local name="${1:-}" base="${2:-HEAD}"
-  [ -n "$name" ] || die "нужно имя: create <name> [base-ref]"
+  local name="${1:-}" base="${2:-HEAD}" zone_file="${3:-}"
+  [ -n "$name" ] || die "нужно имя: create <name> [base-ref] [zone-file]"
   require_repo
   [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "имя должно быть в lowercase через дефис: $name"
 
@@ -103,6 +103,33 @@ cmd_create() {
   # agents from costing N copies. Treat it as read-only: if a task needs a
   # dependency change, that is an integrator decision, not an agent's.
   [ -e "$dir/node_modules" ] || ln -s "$REPO/node_modules" "$dir/node_modules"
+
+  # Install the scope gate before handing the worktree over. A zone written in a
+  # document is a memory test with four agents running; a pre-commit hook is a
+  # gate. The hot files are listed as forbidden explicitly, because "not in my
+  # zone" is weaker than "listed as someone else's".
+  # core.hooksPath, not .git/hooks: in a worktree .git is a FILE, so there is
+  # no hooks directory to write into. Per-worktree config is the supported way.
+  mkdir -p "$dir/.githooks"
+  git -C "$dir" config core.hooksPath "$dir/.githooks"
+
+  if [ -n "$zone_file" ]; then
+    [ -f "$zone_file" ] || die "нет файла зоны: $zone_file"
+    cp "$zone_file" "$dir/.agent-zone"
+    cat > "$dir/.githooks/pre-commit" <<HOOK
+#!/usr/bin/env bash
+QUALITYFORGE_WORKTREE="$dir" QUALITYFORGE_ZONE="$dir/.agent-zone" \\
+  "$dir/scripts/agent-scope.sh" check
+HOOK
+  else
+    cat > "$dir/.githooks/pre-commit" <<HOOK
+#!/usr/bin/env bash
+echo "agent-worktree: коммитить нельзя — worktree выдан без зоны." >&2
+echo "Спроси интегратора." >&2
+exit 1
+HOOK
+  fi
+  chmod +x "$dir/.githooks/pre-commit"
 
   cat <<EOF
   создан:  $dir

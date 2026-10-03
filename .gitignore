@@ -57,3 +57,8 @@ npm-debug.log*
 # Python bytecode from the maintainer scripts (ci:validate, mcp:check)
 __pycache__/
 *.pyc
+
+# Per-agent worktree scaffolding, never committed
+.githooks/
+.agent-zone
+

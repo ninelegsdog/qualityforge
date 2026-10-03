@@ -373,6 +373,21 @@ test.describe("the 2026-07-28 _meta envelope", () => {
     expect(meta?.[META_SERVER_INFO]).toBeDefined();
   });
 
+  test("a notification that declares the revision without an envelope stays silent", async () => {
+    // The envelope gate runs ahead of the method, so a notification can now fail
+    // it. A notification still gets no answer - not even an error one, which
+    // would be read by the client as a response it never asked for.
+    const context = await makeContext();
+
+    expect(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { protocolVersion: LATEST_PROTOCOL_VERSION, requestId: "1" },
+      }),
+    ).toBeNull();
+  });
+
   test("capabilities answer the client that declared subscriptions", async () => {
     const context = await makeContext();
 

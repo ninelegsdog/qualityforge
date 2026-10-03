@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -10,6 +10,12 @@ import {
   originOf,
   stripAnsi,
 } from "../../src/defect/collect.js";
+import { readGitInfo } from "../../src/defect/git-info.js";
+import {
+  capturePageContext,
+  shouldAttachContext,
+  type PageLike,
+} from "../../src/defect/page-context.js";
 import { validateDefect } from "../../src/defect/types.js";
 import type { TestStatus } from "../../src/defect/types.js";
 
@@ -210,6 +216,61 @@ test.describe("validateDefect", () => {
     expect(result.problems.join()).toContain("kebab-case");
   });
 
+  test("accepts an artifact carrying a page", () => {
+    const result = validateDefect({
+      schemaVersion: "1.1.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom" },
+      evidence: {},
+      context: {},
+      page: { url: "https://example.com/form" },
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.problems).toEqual([]);
+  });
+
+  test("rejects a page with no url, which states nothing actionable", () => {
+    const result = validateDefect({
+      schemaVersion: "1.1.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom" },
+      evidence: {},
+      context: {},
+      page: { title: "Contact form" },
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.problems.join()).toContain("page.url");
+  });
+
+  test("rejects a targetSource outside the vocabulary", () => {
+    const result = validateDefect({
+      schemaVersion: "1.1.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom" },
+      evidence: {},
+      context: { targetSource: "guesswork" },
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.problems.join()).toContain("context.targetSource");
+  });
+
   test("rejects a createdAt that is not ISO 8601", () => {
     const result = validateDefect({
       schemaVersion: "1.0.0",
@@ -225,6 +286,153 @@ test.describe("validateDefect", () => {
     });
 
     expect(result.problems.join()).toContain("ISO 8601");
+  });
+});
+
+test.describe("git context", () => {
+  const SHA = "7f9da99b76aed67545e6449fe0ee65fbeb59abcd";
+
+  /**
+   * Build a throwaway checkout.
+   *
+   * `git` is a map of path -> contents, and may be a function of the sandbox
+   * root because a worktree pointer holds an absolute path: git writes
+   * `gitdir: /abs/path`, and a helper that quietly rooted that at the sandbox
+   * would produce a green test of a broken resolution.
+   */
+  async function checkout(
+    git: Record<string, string> | ((root: string) => Record<string, string>),
+  ): Promise<string> {
+    const root = await mkdtemp(path.join(tmpdir(), "qf-git-"));
+    for (const [name, contents] of Object.entries(typeof git === "function" ? git(root) : git)) {
+      const target = path.join(root, name);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, contents, "utf8");
+    }
+    return root;
+  }
+
+  test("reads the branch and commit from a plain repository", async () => {
+    const root = await checkout({
+      ".git/HEAD": "ref: refs/heads/main\n",
+      ".git/refs/heads/main": `${SHA}\n`,
+    });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("main");
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("follows the gitdir pointer a worktree leaves behind", async () => {
+    // The shape `git worktree add` actually produces: `.git` is a file holding
+    // an absolute path, HEAD is in the worktree's own directory, and the ref
+    // lives in the main repository's, which `commondir` points at.
+    const root = await checkout((r) => ({
+      ".git": `gitdir: ${path.join(r, "repo/.git/worktrees/defects")}\n`,
+      "repo/.git/worktrees/defects/HEAD": "ref: refs/heads/qf/defects\n",
+      "repo/.git/worktrees/defects/commondir": "../..\n",
+      "repo/.git/refs/heads/qf/defects": `${SHA}\n`,
+    }));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("qf/defects");
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("reads a worktree branch that only exists in packed-refs", async () => {
+    const root = await checkout((r) => ({
+      ".git": `gitdir: ${path.join(r, "repo/.git/worktrees/defects")}\n`,
+      "repo/.git/worktrees/defects/HEAD": "ref: refs/heads/qf/defects\n",
+      "repo/.git/worktrees/defects/commondir": "../..\n",
+      "repo/.git/packed-refs": `# pack-refs with: peeled\n${SHA} refs/heads/qf/defects\n`,
+    }));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("qf/defects");
+  });
+
+  test("follows a gitdir pointer that is relative to the pointer file", async () => {
+    // Submodules and older git versions write a relative pointer, resolved
+    // against the directory holding the pointer file.
+    const root = await checkout({
+      ".git": "gitdir: repo/.git/worktrees/defects\n",
+      "repo/.git/worktrees/defects/HEAD": "ref: refs/heads/main\n",
+      "repo/.git/worktrees/defects/commondir": "../..\n",
+      "repo/.git/refs/heads/main": `${SHA}\n`,
+    });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBe("main");
+  });
+
+  test("a detached HEAD is a commit with no branch, and that is not a problem", async () => {
+    const root = await checkout({ ".git/HEAD": `${SHA}\n` });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBe(SHA);
+    expect(info.branch).toBeNull();
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("no git at all is a legitimate absence, not a failure to report", async () => {
+    // A tarball export, or a Docker layer copied without .git. `null` is the
+    // right answer here and there is nothing to warn about.
+    const root = await mkdtemp(path.join(tmpdir(), "qf-git-"));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBeNull();
+    expect(info.branch).toBeNull();
+    expect(info.problem).toBeUndefined();
+  });
+
+  test("a gitdir pointer to nowhere says so instead of returning null in silence", async () => {
+    const root = await checkout((r) => ({
+      ".git": `gitdir: ${path.join(r, "repo/.git/worktrees/gone")}\n`,
+    }));
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBeNull();
+    // The difference that matters: this null is "I could not tell", and it is
+    // reported as such rather than looking identical to "there is no git here".
+    expect(info.problem).toContain("gitdir");
+  });
+
+  test("a .git file without a gitdir pointer says so", async () => {
+    const root = await checkout({ ".git": "this is not a git pointer\n" });
+
+    const info = await readGitInfo(root);
+
+    expect(info.problem).toContain("gitdir");
+  });
+
+  test("a branch with no ref anywhere names the missing ref", async () => {
+    const root = await checkout({ ".git/HEAD": "ref: refs/heads/gone\n" });
+
+    const info = await readGitInfo(root);
+
+    expect(info.branch).toBe("gone");
+    expect(info.commit).toBeNull();
+    expect(info.problem).toContain("refs/heads/gone");
+  });
+
+  test("an unrecognised HEAD shape says so rather than returning null in silence", async () => {
+    const root = await checkout({ ".git/HEAD": "garbage\n" });
+
+    const info = await readGitInfo(root);
+
+    expect(info.commit).toBeNull();
+    expect(info.problem).toContain("HEAD");
   });
 });
 
@@ -457,6 +665,473 @@ test.describe("collectDefects", () => {
   });
 });
 
+test.describe("what the fixture decides to record", () => {
+  /**
+   * The rule the fixture used before this fix, kept so the expectations below
+   * read as a difference rather than as a preference.
+   *
+   * It is what `testInfo.status !== testInfo.expectedStatus` evaluates to.
+   */
+  const previousRule = (status: string, expectedStatus: string): boolean =>
+    status !== expectedStatus;
+
+  test("an expected failure still attaches, because it is the moment evidence matters", () => {
+    // test.fail() is the natural way to write a test asserting a bug exists.
+    // For an expected failure status and expectedStatus are equal, so comparing
+    // them produced no attachment at all: evidence deleted at exactly the moment
+    // someone wanted it. This is the whole defect, in one line.
+    expect(previousRule("failed", "failed")).toBe(false);
+    expect(shouldAttachContext("failed", "failed", true)).toBe(true);
+  });
+
+  test("an expected failure that passes unexpectedly attaches nothing", () => {
+    // test.fail() and the test passed: the runner reports status "passed" against
+    // an expected "failed". Both rules agree this is not a failure to record, and
+    // it is worth saying out loud that the fix did not widen this case.
+    expect(shouldAttachContext("passed", "failed", true)).toBe(false);
+  });
+
+  test("a genuinely unexpected failure attaches", () => {
+    expect(shouldAttachContext("failed", "passed", true)).toBe(true);
+  });
+
+  test("a passing test attaches nothing, expected or not", () => {
+    expect(shouldAttachContext("passed", "passed", true)).toBe(false);
+  });
+
+  test("a timeout attaches, because the page state at a timeout is the evidence", () => {
+    // Narrowing the rule to status === "failed" would fix the reported case and
+    // introduce a quieter version of the same bug: a timeout is a defect, and a
+    // timed-out test has more page state worth recording than a passing one.
+    // The previous rule already attached here, so this is not a widening.
+    expect(previousRule("timedOut", "passed")).toBe(true);
+    expect(shouldAttachContext("timedOut", "passed", true)).toBe(true);
+  });
+
+  test("an interrupted test attaches too", () => {
+    expect(previousRule("interrupted", "passed")).toBe(true);
+    expect(shouldAttachContext("interrupted", "passed", true)).toBe(true);
+  });
+
+  test("a skipped test is not a failure and attaches nothing", () => {
+    expect(shouldAttachContext("skipped", "passed", true)).toBe(false);
+  });
+
+  test("an absent status is not a failure", () => {
+    // Open on the outcome: an unknown status is not claimed to be a failure just
+    // in case, even though the collector fails closed on what it does not know.
+    expect(shouldAttachContext(undefined, undefined, true)).toBe(false);
+  });
+
+  test("a failure with nothing at all to record attaches nothing", () => {
+    // The page counts as something to record, which is why this is the fixture's
+    // argument and not the rule's: a failing test that drove no page and captured
+    // no signal has an empty payload, and an empty payload reads as "we looked
+    // and found nothing", which is not what happened.
+    expect(shouldAttachContext("failed", "passed", false)).toBe(false);
+  });
+});
+
+test.describe("the page a failure happened on", () => {
+  /** A Page stand-in, so the rule is checked without a browser. */
+  function fakePage(over: Partial<PageLike> = {}): PageLike {
+    return {
+      url: () => "http://127.0.0.1:4411/form",
+      title: () => Promise.resolve("Contact form"),
+      ...over,
+    };
+  }
+
+  test("records the url and the title", async () => {
+    const context = await capturePageContext(fakePage());
+
+    expect(context).toEqual({ url: "http://127.0.0.1:4411/form", title: "Contact form" });
+  });
+
+  test("a page with no title records the url alone rather than an empty string", async () => {
+    // An empty title would read as "the page's title is empty", which is a claim
+    // about the application. What happened is that we did not get one.
+    const context = await capturePageContext(fakePage({ title: () => Promise.resolve("") }));
+
+    expect(context).toEqual({ url: "http://127.0.0.1:4411/form" });
+    expect(context).not.toHaveProperty("title");
+  });
+
+  test("the url is redacted, so a token in the query never reaches an artifact", async () => {
+    const context = await capturePageContext(
+      fakePage({ url: () => "https://app.example.com/reset?token=secret123#step-2" }),
+    );
+
+    expect(context?.url).toBe("https://app.example.com/reset");
+    expect(context?.url).not.toContain("secret123");
+  });
+
+  test("credentials in the url are removed", async () => {
+    const context = await capturePageContext(
+      fakePage({ url: () => "https://user:pass@app.example.com/private" }),
+    );
+
+    expect(context?.url).toBe("https://app.example.com/private");
+  });
+
+  test("no page at all is absent rather than a placeholder", async () => {
+    // The contract distinguishes "not observed" from "observed and empty", and
+    // that applies to the page too.
+    expect(await capturePageContext(fakePage({ url: () => "" }))).toBeUndefined();
+  });
+
+  test("a title that rejects does not fail the test", async () => {
+    // page.title() can reject on a page that navigated away mid-teardown.
+    // Losing a title is never worth failing a test over.
+    const context = await capturePageContext(
+      fakePage({
+        title: () => Promise.reject(new Error("Execution context was destroyed")),
+      }),
+    );
+
+    expect(context).toEqual({ url: "http://127.0.0.1:4411/form" });
+  });
+
+  test("a url that throws is treated as no page rather than crashing the fixture", async () => {
+    const context = await capturePageContext(
+      fakePage({
+        url: () => {
+          throw new Error("page is closed");
+        },
+      }),
+    );
+
+    expect(context).toBeUndefined();
+  });
+});
+
+test.describe("which application was under test", () => {
+  const OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+  } as const;
+
+  /** A one-failure report, optionally carrying a webServer block. */
+  async function failing(root: string, webServerUrl?: string): Promise<string> {
+    const report = JSON.parse(reportWith(root, [{ status: "failed" }])) as Record<string, unknown>;
+    if (webServerUrl !== undefined) {
+      (report["config"] as Record<string, unknown>)["webServer"] = { url: webServerUrl };
+    }
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      JSON.stringify(report),
+      "utf8",
+    );
+    return root;
+  }
+
+  test("BASE_URL wins, because it is the value the runner's config reads", async () => {
+    const root = await failing(await scaffold(() => ({})), "http://127.0.0.1:4311");
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+      environmentBaseUrl: "https://quotes.toscrape.com",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://quotes.toscrape.com");
+    expect(defects[0]?.context.targetSource).toBe("environment");
+  });
+
+  test("without BASE_URL the report's webServer url is used", async () => {
+    const root = await failing(await scaffold(() => ({})), "https://app.example.com");
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://app.example.com");
+    expect(defects[0]?.context.targetSource).toBe("report");
+  });
+
+  test("with neither, the configured value is the fallback and says so", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("http://127.0.0.1:4311");
+    expect(defects[0]?.context.targetSource).toBe("config");
+  });
+
+  test("a BASE_URL that is not absolute is ignored rather than recorded", async () => {
+    // Playwright reports a relative BASE_URL far more clearly than this can.
+    // Recording "/api" as an origin would put a meaningless claim in an artifact.
+    const root = await failing(await scaffold(() => ({})), "https://app.example.com");
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+      environmentBaseUrl: "/relative/path",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://app.example.com");
+    expect(defects[0]?.context.targetSource).toBe("report");
+  });
+
+  test("the recorded origin drops credentials, path and query", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { defects } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      environmentBaseUrl: "https://user:token@app.example.com/tenant?x=1",
+    });
+
+    expect(defects[0]?.context.baseUrl).toBe("https://app.example.com");
+  });
+
+  test("no source at all leaves baseUrl absent rather than guessing", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.context.baseUrl).toBeUndefined();
+    expect(defects[0]?.context.targetSource).toBeUndefined();
+  });
+
+  test("the run summary carries the same target and source as the artifacts", async () => {
+    const root = await failing(await scaffold(() => ({})));
+
+    const { summary } = await collectDefects({
+      ...OPTIONS,
+      projectRoot: root,
+      baseUrl: "http://127.0.0.1:4311",
+      environmentBaseUrl: "https://quotes.toscrape.com",
+    });
+
+    expect(summary.baseUrl).toBe("https://quotes.toscrape.com");
+    expect(summary.targetSource).toBe("environment");
+  });
+});
+
+test.describe("colliding ids", () => {
+  /**
+   * A report with one spec per suite, each in its own file.
+   *
+   * Two specs under one suite is not how Playwright reports a file, and
+   * building the real shape matters: a collision has to be produced by the same
+   * report structure the runner writes, not by a convenient one.
+   */
+  function twoSpecReport(
+    root: string,
+    specs: { file: string; title: string; line: number; message: string }[],
+  ): string {
+    return JSON.stringify({
+      config: { rootDir: root },
+      stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 1234.5 },
+      suites: specs.map((spec, i) => ({
+        title: `tests/${spec.file}`,
+        file: spec.file,
+        specs: [
+          {
+            id: `spec-${i}`,
+            title: spec.title,
+            file: spec.file,
+            line: spec.line,
+            tests: [
+              {
+                projectName: "chromium",
+                expectedStatus: "passed",
+                results: [
+                  {
+                    status: "failed",
+                    retry: 0,
+                    duration: 10,
+                    startTime: "2026-10-03T00:00:00.000Z",
+                    error: { message: spec.message },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })),
+    });
+  }
+
+  const COLLIDE_OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: THRESHOLDS,
+  } as const;
+
+  test("two failures with the same id stop the collection instead of overwriting", async () => {
+    // Two files with the same basename: defectIdFrom() keeps only
+    // path.basename(), so both slugify to the same id.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /duplicate defect id/,
+    );
+  });
+
+  test("the collision message names both tests, so the fix is actionable", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    // A message that only says "duplicate id" leaves the reader to go and work
+    // out which two tests collided.
+    const thrown = await collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(thrown).toBeInstanceOf(Error);
+    const message = (thrown as Error).message;
+    expect(message).toContain("a-renders-the-heading");
+    expect(message).toContain("smoke/a.spec.ts:10");
+    expect(message).toContain("unit/a.spec.ts:20");
+  });
+
+  test("the failure written before the collision is left exactly as it was", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow();
+
+    // The whole point of failing closed: nothing already on disk is destroyed.
+    // Before the fix this file held SECOND and the first failure was gone.
+    const runDirs = await readdir(path.join(root, "artifacts/defects"));
+    const runDir = runDirs[0] as string;
+    expect(await readdir(path.join(root, "artifacts/defects", runDir))).toContain(
+      "a-renders-the-heading.v1.json",
+    );
+
+    const onDisk = JSON.parse(
+      await readFile(
+        path.join(root, "artifacts/defects", runDir, "a-renders-the-heading.v1.json"),
+        "utf8",
+      ),
+    ) as { failure: { message: string }; test: { file: string } };
+    expect(onDisk.failure.message).toBe("FIRST");
+    expect(onDisk.test.file).toBe("tests/smoke/a.spec.ts");
+  });
+
+  test("a colliding run writes no summary, so nothing on disk claims it completed", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "unit/a.spec.ts", title: "renders the heading", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow();
+
+    const runDirs = await readdir(path.join(root, "artifacts/defects"));
+    // A summary is a claim that the run was collected in full. This one was not.
+    expect(await readdir(path.join(root, "artifacts/defects", runDirs[0] as string))).not.toContain(
+      "quality-summary.v1.json",
+    );
+  });
+
+  test("a title with no ASCII letters collides with its neighbour and is refused", async () => {
+    // The other proven trigger: the slug is built from [a-z0-9], so a title in
+    // any other script contributes nothing and two tests in one file collapse
+    // onto the file name.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/homepage.smoke.spec.ts", title: "!!!", line: 5, message: "FIRST" },
+        { file: "smoke/homepage.smoke.spec.ts", title: "???", line: 9, message: "SECOND" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /duplicate defect id/,
+    );
+  });
+
+  test("titles truncated at the 120 character cap collide and are refused", async () => {
+    // Long enough that the distinct tail falls past the cap: the slug keeps the
+    // first 120 characters of `basename + title`, so both titles differ only in
+    // the part that gets cut.
+    const shared = "renders the heading with every one of its letters present ".repeat(3);
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        {
+          file: "smoke/homepage.smoke.spec.ts",
+          title: `${shared}FIRST`,
+          line: 11,
+          message: "FIRST",
+        },
+        {
+          file: "smoke/homepage.smoke.spec.ts",
+          title: `${shared}SECOND`,
+          line: 13,
+          message: "SECOND",
+        },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /duplicate defect id/,
+    );
+  });
+
+  test("a defect that would take the summary's own filename is refused", async () => {
+    // A file called quality-summary.spec.ts whose title slugifies to nothing
+    // produces id "quality-summary", and its artifact filename is exactly the
+    // one the run summary is written to — at the end of the run, with no
+    // warning. Same bug, third path in.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/quality-summary.spec.ts", title: "!!!", line: 5, message: "FIRST" },
+      ]),
+    }));
+
+    await expect(collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root })).rejects.toThrow(
+      /quality-summary/,
+    );
+  });
+
+  test("two defects with different ids are still written side by side", async () => {
+    // The guard must not cost the ordinary case.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": twoSpecReport(sandbox, [
+        { file: "smoke/a.spec.ts", title: "renders the heading", line: 10, message: "FIRST" },
+        { file: "smoke/b.spec.ts", title: "renders the footer", line: 20, message: "SECOND" },
+      ]),
+    }));
+
+    const { defects, runDir } = await collectDefects({ ...COLLIDE_OPTIONS, projectRoot: root });
+
+    expect(defects).toHaveLength(2);
+    expect((await readdir(runDir)).sort()).toEqual([
+      "a-renders-the-heading.v1.json",
+      "b-renders-the-footer.v1.json",
+      "quality-summary.v1.json",
+    ]);
+  });
+});
+
 test.describe("status mapping", () => {
   const cases: { status: string; expected: DefectStatusProbe }[] = [
     { status: "failed", expected: "failed" },
@@ -624,6 +1299,106 @@ test.describe("signal enrichment", () => {
     expect(defects[0]?.signals?.dropped).toBe(17);
   });
 
+  test("folds the page the failure happened on into the artifact", async () => {
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: { pageErrors: ["TypeError"] },
+      dropped: 0,
+      page: { url: "https://quotes.toscrape.com/login", title: "Quotes to Scrape: Login" },
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]?.page).toEqual({
+      url: "https://quotes.toscrape.com/login",
+      title: "Quotes to Scrape: Login",
+    });
+  });
+
+  test("records the page even when the test captured no signals at all", async () => {
+    // The two blocks have different rules. Signals are absent unless something
+    // was observed; the page is present whenever the test drove a page, because
+    // a page that threw no console error is still the page the failure was on.
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: { consoleErrors: [], consoleWarnings: [], pageErrors: [], requestFailures: [] },
+      dropped: 0,
+      page: { url: "https://quotes.toscrape.com/" },
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]?.page).toEqual({ url: "https://quotes.toscrape.com/" });
+    expect(defects[0]).not.toHaveProperty("signals");
+  });
+
+  test("a page with a title only and no url is dropped rather than half-recorded", async () => {
+    const root = await scaffold(() => ({}));
+    const signalsPath = await seedSignals(root, {
+      signals: { pageErrors: ["TypeError"] },
+      dropped: 0,
+      page: { title: "no url here" },
+    });
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      reportWith(root, [
+        { status: "failed", attachments: [{ name: "quality-context", path: signalsPath }] },
+      ]),
+    );
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    // A page block with no url states nothing a consumer can act on.
+    expect(defects[0]).not.toHaveProperty("page");
+    expect(defects[0]).toHaveProperty("signals");
+  });
+
+  test("omits the page when the fixture recorded none", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": reportWith(sandbox, [{ status: "failed" }]),
+    }));
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      thresholds: { ...THRESHOLDS, maxFailureRate: 1 },
+    });
+
+    expect(defects[0]).not.toHaveProperty("page");
+  });
+
   test("reads an inline attachment carried as base64, not as a path", async () => {
     // This is the shape testInfo.attach({ body }) produces: nothing is written
     // to disk, so a reader that requires `path` sees no attachment at all.
@@ -733,5 +1508,436 @@ test.describe("signal enrichment", () => {
     // The defect is still worth recording even if its context file is corrupt.
     expect(defects).toHaveLength(1);
     expect(defects[0]).not.toHaveProperty("signals");
+  });
+});
+
+test.describe("an outage is not four defects", () => {
+  const OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: THRESHOLDS,
+  } as const;
+
+  /**
+   * A report shaped like the one a real `beforeAll` failure produces.
+   *
+   * Every spec in the file carries the same message and the same error location,
+   * because there was one `throw` and it ran four times. This is the exact shape
+   * captured from a live run against a dead port, including the fact that the
+   * report carries no `stage` field at all — verified against the 1.63.0
+   * reporter source, which serialises `result.error` straight through.
+   */
+  function outageReport(
+    root: string,
+    count: number,
+    override: {
+      specLine?: number;
+      raiseLine?: number;
+      sameMessage?: boolean;
+      withLocation?: boolean;
+    } = {},
+  ): string {
+    const { specLine = 20, raiseLine = 13, sameMessage = true, withLocation = true } = override;
+    const specFile = path.join(root, "tests/smoke/demo.spec.ts");
+    return JSON.stringify({
+      config: { rootDir: root },
+      stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 30 },
+      suites: [
+        {
+          title: "tests/smoke/demo.spec.ts",
+          file: "smoke/demo.spec.ts",
+          specs: Array.from({ length: count }, (_unused, i) => ({
+            id: `spec-${i}`,
+            title: `probe ${i + 1}`,
+            file: "smoke/demo.spec.ts",
+            line: specLine,
+            column: 1,
+            tests: [
+              {
+                projectName: "chromium",
+                expectedStatus: "passed",
+                results: [
+                  {
+                    status: "failed",
+                    retry: 0,
+                    duration: 3,
+                    startTime: "2026-10-03T00:00:00.000Z",
+                    attachments: [],
+                    error: {
+                      message: sameMessage
+                        ? "Error: Third-party target http://127.0.0.1:9 is unreachable, so this suite did not run."
+                        : `Error: probe ${i + 1} failed for its own reason.`,
+                      ...(withLocation
+                        ? { location: { file: specFile, line: raiseLine, column: 11 } }
+                        : {}),
+                    },
+                  },
+                ],
+              },
+            ],
+          })),
+        },
+      ],
+    });
+  }
+
+  async function collect(root: string): Promise<{
+    defects: Awaited<ReturnType<typeof collectDefects>>["defects"];
+    summary: Awaited<ReturnType<typeof collectDefects>>["summary"];
+    runDir: string;
+  }> {
+    return collectDefects({ ...OPTIONS, projectRoot: root });
+  }
+
+  test("four specs that failed on one raise site produce no artifact at all", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 4),
+    }));
+
+    const { defects, summary, runDir } = await collect(root);
+
+    // The reported harm: four artifacts with distinct ids, identical messages,
+    // and one ticket each opened against somebody else's codebase.
+    expect(defects).toHaveLength(0);
+    expect(summary.counts.aborted).toBe(4);
+    // Not counted as failures: they are not defects.
+    expect(summary.counts.failed).toBe(0);
+    expect(summary.counts.specs).toBe(4);
+    expect(summary.defects).toEqual([]);
+
+    // Nothing on disk claims a defect either.
+    expect(await readdir(runDir)).toEqual(["quality-summary.v1.json"]);
+  });
+
+  test("the gate still fails, and says why, so an outage cannot pass silently", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 4),
+    }));
+
+    const { summary } = await collect(root);
+
+    // Suppressing the artifacts must not turn a broken build green. The violation
+    // names the file and the raise site, which is the whole diagnosis.
+    expect(summary.gate.passed).toBe(false);
+    const violation = summary.gate.violations.join("\n");
+    expect(violation).toContain("smoke/demo.spec.ts");
+    expect(violation).toContain("never ran");
+    expect(violation).toContain("is unreachable");
+  });
+
+  test("two specs on one raise site are enough, because one throw cannot be two tests", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 2),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(0);
+    expect(summary.counts.aborted).toBe(2);
+  });
+
+  test("one spec alone proves nothing and is still recorded", async () => {
+    // A single failure is a defect even when the error came from a shared helper.
+    // Requiring two is what stops this rule eating real bugs.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 1),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(1);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("identical messages at different lines are two assertions, not one hook", async () => {
+    // Two tests waiting for the same absent element produce byte-identical
+    // messages. Only the location tells them apart, so the location is required.
+    const root = await scaffold((sandbox) => {
+      const report = JSON.parse(outageReport(sandbox, 2)) as {
+        suites: [{ specs: { tests: { results: { error: unknown }[] }[] }[] }];
+      };
+      const specs = report.suites[0]?.specs ?? [];
+      (specs[0]?.tests[0]?.results[0]?.error as { location: { line: number } }).location.line = 41;
+      (specs[1]?.tests[0]?.results[0]?.error as { location: { line: number } }).location.line = 42;
+      return { "artifacts/json/playwright-results.json": JSON.stringify(report) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(2);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("one outlier means the bodies ran, so nothing is suppressed", async () => {
+    // Two specs on one raise site plus a third that failed at its own line: the
+    // file did not abort, it partially ran, and all three failures are worth
+    // keeping. Suppressing all three to save two would be the wrong trade.
+    const root = await scaffold((sandbox) => {
+      const report = JSON.parse(outageReport(sandbox, 3)) as {
+        suites: [
+          {
+            specs: {
+              file: string;
+              tests: {
+                results: { error: { message: string; location: { file: string; line: number } } }[];
+              }[];
+            }[];
+          },
+        ];
+      };
+      const odd = report.suites[0]?.specs[2]?.tests[0]?.results[0]?.error;
+      if (odd !== undefined) {
+        odd.message = "Error: this one is a real assertion failure.";
+        odd.location.line = 37;
+      }
+      return { "artifacts/json/playwright-results.json": JSON.stringify(report) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(3);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("no error location means no comparison, so nothing is suppressed", async () => {
+    // Guessing here is how data goes missing. Without a location there is nothing
+    // to compare, so the rule declines to act.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 4, { withLocation: false }),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(4);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("an aborted file does not suppress a real failure in another file", async () => {
+    const root = await scaffold((sandbox) => {
+      const aborted = JSON.parse(outageReport(sandbox, 3)) as {
+        suites: { file?: string; specs: unknown[] }[];
+      };
+      const genuine = JSON.parse(outageReport(sandbox, 1)) as {
+        suites: { file?: string; specs: unknown[] }[];
+      };
+      (genuine.suites[0] as { file: string }).file = "smoke/other.spec.ts";
+      for (const spec of (genuine.suites[0] as { specs: { file: string }[] }).specs) {
+        spec.file = "smoke/other.spec.ts";
+      }
+      const merged = JSON.parse(outageReport(sandbox, 0)) as { suites: unknown[] };
+      merged.suites = [aborted.suites[0], genuine.suites[0]];
+      return { "artifacts/json/playwright-results.json": JSON.stringify(merged) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(summary.counts.aborted).toBe(3);
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.test.file).toBe("tests/smoke/other.spec.ts");
+  });
+
+  test("the same raise site with different messages is not one outage", async () => {
+    // The message is part of the failure's identity, not decoration. Two failures
+    // that read differently are two facts even when they share a line, and keeping
+    // them costs nothing - suppressing them would lose data for no gain.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 2, { sameMessage: false }),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(2);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("a passing spec in the file neither counts nor vetoes the rule", async () => {
+    // A beforeAll inside one describe takes that describe's specs down and leaves a
+    // sibling describe green. Those green results say nothing about whether the
+    // failing bodies ran, so the abort still stands.
+    const root = await scaffold((sandbox) => {
+      const report = JSON.parse(outageReport(sandbox, 2)) as {
+        suites: {
+          specs: {
+            title: string;
+            tests: { results: { status: string; error?: unknown }[] }[];
+          }[];
+        }[];
+      };
+      report.suites[0]?.specs.push({
+        title: "probe 3",
+        tests: [{ results: [{ status: "passed" }] }],
+      });
+      return { "artifacts/json/playwright-results.json": JSON.stringify(report) };
+    });
+
+    const { defects, summary } = await collect(root);
+
+    expect(summary.counts.aborted).toBe(2);
+    expect(summary.counts.passed).toBe(1);
+    expect(defects).toHaveLength(0);
+  });
+
+  test("the flakiness verdict of an aborted spec is not silently counted as flaky", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": outageReport(sandbox, 2),
+    }));
+
+    const { summary } = await collect(root);
+
+    expect(summary.counts.flaky).toBe(0);
+  });
+});
+
+test.describe("failure attribution", () => {
+  const OPTIONS = {
+    testDir: "tests",
+    outputDir: "artifacts/defects",
+    reportPath: "artifacts/json/playwright-results.json",
+    thresholds: THRESHOLDS,
+  } as const;
+
+  /** One failing spec whose error is raised at `raiseLine` of the demo file. */
+  async function oneFailure(root: string, raiseLine: number, withLocation = true): Promise<string> {
+    const specFile = path.join(root, "tests/smoke/demo.spec.ts");
+    const report = JSON.stringify({
+      config: { rootDir: root },
+      stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 10 },
+      suites: [
+        {
+          title: "tests/smoke/demo.spec.ts",
+          file: "smoke/demo.spec.ts",
+          specs: [
+            {
+              id: "one",
+              title: "shows the status",
+              file: "smoke/demo.spec.ts",
+              line: 20,
+              column: 1,
+              tests: [
+                {
+                  projectName: "chromium",
+                  expectedStatus: "passed",
+                  results: [
+                    {
+                      status: "failed",
+                      retry: 0,
+                      duration: 5,
+                      startTime: "2026-10-03T00:00:00.000Z",
+                      attachments: [],
+                      error: {
+                        message: "Error: something went wrong",
+                        ...(withLocation ? { location: { file: specFile, line: raiseLine } } : {}),
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    await writeFile(path.join(root, "artifacts/json/playwright-results.json"), report, "utf8");
+    return root;
+  }
+
+  test("an error raised above the test is attributed to the suite, not the test", async () => {
+    // A beforeEach, a file-level fixture or a helper declared above the test all
+    // raise from above it. A test body never does, so this is provable.
+    const root = await oneFailure(await scaffold(() => ({})), 4);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.failure.attribution).toBe("suite");
+  });
+
+  test("an error raised inside the test carries no attribution", async () => {
+    // Absence is the ordinary case and means nothing was noteworthy. It is not a
+    // claim that the body raised it: a helper defined below the test is equally
+    // consistent with it, and a line number cannot tell those apart.
+    const root = await oneFailure(await scaffold(() => ({})), 24);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]).not.toHaveProperty("failure.attribution");
+  });
+
+  test("the test's own declaration line counts as inside, not above", async () => {
+    const root = await oneFailure(await scaffold(() => ({})), 20);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]).not.toHaveProperty("failure.attribution");
+  });
+
+  test("an error raised in another file is attributed to the suite", async () => {
+    // The spec's own file does not even contain the throw.
+    const root = await oneFailure(await scaffold(() => ({})), 24);
+    const report = JSON.parse(
+      await readFile(path.join(root, "artifacts/json/playwright-results.json"), "utf8"),
+    ) as {
+      suites: [
+        {
+          specs: {
+            tests: { results: { error: { location: { file: string; line: number } } }[] }[];
+          }[];
+        },
+      ];
+    };
+    const spec = report.suites[0]?.specs[0];
+    if (spec !== undefined) {
+      spec.tests[0]!.results[0]!.error.location = {
+        file: path.join(root, "tests/smoke/helpers.ts"),
+        line: 9,
+      };
+    }
+    await writeFile(
+      path.join(root, "artifacts/json/playwright-results.json"),
+      JSON.stringify(report),
+      "utf8",
+    );
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.failure.attribution).toBe("suite");
+  });
+
+  test("no location at all is recorded as unknown rather than guessed", async () => {
+    const root = await oneFailure(await scaffold(() => ({})), 24, false);
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.failure.attribution).toBe("unknown");
+  });
+
+  test("a suite attribution does not stop the artifact being written", async () => {
+    // The residual case is precisely a single spec that failed on an error raised
+    // outside its body: indistinguishable from a real defect by message alone, and
+    // the artifact is what a triage agent reads. It is flagged, not hidden.
+    const root = await oneFailure(await scaffold(() => ({})), 4);
+
+    const { defects, summary } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects).toHaveLength(1);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  test("validateDefect rejects an attribution outside the vocabulary", () => {
+    const result = validateDefect({
+      schemaVersion: "1.2.0",
+      id: "a-b",
+      runId: "run-1",
+      createdAt: "2026-10-03T00:00:00.000Z",
+      status: "failed",
+      test: { title: "t", file: "a.spec.ts" },
+      failure: { message: "boom", attribution: "the-applications-fault" },
+      evidence: {},
+      context: {},
+      flakiness: { verdict: "unknown" },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.problems.join()).toContain("failure.attribution");
   });
 });

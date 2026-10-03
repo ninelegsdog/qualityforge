@@ -14,11 +14,12 @@
  *
  * Exit code 1 is what makes this usable as a CI quality gate.
  */
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig, ConfigError } from "../config/load-config.js";
 import { collectDefects } from "../defect/collect.js";
+import { readGitInfo } from "../defect/git-info.js";
 
 const ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
@@ -83,48 +84,6 @@ function parseArgs(argv: string[]): Args {
   return { configPath, reportPath, outDir, asJson };
 }
 
-/**
- * Read git metadata without shelling out from the collector itself.
- *
- * Resolves the full ref path rather than just the branch name: HEAD contains
- * "refs/heads/main", and joining only "main" onto .git produces a path that
- * does not exist. Falls back to packed-refs, which is where a branch goes
- * after enough commits.
- */
-async function gitInfo(root: string): Promise<{ commit: string | null; branch: string | null }> {
-  const gitDir = path.join(root, ".git");
-  const nothing = { commit: null, branch: null } as const;
-
-  let head: string;
-  try {
-    head = (await readFile(path.join(gitDir, "HEAD"), "utf8")).trim();
-  } catch {
-    // Not a git checkout. Not fatal; the artifact just omits VCS context.
-    return nothing;
-  }
-
-  const branchRef = /^ref:\s*(refs\/heads\/.+)$/.exec(head);
-  if (branchRef?.[1]) {
-    const branch = branchRef[1].slice("refs/heads/".length);
-
-    const loose = await readFile(path.join(gitDir, branchRef[1]), "utf8").catch(() => null);
-    if (loose !== null) {
-      return { commit: loose.trim(), branch };
-    }
-
-    const packed = await readFile(path.join(gitDir, "packed-refs"), "utf8").catch(() => null);
-    const match =
-      packed === null ? null : new RegExp(`^([0-9a-f]{40}) ${branchRef[1]}$`, "m").exec(packed);
-    return { commit: match?.[1] ?? null, branch };
-  }
-
-  // Detached HEAD: the file holds the commit itself.
-  if (/^[0-9a-f]{40}$/.test(head)) {
-    return { commit: head, branch: null };
-  }
-  return nothing;
-}
-
 async function main(): Promise<number> {
   const { configPath, reportPath, outDir, asJson } = parseArgs(process.argv.slice(2));
 
@@ -139,7 +98,21 @@ async function main(): Promise<number> {
     throw error;
   }
 
-  const { commit, branch } = await gitInfo(ROOT);
+  // BASE_URL is what playwright.config.ts reads, so when it is set it is the
+  // best available evidence of the application the browser was actually on. The
+  // collector records which input it used, so an artifact never claims an
+  // origin without saying where that claim came from.
+  const environmentBaseUrl = process.env.BASE_URL;
+
+  const { commit, branch, problem } = await readGitInfo(ROOT);
+  if (problem !== undefined) {
+    // stderr, never stdout: --json promises that stdout carries the summary and
+    // nothing else, and a warning printed there would corrupt it for whoever
+    // parses it. Silently recording commit: null would be worse — this is the
+    // difference between "there is no git here" and "there is and I could not
+    // read it", and only the second is a bug worth saying out loud.
+    console.warn(`Warning: no git context recorded: ${problem}`);
+  }
 
   try {
     const { defects, summary, runDir } = await collectDefects({
@@ -148,6 +121,7 @@ async function main(): Promise<number> {
       outputDir: outDir ?? config.defects.directory,
       reportPath: reportPath ?? DEFAULT_REPORT,
       baseUrl: config.baseUrl,
+      ...(environmentBaseUrl === undefined ? {} : { environmentBaseUrl }),
       referenceErrorContext: config.defects.referenceErrorContext,
       tags: config.tags,
       thresholds: config.thresholds,
@@ -165,7 +139,10 @@ async function main(): Promise<number> {
       console.log(
         `  specs ${summary.counts.specs} · passed ${summary.counts.passed} · ` +
           `failed ${summary.counts.failed} · skipped ${summary.counts.skipped} · ` +
-          `flaky ${summary.counts.flaky}`,
+          `flaky ${summary.counts.flaky}` +
+          // Only when non-zero: an aborted suite is not a normal run and should
+          // not have to be hunted for in the gate violations.
+          (summary.counts.aborted === 0 ? "" : ` · aborted ${summary.counts.aborted}`),
       );
       console.log(`  artifacts in ${path.relative(ROOT, runDir)}/ (${written.length} files)`);
       for (const defect of defects) {

@@ -120,6 +120,10 @@
         "errorContextRef": {
           "type": "string",
           "description": "Relative path to Playwright's error-context.md. This artifact complements that file, it does not replace it."
+        },
+        "attribution": {
+          "enum": ["suite", "unknown"],
+          "description": "Where the failure was raised, as far as the report shows - not whose fault it is, which no producer can decide. suite: proven raised outside this spec's own body, because the error's source location names a different file or a line before this spec's declaration. unknown: the runner reported no source location. Absent is the ordinary case: the error was raised at or after this spec's own declaration in its own file, which carries no information. A file whose every failure shares one raise site produces no artifact at all; see the run summary's counts.aborted."
         }
       }
     },
@@ -149,7 +153,11 @@
       "properties": {
         "baseUrl": {
           "type": "string",
-          "description": "Origin under test, origin only. Query strings and credentials are stripped."
+          "description": "Origin under test, origin only. Query strings and credentials are stripped. This is the effective origin, not necessarily config/project.json's: read targetSource to learn which input it came from."
+        },
+        "targetSource": {
+          "enum": ["environment", "report", "config"],
+          "description": "Which input context.baseUrl was taken from, most trustworthy first. environment: BASE_URL, the value the runner's config reads. report: webServer.url from the Playwright report. config: config/project.json, the fallback. Absent only when there was no usable input at all, in which case baseUrl is absent too."
         },
         "commit": {
           "type": ["string", "null"],
@@ -174,6 +182,23 @@
           "type": "integer",
           "minimum": 0,
           "description": "Total duration of the final attempt, milliseconds."
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "description": "The page the failure happened on, as it was at that moment. error-context.md, which this artifact extends by reference, carries no URL, and the assertion message usually carries only a locator - so on an application with more than a handful of routes this is the only thing that says where to reproduce. Absent when no page was driven.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Page URL, redacted at capture time the way signal URLs are: scheme, host, port and path; no query string, no fragment, no credentials."
+        },
+        "title": {
+          "type": "string",
+          "description": "Document title, when the page had one. Best effort: page.title() can reject on a page that navigated away, and losing a title is never worth failing a test over."
         }
       }
     },

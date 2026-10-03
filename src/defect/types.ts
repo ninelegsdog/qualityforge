@@ -16,8 +16,13 @@
  * docs/defect-schema.md, an additive optional field is a minor bump: the file
  * suffix stays `v1`, and a 1.0.0 reader keeps working because it ignores
  * unknown fields.
+ *
+ * 1.2.0 adds two more optional fields, `page` and `context.targetSource`. Both
+ * are new keys with new meanings and no existing key changed, so the bump is
+ * minor again for the same reason. Nothing was removed, renamed, retyped or
+ * given a new sense.
  */
-export const DEFECT_SCHEMA_VERSION = "1.1.0" as const;
+export const DEFECT_SCHEMA_VERSION = "1.2.0" as const;
 
 /** Outcome of a single attempt. Mirrors Playwright's status vocabulary. */
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
@@ -45,12 +50,57 @@ export interface DefectTest {
   tags?: string[];
 }
 
+/**
+ * The page the failure happened on, as it was at that moment.
+ *
+ * `error-context.md`, which this contract extends by reference, carries no URL,
+ * and the assertion message usually carries only a locator. On the bundled demo
+ * app, origin plus test title reconstructs the page because it has three routes;
+ * a real application has hundreds.
+ *
+ * The URL is redacted exactly as captured signal URLs are: scheme, host, port
+ * and path, no query string, no fragment, no credentials.
+ */
+export interface DefectPage {
+  url: string;
+  title?: string;
+}
+
 /** Where the assertion lives, which is usually not where the test failed. */
 export interface DefectLocation {
   file: string;
   line: number;
   column?: number;
 }
+
+/**
+ * Where the failure was raised, as far as the report shows.
+ *
+ * This says **where the error came from**, not whose fault it is. A collector
+ * cannot decide whether a failure is the application's, the environment's or the
+ * suite's — that needs judgement the report does not contain, and writing a
+ * value it cannot justify would be a guess dressed up as a verdict. So the
+ * vocabulary is limited to what source locations actually prove:
+ *
+ * - `suite` — raised outside this spec's own body. Proven two ways: the error's
+ *   source location is in a different file, or it is at a line *before* this
+ *   spec's declaration. A `beforeEach`, a file-level fixture, or a helper
+ *   declared above the test all land here, and none of them is a defect in the
+ *   test body.
+ * - `unknown` — the runner reported no source location at all, so nothing can be
+ *   said in either direction.
+ *
+ * Absent means the error was raised at or after this spec's own declaration in
+ * its own file, which is the ordinary case and carries no information. It is not
+ * a claim that the error was raised in the body: an error thrown by a helper
+ * defined *below* the test also lands here, because "not provably above" is all a
+ * line number can establish.
+ *
+ * Where a whole file failed on one identical error, no artifact is written at
+ * all and this field has nothing to say — see `counts.aborted` on the run
+ * summary.
+ */
+export type FailureAttribution = "suite" | "unknown";
 
 export interface DefectFailure {
   message: string;
@@ -59,6 +109,8 @@ export interface DefectFailure {
   stack?: string;
   /** Relative path to Playwright's error-context.md, when it was captured. */
   errorContextRef?: string;
+  /** Absent for the ordinary case; see {@link FailureAttribution}. */
+  attribution?: FailureAttribution;
 }
 
 /**
@@ -75,11 +127,27 @@ export interface DefectEvidence {
 }
 
 /**
+ * Where `baseUrl` came from.
+ *
+ * Recorded because `baseUrl` alone is ambiguous: the configured value is not
+ * necessarily the application the browser was on. A consumer grouping defects by
+ * origin needs to know whether it is reading the configured target or the
+ * effective one before it trusts the grouping.
+ *
+ * - `environment` — `BASE_URL`, which is what the runner was pointed at.
+ * - `report` — `webServer.url` from the Playwright report, the runner's own view.
+ * - `config` — `config/project.json`, the fallback when nothing said otherwise.
+ */
+export type TargetSource = "environment" | "report" | "config";
+
+/**
  * Run context. Excludes anything secret by construction: no environment values,
  * no credentials. `baseUrl` is reduced to an origin before it gets here.
  */
 export interface DefectContext {
   baseUrl?: string;
+  /** Which input `baseUrl` was taken from. Absent only when there was none. */
+  targetSource?: TargetSource;
   commit?: string | null;
   branch?: string | null;
   ci?: boolean;
@@ -154,6 +222,8 @@ export interface DefectV1 {
   failure: DefectFailure;
   evidence: DefectEvidence;
   context: DefectContext;
+  /** The page under test when it failed. Absent when no page was driven. */
+  page?: DefectPage;
   retryHistory?: RetryEntry[];
   flakiness: DefectFlakiness;
   signals?: DefectSignals;
@@ -228,8 +298,19 @@ export function validateDefect(value: unknown): ValidationResult {
 
   if (!isRecord(value.failure)) {
     problems.push("failure must be an object");
-  } else if (typeof value.failure.message !== "string") {
-    problems.push("failure.message must be a string");
+  } else {
+    if (typeof value.failure.message !== "string") {
+      problems.push("failure.message must be a string");
+    }
+    const attribution = value.failure.attribution;
+    if (attribution !== undefined) {
+      const allowed: FailureAttribution[] = ["suite", "unknown"];
+      if (!allowed.includes(attribution as FailureAttribution)) {
+        problems.push(
+          `failure.attribution must be one of ${allowed.join(" | ")}, got ${JSON.stringify(attribution)}`,
+        );
+      }
+    }
   }
 
   if (!isRecord(value.evidence)) {
@@ -238,6 +319,26 @@ export function validateDefect(value: unknown): ValidationResult {
 
   if (!isRecord(value.context)) {
     problems.push("context must be an object");
+  } else {
+    const source = value.context.targetSource;
+    if (source !== undefined) {
+      const allowed: TargetSource[] = ["environment", "report", "config"];
+      if (!allowed.includes(source as TargetSource)) {
+        problems.push(
+          `context.targetSource must be one of ${allowed.join(" | ")}, got ${JSON.stringify(source)}`,
+        );
+      }
+    }
+  }
+
+  if (value.page !== undefined) {
+    if (!isRecord(value.page)) {
+      problems.push("page must be an object when present");
+    } else if (typeof value.page.url !== "string" || value.page.url === "") {
+      problems.push("page.url must be a non-empty string when page is present");
+    } else if (value.page.title !== undefined && typeof value.page.title !== "string") {
+      problems.push("page.title must be a string when present");
+    }
   }
 
   if (!isRecord(value.flakiness)) {

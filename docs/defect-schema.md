@@ -27,6 +27,9 @@ it cannot carry:
 | `runId`                            | Groups every defect from one execution                         |
 | `context.commit`, `context.branch` | Version context is not the runner's business                   |
 | `context.baseUrl`                  | Reduced to an origin; the runner records the full value        |
+| `context.targetSource`             | The origin alone is ambiguous — it does not say what it claims |
+| `page.url`, `page.title`           | The file carries an aria snapshot and **no URL**               |
+| `failure.attribution`              | The file shows the message, not where it was raised            |
 | `evidence.*`                       | Machine-readable pointers rather than a human-readable list    |
 | `flakiness`                        | Requires reasoning across attempts, which the file does not do |
 | `retryHistory`                     | Same                                                           |
@@ -72,7 +75,16 @@ That single import change is the whole integration. The `signals` fixture is
 declared `auto`, so console errors and warnings, uncaught page errors, failed
 requests and HTTP responses at or above 400 are captured for every test that
 drives a page, and attached as `quality-context` when — and only when — the test
-fails.
+**failed**, whatever anybody expected.
+
+That last part is the rule that was wrong for a long time. The fixture used to
+attach on `testInfo.status !== testInfo.expectedStatus`, and `test.fail()` — the
+natural way to write a test asserting a bug exists — makes those two equal. The
+evidence was deleted at exactly the moment someone wanted it, and the artifact
+that resulted read exactly like a failure which produced no signals. It now
+compares against the outcome. `timedOut` and `interrupted` count as failures too,
+which is not a widening: their expected status is `passed`, so the old rule
+already attached for them.
 
 ```jsonc
 "signals": {
@@ -97,7 +109,9 @@ Rules a consumer can rely on:
 
 - **Absent versus empty.** `signals` absent means "not observed", because the
   test drove no page or captured nothing. An empty array means "observed, found
-  nothing". Those are different claims and are not conflated.
+  nothing". Those are different claims and are not conflated. The same rule
+  applies to `page`: a page block with no URL is dropped rather than recorded
+  half-populated, because "the page was somewhere" states nothing actionable.
 - **Redacted at the source.** URLs keep scheme, host, port and path; query
   strings, fragments and credentials are removed. Console text has sensitive
   assignments, `Authorization` values and bare JWTs replaced with `[redacted]`.
@@ -108,6 +122,68 @@ Rules a consumer can rely on:
 - **An auth-scheme word is not a secret.** Redaction that turns
   `Authorization: Bearer [redacted]` into `Authorization: [redacted] [redacted]`
   destroys the diagnostic value while protecting nothing extra.
+
+## Which application, and which page
+
+Two questions a triage agent asks first, which the artifact could not answer
+before `1.2.0`.
+
+**Which application was under test.** `context.baseUrl` is an origin, but the
+configured origin is not necessarily the effective one: pointing the suite at
+another host with `BASE_URL` does not change `config/project.json`. The producer
+prefers the most trustworthy input available and records which one it used in
+`context.targetSource`:
+
+| `targetSource` | Input                              | When it wins                                                                          |
+| -------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `environment`  | `BASE_URL`                         | whenever it is set and parses as absolute — it is the value the runner's config reads |
+| `report`       | `webServer.url` in the JSON report | only when a project declares a `webServer`                                            |
+| `config`       | `config/project.json`              | otherwise; correct exactly when nothing overrode it                                   |
+
+`environment` is evidence, not proof, and this repository's own third-party suite
+is the worked example of where it goes wrong. That spec navigates to absolute URLs
+built from `QUALITYFORGE_THIRD_PARTY_URL`, not from `BASE_URL`, precisely so a
+`BASE_URL` left pointing at the bundled fixture cannot redirect it. Run it with
+`BASE_URL` still set to the fixture — which you must, or the fixture server is not
+what `webServer` waits for — and the collector faithfully reports
+`baseUrl: http://127.0.0.1:4311, targetSource: environment` for failures that
+happened on `https://quotes.toscrape.com`. Every input it has is a lie in that
+configuration, and the strongest one lies loudest.
+
+Two things make that recoverable rather than silent:
+
+- **`targetSource` says how much the answer is worth.** Read it, never `baseUrl`
+  alone.
+- **`page.url` is ground truth.** It is read from the browser, so it cannot be
+  wrong about where the failure happened. Comparing its origin with
+  `context.baseUrl` detects the disagreement, and that comparison is the check a
+  consumer grouping by application should make.
+
+`context.baseUrl` deliberately still means "the origin this run was pointed at",
+which is a run-level claim, not a per-failure one. Reconciling it against
+`page.url` per defect would be a different meaning for an existing field, and that
+is a version decision rather than a bug fix. Until then the two fields disagreeing
+is the signal, and it is a signal a consumer can act on.
+
+**Which page failed.** `page.url` is the page the browser was on when the failure
+happened, read at failure time and redacted the way signal URLs are.
+
+```jsonc
+"page": {
+  "url": "https://quotes.toscrape.com/login",
+  "title": "Quotes to Scrape: Login",
+},
+```
+
+`page` and `signals` follow different rules and that is deliberate. `signals` is
+absent unless something was observed; `page` is present whenever the test drove
+a page, because a page with no console error and no failed request is still the
+page the failure happened on. One rule for both would force one of them to be
+wrong.
+
+The end state alone cannot recover a redirect chain: a login that answers 302 and
+lands somewhere else records only where it ended up, and nothing anywhere says it
+moved.
 
 ## Shape
 
@@ -144,12 +220,18 @@ Rules a consumer can rely on:
 
   "context": {
     "baseUrl": "http://127.0.0.1:4311",
+    "targetSource": "config",
     "commit": "43c761f54c3571fab9fd9211539493d6210decea",
     "branch": "main",
     "ci": false,
     "retries": 0,
     "runStartedAt": "2026-10-03T00:42:42.392Z",
     "durationMs": 22573,
+  },
+
+  "page": {
+    "url": "http://127.0.0.1:4311/contact",
+    "title": "Contact form",
   },
 
   "flakiness": {
@@ -193,20 +275,52 @@ Rules a consumer can rely on:
 9. **`signals` is never invented.** It is written only when the fixture actually
    captured something. There is no empty-object placeholder, because "nothing was
    observed" and "nothing was found" are different facts.
-10. **`context.baseUrl` is the configured base URL, which is not always the
-    application the test ran against.** Pointing the suite at another host with
-    `BASE_URL` does not change it: the collector reads `config/project.json`, and
-    Playwright's JSON report does not serialise `use.baseURL`. See gap G1 below —
-    this is the sharpest edge in the contract today.
+10. **`context.baseUrl` is the origin the run was pointed at, and
+    `context.targetSource` says how much that is worth.** Read the pair, never
+    `baseUrl` alone. `environment` is the value the runner's config reads and is
+    the strongest evidence available, but a suite that navigates to absolute URLs
+    of its own can contradict it — and then `page.url` disagrees with
+    `context.baseUrl`, which is the signal to notice. `config` is only a fallback.
+    A consumer grouping defects by origin must decide which of these it holds
+    before it trusts the grouping. See "Which application, and which page" above.
 11. **`httpErrors[].statusText` is frequently an empty string** and must not be
     branched on. Chromium does not expose a reason phrase for HTTP/2 or for a
     response that crossed a TLS-terminating proxy. `status` is the reliable field.
-12. **A defect produced by an expected failure (`test.fail()`) carries no
-    evidence.** The fixture attaches `quality-context` only when
-    `testInfo.status !== testInfo.expectedStatus`, which is false for an expected
-    failure, and the runner attaches no screenshot or video for one either. The
-    artifact is written with `evidence: {}` and no `signals`, which reads exactly
-    like a failure that produced no signals. See gap G12.
+12. **`context.commit` is `null` in two different situations, and only one of them
+    is quiet.** A checkout with no git at all records `commit: null, branch: null`
+    and prints nothing. A checkout whose git directory exists but could not be
+    read — an unfollowed `gitdir:` pointer, a missing ref — records the same
+    values _and_ makes the collector warn on stderr. Treat a null commit from a
+    git-backed run as a problem to investigate, not as an absence.
+13. **An expected failure (`test.fail()`) is recorded like any other failure.**
+    `status` stays `failed` and the context is attached, because the fixture
+    decides on the outcome and not on a comparison with `expectedStatus`. The
+    artifact does **not** say the failure was expected — nothing in the schema
+    distinguishes it — so an expected failure and a real regression with the same
+    title produce indistinguishable artifacts. That is a known limit, not a
+    promise; see gap G12.
+14. **One run directory holds one artifact per failure, or the collector failed.**
+    Two failures whose ids collide stop the collection rather than sharing a
+    filename, so a run directory never contains a summary listing a path twice
+    while only one copy of it exists. A summary whose `defects` array repeats a
+    path was written by a version that predates this guarantee.
+15. **A spec whose failure was raised outside its own test body may produce no
+    artifact at all.** One failure cannot be the body of four tests, so when every
+    failed spec in a file reports the same message at the same source location, the
+    suite aborted rather than failed. Those specs produce no artifact, and the run
+    summary counts them under `counts.aborted` instead of listing them as defects —
+    `counts.failed` excludes them. **The quality gate still fails**, with a violation
+    naming the file and the raise site, because suppressing four tickets must not turn
+    a broken build green. An artifact listing `counts.aborted: 0` predates this rule,
+    as does one whose gate passed while the target was unreachable.
+16. **`failure.attribution` says where the error was raised, not whose fault it is.**
+    `suite` means the raise site is provably outside that spec's body — a different
+    file, or a line above the spec's own declaration. `unknown` means the runner
+    reported no location. Absent, which is the ordinary case, means the raise site
+    was at or after the declaration in its own file and carries no information; it is
+    _not_ a claim that the body raised it. The vocabulary deliberately stops there:
+    `application` and `environment` would require judgement no producer can make, and
+    a value nobody can justify is worse than no value. See gap G3.
 
 ## Meeting an application we did not build
 
@@ -251,7 +365,7 @@ is proposed. "Schema" means a change to
 [`../schemas/defect.v1.schema.json`](../schemas/defect.v1.schema.json), which is
 the integrator's file; "producer" means `src/`.
 
-#### G1 · `context.baseUrl` is not the application under test
+#### G1 · ~~`context.baseUrl` is not the application under test~~ — fixed
 
 _What could not be expressed:_ which application a defect belongs to. All five
 artifacts from the third-party run record `"baseUrl": "http://127.0.0.1:4311"`
@@ -265,11 +379,19 @@ third party's failures with the fixture's, and two runs against different target
 produce artifacts claiming the same origin. Here the artifact also contradicts
 its own `id`, which says `quotes-toscrape-smoke`.
 
-_Proposed:_ producer — prefer the effective base URL over the configured one and
-say which was used; schema — additive `context.targetSource`
-(`config | environment | report`), minor bump.
+_Fixed in `src/defect/collect.ts`, `src/defect/types.ts` and the schema._ The
+producer resolves the target from three inputs, most trustworthy first — `BASE_URL` from
+the environment, `webServer.url` from the report, the configured value — and
+records which one it used in the additive `context.targetSource`. A `BASE_URL`
+that does not parse as an absolute URL is skipped rather than recorded, so a
+configuration mistake never becomes an origin claim.
 
-#### G2 · Nothing records the page the failure happened on
+The source is recorded because the strongest input is evidence rather than proof:
+a project whose Playwright config derives its base URL some other way would report
+`environment` incorrectly. A consumer grouping by origin can therefore weigh the
+claim, which is strictly more than the previous behaviour allowed.
+
+#### G2 · ~~Nothing records the page the failure happened on~~ — fixed
 
 _What could not be expressed:_ where the browser was. The "missing element"
 probe's entire message is `waiting for getByRole('heading', { name:
@@ -281,13 +403,19 @@ _Risk:_ on the fixture, origin plus test name reconstructs the page, because the
 are three routes. On a real application with hundreds, a consumer cannot tell
 which page failed and cannot reproduce it.
 
-_Proposed:_ schema — additive `page: { url, title? }` recorded by the fixture,
-which holds `page.url()` at failure time; minor bump. Redact the URL the way
-signals are redacted. Note that the end state alone cannot recover a redirect
-chain: the login probe was answered with a 302 and landed on a different page,
-and nothing anywhere records that it moved.
+_Fixed in `src/fixtures/quality-context.ts` and `src/defect/page-context.ts`._ The
+fixture reads `page.url()` and `page.title()` at failure time, before teardown can
+navigate away, and attaches them in the same `quality-context` payload. The URL is
+redacted at capture, not at write time — by the time the collector sees it the
+secret has already touched a file, and a page reached through a reset link is
+exactly that case. `page` is additive and optional; a page block with no URL is
+dropped rather than recorded half-populated.
 
-#### G3 · An outage is indistinguishable from a defect
+The end state alone still cannot recover a redirect chain: the login probe was
+answered with a 302 and landed on a different page, and nothing anywhere records
+that it moved.
+
+#### G3 · ~~An outage is indistinguishable from a defect~~ — fixed
 
 _What could not be expressed:_ "this failure is the target being unavailable".
 With the target pointed at a dead port, the run produced **four** artifacts. All
@@ -299,13 +427,37 @@ _Risk:_ an agent working the defect list opens four tickets against the target's
 codebase for one outage, and the quality gate reports it as a 40% failure rate.
 The contract has a flakiness verdict and no notion of attribution at all.
 
-_Proposed:_ two steps, and the first is cheaper and more correct. Producer — a
-failure raised in `beforeAll` is not a defect and should not produce an artifact;
-the collector needs to recognise a hook failure rather than a spec failure.
-Schema — additive `failure.attribution` enum
-(`application | environment | test | unknown`); minor bump.
+_The obstacle, found while fixing it:_ Playwright 1.63.0's JSON reporter
+serialises `result.error` straight through, and `TestError` carries **no** `stage`
+field — there is no `before-all-hook` marker anywhere in the report to key off.
+Verified by reading the reporter source and by running a real `beforeAll` failure
+end to end. In the report, a hook failure and a spec failure are structurally
+identical, so the collector cannot simply look for one.
 
-#### G4 · `id` is not unique within a run, and collisions destroy artifacts
+_Fixed on the evidence that does exist._ When every failed spec in a file reports
+the same error at the same source location, the failure was raised once, outside
+the test bodies: one `throw` cannot be the body of four tests. Those specs produce
+no artifact, are counted under `aborted` in the run summary, and raise a gate
+violation naming the file and the error — so the build still goes red, and red
+for the right reason, without four tickets. Rule 15 states it for consumers.
+
+_The residual case_ — a single spec failing on an error raised outside its own
+body — cannot be identified as such, because the evidence that settles four specs
+settles none when there is only one. That is the case additive
+`failure.attribution` exists for: the artifact is kept, flagged `suite` when the
+raise site is provably above the spec's own declaration or in another file, and
+recorded `unknown` when the runner gave no location at all. See rule 16.
+
+_Departure from this gap's own proposal, deliberately._ G3 originally suggested an
+`application | environment | test | unknown` enum. The first two cannot be written
+without judgement the collector does not have — nothing in a Playwright report says
+whether a failure is the application's fault or the network's — and a field whose
+values are guesses is worse than a field that only says what it can prove. The
+vocabulary was cut to `suite | unknown`, and the distinction between "raised in the
+suite" and "raised in the test" was kept by making absence meaningful rather than by
+inventing a value for it.
+
+#### G4 · ~~`id` is not unique within a run, and collisions destroy artifacts~~ — fixed
 
 _What could not be expressed:_ two distinct failures as two distinct artifacts.
 Two proven triggers:
@@ -321,13 +473,22 @@ listing the _same path twice_, and **one** artifact on disk — the second failu
 The first is gone, with no warning and no trace. `validateDefect()` passes it,
 because each artifact is individually valid.
 
-_Risk:_ silent loss of a defect, a summary that contradicts the directory it
-describes, and history joined on `id` attributing one test's failure to another.
+_Fixed in `src/defect/collect.ts`._ The collector keeps an in-memory map of the
+ids it has already written for the run and **refuses the second write**, throwing
+with both colliding tests named — file, line, title and `playwrightId` — so the
+reader does not have to work out which two collided. Nothing already on disk is
+touched, and no run summary is written, because a summary is a claim that the run
+was collected in full and this one was not.
 
-_Proposed:_ producer only, no schema change. Derive `id` from
-`test.playwrightId` — already in the artifact, already unique per spec — or append
-a short hash of it. And make the collector **fail closed** on a duplicate `id`,
-throwing as it already does for an invalid artifact, instead of overwriting.
+A third path turned up while fixing this and is covered by the same guard: an id
+that slugifies to `quality-summary` produces the filename the run summary is
+written to, thirty lines later, with no warning. That filename is now reserved.
+
+_The derivation was deliberately left alone._ `id` is a published value and
+changing how it is computed changes every artifact ever written, which is a
+contract change rather than a bug fix. The collision is now a hard, explained
+failure instead of a silent loss; deciding what an id should be is a separate
+question and belongs with a version bump.
 
 #### G5 · `signals` cannot tell the target's origin from a third party's
 
@@ -429,36 +590,56 @@ executed here:** no conforming JSON Schema validator is available in this
 environment and adding a dependency is out of scope, so this is a reading of the
 schema and of JSON Schema 2020-12 rather than an observed failure.
 
-#### G12 · `test.fail()` yields a defect with no evidence and no signals
+#### G12 · ~~`test.fail()` yields a defect with no evidence and no signals~~ — fixed
 
 Found by writing this suite the obvious way first. With `test.fail()`, the JSON
 report records `status: "failed"` and exactly one attachment, `error-context`. The
 fixture's guard, `testInfo.status !== testInfo.expectedStatus`, is false for an
-expected failure, so `quality-context` is never attached — and the runner attaches
+expected failure, so `quality-context` was never attached — and the runner attaches
 no screenshot or video for an expected failure either. The artifacts came out with
 `evidence: {}` and no `signals`.
 
-_Risk:_ rule 9 stops being true. "Nothing was observed" and "the runner considered
-this failure expected" become indistinguishable, and a consumer will read the
-second as the first. This suite's probes were rewritten to fail honestly for
-exactly this reason.
+_Risk:_ rule 9 stopped being true. "Nothing was observed" and "the runner
+considered this failure expected" became indistinguishable, and a consumer would
+read the second as the first. This suite's probes were rewritten to fail honestly
+for exactly this reason.
 
-_Proposed:_ producer — attach on `testInfo.status === "failed"` rather than on a
-comparison with `expectedStatus`, so evidence follows the outcome. Documented as
-rule 12 until then.
+_Fixed in `src/defect/page-context.ts`._ The guard moved out of the fixture and now
+compares against the outcome. Proven against a real `test.fail()` spec rather than
+only in a unit test: the report's attachments went from `["error-context"]` to
+`["error-context", "quality-context"]`, and the collected artifact went from
+`evidence: {}` with no `signals` to carrying the 404 the test actually saw.
 
-#### G13 · `commit` and `branch` are silently null in a git worktree
+`timedOut` and `interrupted` are in the failure set deliberately. The old rule
+already attached for them — their expected status is `passed` — so narrowing to
+`status === "failed"` would have fixed the reported case while quietly
+reintroducing the same bug for a timeout, whose page state is worth more than a
+passing test's.
 
-Every artifact from every run in a worktree records `commit: null, branch: null`,
-while `git rev-parse HEAD` succeeds. `gitInfo()` reads `<root>/.git` expecting
+_Still open, and deliberately not here:_ the artifact records `status: "failed"`
+for an expected failure and nothing says the failure was expected. Recording that
+needs either a new value in `status` or a new flag, and both change what an
+existing field means to a consumer. That is a decision for a version bump, not a
+bug fix, so the third-party probes stay honestly red rather than reaching for
+`test.fail()`.
+
+#### G13 · ~~`commit` and `branch` are silently null in a git worktree~~ — fixed
+
+Every artifact from every run in a worktree recorded `commit: null, branch: null`,
+while `git rev-parse HEAD` succeeded. `gitInfo()` read `<root>/.git` expecting
 either `ref: refs/heads/…` or a bare SHA; in a worktree that path is a _file_
 containing `gitdir: /…/.git/worktrees/<name>`, which matches neither, so it
 returns nothing rather than failing.
 
-_Risk:_ history joined on commit degrades to no history without saying so, and two
-artifacts from different commits look identical.
-
-_Proposed:_ producer — follow `gitdir:` and read `HEAD` and its ref from there.
+_Fixed in `src/defect/git-info.ts`._ The `gitdir:` pointer is followed, a
+relative one is resolved against the directory holding the pointer file, and
+`commondir` is honoured — a linked worktree keeps its own `HEAD` but shares the
+ref store with the main repository, so the branch ref is in the common
+directory. The loader now also separates the two reasons for a null commit:
+**absent** `problem` means there is no git here (a tarball export, which is
+legitimate and silent), while a set `problem` means git is here and could not be
+read. The collector prints the second to stderr, so `--json` output stays pure
+JSON and a lost VCS context cannot pass unnoticed again.
 
 #### G14 · `error-context.md` is unbounded, and it is the file this contract points at
 
@@ -478,9 +659,23 @@ capped, the way `signals.dropped` already does.
 `schemaVersion` is semantic. The file name carries `v1` to match.
 
 - Adding an optional field: minor bump. That is how `signals` arrived in
-  `1.1.0`, the file suffix staying `v1` and every `1.0.0` reader still working.
+  `1.1.0`, the file suffix staying `v1` and every `1.0.0` reader still working,
+  and how `page` and `context.targetSource` arrived in `1.2.0`.
 - Removing a field, renaming one, or changing a type or meaning: major bump,
   and the file suffix changes to `v2`.
+
+Nothing in `1.2.0` was removed, renamed, retyped or given a new sense:
+`context.baseUrl` still means "an origin", `context.targetSource` says how much
+that origin is worth, and `page` is a new key beside them. The only field whose
+_content_ changed is `context.baseUrl`'s value in a third-party run — from the
+configured origin to the effective one. The meaning of the field is unchanged and
+the new `targetSource` says which of the two inputs was used, so a consumer that
+wants the old answer can still get it: read `config/project.json`. That is a
+change in behaviour, not in contract, and it is called out in the changelog
+because it is the one thing here that would surprise a returning reader.
+
+The run summary is a separate document from the per-defect artifact, so adding a
+field to it needs no `v1` bump at all.
 
 Consumers should ignore unknown fields. A minor bump must never break a reader.
 

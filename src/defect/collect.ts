@@ -31,11 +31,14 @@ import type { ProjectConfig } from "../config/types.js";
 import {
   DEFECT_SCHEMA_VERSION,
   type DefectLocation,
+  type DefectPage,
   type DefectSignals,
   type DefectStatus,
   type DefectV1,
+  type FailureAttribution,
   type FlakinessVerdict,
   type RetryEntry,
+  type TargetSource,
   type TestStatus,
   validateDefect,
 } from "./types.js";
@@ -102,7 +105,14 @@ interface PwSuite {
 }
 
 interface PwJsonReport {
-  config?: { rootDir?: string };
+  config?: {
+    rootDir?: string;
+    /**
+     * Present only when the project declares a `webServer`. Verified against
+     * 1.63.0: `use` is serialised as null, so `use.baseURL` is not available.
+     */
+    webServer?: { url?: string } | null;
+  };
   stats?: {
     startTime?: string;
     duration?: number;
@@ -156,6 +166,53 @@ export function originOf(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The application under test, and where that answer came from.
+ *
+ * `config/project.json`'s `baseUrl` is what *this project* is usually pointed at,
+ * which is not the same claim as what the browser was on. Pointing the suite at a
+ * third party with `BASE_URL` leaves the configured value untouched, and
+ * Playwright's JSON report does not serialise `use.baseURL` — so every artifact
+ * from a third-party run claimed the bundled fixture's origin while the browser
+ * was somewhere else entirely. A consumer grouping defects by origin then
+ * silently merged two applications' failures.
+ *
+ * Three inputs, most trustworthy first:
+ *
+ * - `environment` — `BASE_URL`. This is the strongest available evidence, since
+ *   it is the very value the runner's config reads. Not absolute proof: a
+ *   project whose Playwright config derives its base URL some other way would
+ *   report `environment` incorrectly. That is why the source is recorded.
+ * - `report` — `webServer.url` from the report. The runner's own view of what it
+ *   serves, but present only when the project declares a `webServer`, and it
+ *   describes the fixture rather than the target in a `BASE_URL`-driven run.
+ * - `config` — `config/project.json`. The fallback, and correct exactly when
+ *   nothing overrode it.
+ */
+export interface TargetResolution {
+  origin?: string;
+  source?: TargetSource;
+}
+
+export function resolveTarget(input: {
+  environmentBaseUrl?: string;
+  reportWebServerUrl?: string;
+  configuredBaseUrl?: string;
+}): TargetResolution {
+  for (const [value, source] of [
+    [input.environmentBaseUrl, "environment"],
+    [input.reportWebServerUrl, "report"],
+    [input.configuredBaseUrl, "config"],
+  ] as const) {
+    const origin = originOf(value);
+    // Only an absolute, parseable URL counts. A relative BASE_URL is a
+    // configuration error that Playwright will report far more clearly than
+    // this function could, so it must not become a recorded origin.
+    if (origin !== undefined) return { origin, source };
+  }
+  return {};
 }
 
 /** Turn a test identity into a stable kebab-case defect id. */
@@ -249,9 +306,75 @@ const EVIDENCE_BY_ATTACHMENT: Record<string, "trace" | "screenshot" | "video"> =
 /** Attachment written by the QualityForge fixture on a failing test. */
 const SIGNALS_ATTACHMENT = "quality-context";
 
+/**
+ * The run summary's own filename.
+ *
+ * A defect's filename is `<id>.v1.json`, and an id is a slug, so a defect whose
+ * id slugifies to `quality-summary` lands on this exact name. It is reserved so
+ * that collision fails loudly instead of the summary quietly replacing a defect
+ * at the end of the run.
+ */
+const SUMMARY_FILE_NAME = "quality-summary.v1.json";
+
+/** One line naming a test, for a message its reader has to act on. */
+function describeTest(defect: DefectV1): string {
+  return (
+    `  - ${defect.test.file}:${defect.test.line ?? "?"} ` +
+    `${JSON.stringify(defect.test.title)}` +
+    (defect.test.playwrightId === undefined ? "" : ` (playwrightId ${defect.test.playwrightId})`)
+  );
+}
+
+/**
+ * The error raised when two failures want the same filename.
+ *
+ * Overwriting on a key collision is the defect itself: the first failure
+ * disappears with no warning, `validateDefect()` passes what is left, and the
+ * run summary lists one path twice while the directory holds one file. So the
+ * collector refuses, and says which two tests collided and why their ids
+ * matched - the reader should not have to work that out by hand.
+ */
+function duplicateIdError(id: string, first: DefectV1, second: DefectV1): Error {
+  return new Error(
+    `Refusing to write a second defect artifact for id ${JSON.stringify(id)} ` +
+      "(duplicate defect id).\n" +
+      "Both of these failed, and one filename cannot hold both:\n" +
+      `${describeTest(first)}\n` +
+      `${describeTest(second)}\n` +
+      "Nothing was overwritten: the artifact already on disk is untouched, and no\n" +
+      "run summary is written, so nothing on disk claims this run was collected in full.\n" +
+      "The id is a slug of the file basename and the title, so two tests collide when the\n" +
+      "slug is identical: two files sharing a basename, a title with no [a-z0-9]\n" +
+      "characters, or two titles that agree past the 120-character cap.\n" +
+      "Give the two tests distinguishable titles, or rename one of the files.",
+  );
+}
+
 interface SignalsPayload {
   signals?: DefectSignals;
   dropped?: number;
+  page?: DefectPage;
+}
+
+/**
+ * Read the page the failure happened on.
+ *
+ * A URL is required and non-empty; anything else is dropped rather than
+ * half-recorded, because a page block with no URL states nothing a consumer can
+ * act on. The title is optional and left absent when the page had none.
+ */
+function readPageContext(payload: SignalsPayload): DefectPage | undefined {
+  const page = payload.page;
+  if (page === undefined) return undefined;
+  if (typeof page !== "object" || page === null) return undefined;
+  const candidate = page as { url?: unknown; title?: unknown };
+  if (typeof candidate.url !== "string" || candidate.url === "") return undefined;
+  return {
+    url: candidate.url,
+    ...(typeof candidate.title === "string" && candidate.title !== ""
+      ? { title: candidate.title }
+      : {}),
+  };
 }
 
 /**
@@ -278,15 +401,22 @@ async function readAttachmentText(attachment: PwAttachment): Promise<string | un
 }
 
 /**
- * Read the fixture's captured signals.
+ * The fixture's context payload: captured signals plus the page.
  *
- * Returns undefined when there is nothing to report, which is different from an
- * empty signals object: absent means "not observed", empty means "observed and
- * found nothing". Consumers should not have to guess which they are looking at.
+ * Split from `readSignals` because the two blocks have genuinely different
+ * rules. Signals are absent unless something was observed; the page is present
+ * whenever the test drove a page, because a page with no console errors and no
+ * failed requests is still the page the failure happened on. Returning them
+ * together from one function would force one of those rules to be wrong.
  */
-async function readSignals(attachment: PwAttachment): Promise<DefectSignals | undefined> {
+interface FixtureContext {
+  signals?: DefectSignals;
+  page?: DefectPage;
+}
+
+async function readFixtureContext(attachment: PwAttachment): Promise<FixtureContext> {
   const text = await readAttachmentText(attachment);
-  if (text === undefined) return undefined;
+  if (text === undefined) return {};
 
   let parsed: unknown;
   try {
@@ -294,22 +424,30 @@ async function readSignals(attachment: PwAttachment): Promise<DefectSignals | un
   } catch {
     // A malformed attachment must not fail the whole collection. The defect
     // itself is still worth recording.
-    return undefined;
+    return {};
   }
 
   // Parsed as unknown and checked at runtime, because a file on disk is not a
   // trustworthy source of a type.
-  if (typeof parsed !== "object" || parsed === null) return undefined;
+  if (typeof parsed !== "object" || parsed === null) return {};
   const payload = parsed as SignalsPayload;
+
   const signals = payload.signals ?? {};
   const hasAny = Object.values(signals).some(
     (entries) => Array.isArray(entries) && entries.length > 0,
   );
-  if (!hasAny) return undefined;
+  const page = readPageContext(payload);
 
   return {
-    ...signals,
-    ...(typeof payload.dropped === "number" ? { dropped: payload.dropped } : {}),
+    ...(hasAny
+      ? {
+          signals: {
+            ...signals,
+            ...(typeof payload.dropped === "number" ? { dropped: payload.dropped } : {}),
+          },
+        }
+      : {}),
+    ...(page === undefined ? {} : { page }),
   };
 }
 
@@ -322,8 +460,20 @@ export interface CollectOptions {
   outputDir: string;
   /** Playwright JSON report path, relative to projectRoot. */
   reportPath: string;
-  /** Origin under test; reduced to an origin before recording. */
+  /**
+   * The configured origin, from config/project.json.
+   *
+   * A fallback, not the answer: see `resolveTarget`. Reduced to an origin before
+   * recording.
+   */
   baseUrl?: string;
+  /**
+   * `BASE_URL` from the environment, when set.
+   *
+   * Preferred over the configured value, because it is what the runner's config
+   * actually reads. Ignored unless it parses as an absolute URL.
+   */
+  environmentBaseUrl?: string;
   /**
    * Record a path to error-context.md on each defect.
    *
@@ -349,6 +499,8 @@ export interface RunSummary {
   runId: string;
   createdAt: string;
   baseUrl?: string;
+  /** Which input `baseUrl` came from, so a consumer can weigh it. */
+  targetSource?: TargetSource;
   counts: {
     specs: number;
     passed: number;
@@ -356,6 +508,11 @@ export interface RunSummary {
     timedOut: number;
     skipped: number;
     flaky: number;
+    /**
+     * Specs that failed on an error raised outside their own bodies, and for
+     * which no artifact was written. `failed` excludes them; the gate does not.
+     */
+    aborted: number;
   };
   durationMs?: number;
   startedAt?: string;
@@ -377,6 +534,165 @@ function firstError(result: PwResult | undefined): PwError {
 
 function relativize(projectRoot: string, absolute: string): string {
   return path.relative(projectRoot, absolute).split(path.sep).join("/");
+}
+
+/**
+ * One spec that produced a non-passing, non-skipped outcome, reduced to what the
+ * abort rule needs.
+ *
+ * Collected before anything is written, because deciding whether a failure is a
+ * defect needs its siblings: whether a `beforeAll` aborted a file is a fact about
+ * all of that file's failures together, not about any one of them.
+ */
+export interface AbortableFailure {
+  /** `spec.file` as the report names it; the grouping key. */
+  file: string;
+  /** Stripped failure message, exactly as it would be written to an artifact. */
+  message: string;
+  /** The runner's source location for the error, when it reported one. */
+  errorLocation?: { file?: string; line?: number; column?: number };
+}
+
+/** A file whose specs all failed on one raise site. */
+export interface SuiteAbort {
+  file: string;
+  /** How many specs never ran. */
+  count: number;
+  /** The message every one of them carries. */
+  message: string;
+  /** `file:line:column` the error was raised at. */
+  site: string;
+}
+
+/**
+ * One failing spec, held between the walk and the write.
+ *
+ * The walk counts and classifies; the write happens after the abort decision, so
+ * nothing derived from the report is computed twice and no artifact is written
+ * for a spec that turns out to have been aborted.
+ */
+interface PendingFailure {
+  spec: PwSpec;
+  /** `spec.file` as the report names it. */
+  pwFile: string;
+  /** Resolved against testDir, for comparing against error locations. */
+  absoluteTestFile: string;
+  relativeTestFile: string;
+  attempts: PwResult[];
+  statuses: TestStatus[];
+  finalStatus: TestStatus;
+  lastAttempt: PwResult | undefined;
+  projectName: string | undefined;
+  error: PwError;
+  message: string;
+  verdict: FlakinessVerdict;
+  passedAttempts: number;
+  failedAttempts: number;
+  retryHistory: RetryEntry[];
+}
+
+/**
+ * Identify the raise site of an error, so two failures can be compared.
+ *
+ * The message alone is not enough: two tests waiting for the same element produce
+ * byte-identical messages while failing at different lines, and those are two real
+ * defects. The location is what distinguishes one `throw` executed four times from
+ * four separate assertions.
+ */
+function raiseSite(location: AbortableFailure["errorLocation"]): string | undefined {
+  if (location?.file === undefined || location.line === undefined) return undefined;
+  return `${location.file}:${location.line}:${location.column ?? 0}`;
+}
+
+/**
+ * Decide which files were aborted by a failure raised outside their test bodies.
+ *
+ * ## Why the report cannot answer this directly
+ *
+ * The obvious key does not exist. Playwright 1.63.0's JSON reporter serialises
+ * `result.error` straight through, and `TestError` carries no `stage` field — there
+ * is no `before-all-hook` marker anywhere in the report to key off. Verified by
+ * reading the reporter source and by running a real `beforeAll` failure end to end.
+ * In the report, a hook failure and a spec failure are structurally identical.
+ *
+ * ## What does distinguish them
+ *
+ * One `throw` cannot be the body of four tests. When every failed spec in a file
+ * reports the same error at the same source location, the failure was raised once,
+ * outside the test bodies, and those specs never ran. Pointed at a dead port, the
+ * third-party suite produced four artifacts that said `status: failed` with
+ * identical messages; a triage agent would have opened four tickets on somebody
+ * else's codebase for one outage.
+ *
+ * ## Why every condition is required
+ *
+ * Each one exists because without it the rule would swallow a real defect:
+ *
+ * - **At least two specs.** One spec failing alone proves nothing: a helper called
+ *   by a single test raises from the helper, and that is a defect worth recording.
+ * - **Every** failing spec in the file accounted for. One outlier means the bodies
+ *   did run, and a file that half ran did not abort.
+ * - **Every one of them carries a location.** No location means no comparison to
+ *   make, and guessing here is how data goes missing.
+ * - **One single message at one single site across all of them.** Two tests failing
+ *   at different lines are two assertions, not one hook, and two failures that
+ *   read differently are two facts even when they share a line.
+ *
+ * Passing specs in the file are not counted and do not veto the rule. A
+ * `beforeAll` inside one describe takes that describe's specs down and leaves a
+ * sibling describe green, and those green results say nothing about whether the
+ * failing bodies ran.
+ */
+export function findSuiteAborts(failures: AbortableFailure[]): Map<string, SuiteAbort> {
+  const byFile = new Map<string, AbortableFailure[]>();
+  for (const failure of failures) {
+    const list = byFile.get(failure.file);
+    if (list === undefined) byFile.set(failure.file, [failure]);
+    else list.push(failure);
+  }
+
+  const aborts = new Map<string, SuiteAbort>();
+  for (const [file, list] of byFile) {
+    if (list.length < 2) continue;
+    const sites = list.map((failure) => raiseSite(failure.errorLocation));
+    if (sites.some((site) => site === undefined)) continue;
+    const site = sites[0];
+    if (site === undefined) continue;
+    if (sites.some((other) => other !== site)) continue;
+    // The message is part of the identity of the failure, not decoration. One
+    // raise site producing four different messages is four facts, not one outage.
+    const message = list[0]?.message ?? "";
+    if (list.some((failure) => failure.message !== message)) continue;
+    aborts.set(file, { file, count: list.length, message, site });
+  }
+  return aborts;
+}
+
+/**
+ * Whether this failure was raised outside the spec's own body.
+ *
+ * Sound in both the directions it claims and silent in the one it cannot:
+ *
+ * - `suite` — the location names a different file, or a line before the spec's
+ *   declaration. Both are outside the body, because a test body is at or after its
+ *   own `test(` call.
+ * - `unknown` — no location at all.
+ * - absent — at or after the declaration in its own file. Not a claim that the body
+ *   raised it: an error from a helper defined *below* the test is equally
+ *   consistent with that, and "not provably above" is all a line number proves.
+ */
+export function attributionFor(input: {
+  errorLocation?: { file?: string; line?: number; column?: number };
+  specLine: number | undefined;
+  absoluteTestFile: string;
+  projectRoot: string;
+}): FailureAttribution | undefined {
+  const { file, line } = input.errorLocation ?? {};
+  if (file === undefined || line === undefined) return "unknown";
+  const absolute = path.isAbsolute(file) ? file : path.resolve(input.projectRoot, file);
+  if (absolute !== input.absoluteTestFile) return "suite";
+  if (input.specLine !== undefined && line < input.specLine) return "suite";
+  return undefined;
 }
 
 /**
@@ -426,13 +742,46 @@ export async function collectDefects(options: CollectOptions): Promise<{
   const runDir = path.resolve(projectRoot, outputDir, runId);
   await mkdir(runDir, { recursive: true });
 
-  const origin = originOf(options.baseUrl);
+  const { origin, source: targetSource } = resolveTarget({
+    ...(options.environmentBaseUrl === undefined
+      ? {}
+      : { environmentBaseUrl: options.environmentBaseUrl }),
+    ...(report.config?.webServer?.url === undefined
+      ? {}
+      : { reportWebServerUrl: report.config.webServer.url }),
+    ...(options.baseUrl === undefined ? {} : { configuredBaseUrl: options.baseUrl }),
+  });
   const defects: DefectV1[] = [];
+  /**
+   * Id to artifact, for the run being collected.
+   *
+   * Checked before every write rather than inferred from the filesystem. The
+   * two differ exactly when the run directory is not empty, which is also when
+   * a stale artifact from a previous run could be mistaken for this run's -
+   * so the in-memory map is the truth and the directory is not consulted.
+   */
+  const writtenIds = new Map<string, DefectV1>();
   let specs = 0;
   let passed = 0;
   let skipped = 0;
   let timedOut = 0;
   let flakySpecs = 0;
+  /**
+   * Every non-passing, non-skipped spec, in report order.
+   *
+   * Filled during the walk below and consulted once, before anything is written:
+   * whether a file was aborted by a `beforeAll` is a fact about all of that file's
+   * failures together, so the decision cannot be made one spec at a time.
+   */
+  const abortable: AbortableFailure[] = [];
+  /** Every failing spec with its derived data, held until the abort decision. */
+  const pending: PendingFailure[] = [];
+  /** Specs whose file turned out to be aborted, so no artifact is written. */
+  const suppressedSpecs = new Set<PwSpec>();
+  /** Specs that never ran because something outside their bodies raised. */
+  let aborted = 0;
+  /** Built here so an abort violation is reported before the threshold ones. */
+  const gateViolations: string[] = [];
 
   for (const spec of walkSpecs(report.suites)) {
     specs += 1;
@@ -475,15 +824,87 @@ export async function collectDefects(options: CollectOptions): Promise<{
     const error = firstError(lastAttempt);
     const message = stripAnsi(error.message ?? "");
 
+    pending.push({
+      spec,
+      pwFile,
+      absoluteTestFile,
+      relativeTestFile,
+      attempts,
+      statuses,
+      finalStatus,
+      lastAttempt,
+      projectName,
+      error,
+      message,
+      passedAttempts,
+      failedAttempts,
+      verdict,
+      retryHistory,
+    });
+
+    abortable.push({
+      file: pwFile,
+      message,
+      ...(error.location === undefined ? {} : { errorLocation: error.location }),
+    });
+
+    continue;
+  }
+
+  // The decision that needs every spec at once, taken before anything is written.
+  const aborts = findSuiteAborts(abortable);
+  for (const abort of aborts.values()) {
+    for (const entry of pending) {
+      if (entry.pwFile === abort.file) suppressedSpecs.add(entry.spec);
+    }
+    aborted += abort.count;
+    gateViolations.push(
+      `${abort.count} spec(s) in ${abort.file} never ran: every one failed on the same ` +
+        `error raised at ${abort.site}, outside the test bodies.\n` +
+        `    This is a suite or environment failure, not ${abort.count} defects, so no ` +
+        `artifact was written for them.\n` +
+        `    message: ${abort.message.split("\n")[0] ?? ""}`,
+    );
+  }
+
+  for (const entry of pending) {
+    const {
+      spec,
+      pwFile,
+      absoluteTestFile,
+      relativeTestFile,
+      statuses,
+      finalStatus,
+      lastAttempt,
+      projectName,
+      error,
+      message,
+      passedAttempts,
+      failedAttempts,
+      verdict,
+      retryHistory,
+    } = entry;
+    if (suppressedSpecs.has(spec)) continue;
+
+    const attribution = attributionFor({
+      ...(error.location === undefined ? {} : { errorLocation: error.location }),
+      specLine: spec.line,
+      absoluteTestFile,
+      projectRoot,
+    });
+
     // Evidence comes from the runner's own attachment list rather than from
     // guessing file names, because the runner knows what it actually wrote.
     const evidence: DefectV1["evidence"] = {};
     let errorContextRef: string | undefined;
     let signals: DefectSignals | undefined;
+    let page: DefectPage | undefined;
     for (const attachment of lastAttempt?.attachments ?? []) {
       if (attachment.name === SIGNALS_ATTACHMENT) {
         // Inline attachment: read the content, there is no file to point at.
-        signals = await readSignals(attachment);
+        const context = await readFixtureContext(attachment);
+        signals = context.signals;
+        page = context.page;
         continue;
       }
       if (attachment.path === undefined) continue;
@@ -531,10 +952,12 @@ export async function collectDefects(options: CollectOptions): Promise<{
         ...(error.snippet === undefined ? {} : { snippet: stripAnsi(error.snippet) }),
         ...(error.stack === undefined ? {} : { stack: stripAnsi(error.stack) }),
         ...(errorContextRef === undefined ? {} : { errorContextRef }),
+        ...(attribution === undefined ? {} : { attribution }),
       },
       evidence,
       context: {
         ...(origin === undefined ? {} : { baseUrl: origin }),
+        ...(targetSource === undefined ? {} : { targetSource }),
         commit,
         branch,
         ci,
@@ -544,6 +967,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
           ? {}
           : { durationMs: Math.round(report.stats.duration) }),
       },
+      ...(page === undefined ? {} : { page }),
       ...(retryHistory.length > 1 ? { retryHistory } : {}),
       flakiness: {
         verdict,
@@ -563,13 +987,31 @@ export async function collectDefects(options: CollectOptions): Promise<{
     }
 
     const fileName = `${defect.id}.v1.json`;
+    if (fileName === SUMMARY_FILE_NAME) {
+      throw new Error(
+        `Defect "${defect.test.title}" would be written as ${fileName}, which is the run ` +
+          `summary's own filename, and the summary is written after every defect.\n` +
+          `${describeTest(defect)}\n` +
+          "Nothing was written. Rename the test file, or give the test a title that\n" +
+          "slugs to something other than quality-summary.",
+      );
+    }
+
+    // Fail closed on a key collision. Two failures, one filename, means one of
+    // them is destroyed with no signal, which is worse than a red run.
+    const collision = writtenIds.get(defect.id);
+    if (collision !== undefined) {
+      throw duplicateIdError(defect.id, collision, defect);
+    }
+
+    writtenIds.set(defect.id, defect);
     await writeFile(path.join(runDir, fileName), `${JSON.stringify(defect, null, 2)}\n`, "utf8");
     defects.push(defect);
   }
 
   const failureCount = defects.length;
   const failureRate = specs === 0 ? 0 : failureCount / specs;
-  const violations: string[] = [];
+  const violations = gateViolations;
   if (specs > 0 && failureRate > thresholds.maxFailureRate) {
     violations.push(
       `failure rate ${(failureRate * 100).toFixed(1)}% exceeds maxFailureRate ` +
@@ -597,6 +1039,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     runId,
     createdAt,
     ...(origin === undefined ? {} : { baseUrl: origin }),
+    ...(targetSource === undefined ? {} : { targetSource }),
     counts: {
       specs,
       passed,
@@ -604,6 +1047,13 @@ export async function collectDefects(options: CollectOptions): Promise<{
       timedOut,
       skipped,
       flaky: flakySpecs,
+      /**
+       * Specs whose failure was raised outside their own bodies, so no artifact
+       * exists for them. `failed` deliberately excludes them: they are not
+       * defects, and counting them is what produced four tickets for one outage.
+       * They still fail the gate, which is why an outage cannot pass silently.
+       */
+      aborted,
     },
     ...(runDuration === undefined ? {} : { durationMs: Math.round(runDuration) }),
     ...(report.stats?.startTime === undefined ? {} : { startedAt: report.stats.startTime }),
@@ -619,7 +1069,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
   };
 
   await writeFile(
-    path.join(runDir, "quality-summary.v1.json"),
+    path.join(runDir, SUMMARY_FILE_NAME),
     `${JSON.stringify(summary, null, 2)}\n`,
     "utf8",
   );

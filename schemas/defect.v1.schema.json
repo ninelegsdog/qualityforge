@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qualityforge.dev/schemas/defect.v1.schema.json",
+  "title": "QualityForge defect artifact v1",
+  "description": "A single normalized failure, designed to extend Playwright's error-context.md rather than duplicate it. errorContextRef points at that file; everything here is what it does not carry: stable identity, run correlation, VCS context, evidence pointers, retry history and a flakiness verdict.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "runId",
+    "createdAt",
+    "status",
+    "test",
+    "failure",
+    "evidence",
+    "context",
+    "flakiness"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to this schema."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$",
+      "description": "Semantic version of this schema. A breaking change requires a new major."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Stable defect id derived from the test identity, so the same test yields the same id across runs."
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Identifier of the run that produced this defect. Groups all defects from one execution."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this artifact was written, ISO 8601 with timezone."
+    },
+    "status": {
+      "enum": ["failed", "timedOut", "skipped", "interrupted"],
+      "description": "Outcome of the final attempt."
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "file"],
+      "properties": {
+        "playwrightId": {
+          "type": "string",
+          "description": "Playwright's opaque spec id. Stable within a Playwright version, not across versions."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable test title."
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Test file path, relative to the project root, POSIX separators."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based line of the test declaration, as reported by the runner."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based column of the test declaration."
+        },
+        "project": {
+          "type": "string",
+          "description": "Playwright project name, e.g. chromium."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Title or file tags, without the @ or # sigil."
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message"],
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The assertion or error message as reported by the runner, with terminal colour codes removed."
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "line"],
+          "description": "Where the assertion lives, which is usually not where the test failed.",
+          "properties": {
+            "file": { "type": "string", "description": "Relative to the project root." },
+            "line": { "type": "integer", "minimum": 1 },
+            "column": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "snippet": {
+          "type": "string",
+          "description": "Source excerpt around the failing line."
+        },
+        "stack": {
+          "type": "string",
+          "description": "Stack trace, when present. May be long; consumers should truncate."
+        },
+        "errorContextRef": {
+          "type": "string",
+          "description": "Relative path to Playwright's error-context.md. This artifact complements that file, it does not replace it."
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Relative paths to captured evidence. Every field is optional: an absent trace on a local run with no retry is normal, not an error.",
+      "properties": {
+        "trace": { "type": "string", "description": "Path to trace.zip." },
+        "screenshot": { "type": "string", "description": "Path to the failure screenshot." },
+        "video": { "type": "string", "description": "Path to the failure video." },
+        "snapshot": {
+          "type": "string",
+          "description": "Path to an aria or DOM snapshot, if one was taken."
+        },
+        "report": { "type": "string", "description": "Path to the HTML report entry point." },
+        "resultsDir": {
+          "type": "string",
+          "description": "Output directory holding this failure's artifacts."
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where and how this ran. Deliberately excludes anything secret: no environment values, no credentials, no full URLs with query strings.",
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "description": "Origin under test, origin only. Query strings and credentials are stripped."
+        },
+        "commit": {
+          "type": ["string", "null"],
+          "description": "Git commit SHA, when available."
+        },
+        "branch": {
+          "type": ["string", "null"],
+          "description": "Git branch, when available."
+        },
+        "ci": { "type": "boolean", "description": "Whether the run happened on CI." },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Retry count configured for the run."
+        },
+        "runStartedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the run started."
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total duration of the final attempt, milliseconds."
+        }
+      }
+    },
+    "retryHistory": {
+      "type": "array",
+      "description": "One entry per attempt, in order. Present only when retries actually happened.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt", "status"],
+        "properties": {
+          "attempt": { "type": "integer", "minimum": 0 },
+          "status": { "enum": ["passed", "failed", "timedOut", "skipped", "interrupted"] },
+          "durationMs": { "type": "integer", "minimum": 0 },
+          "startedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "flakiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict"],
+      "description": "Classified from retry history within this run only. A verdict of 'unknown' is honest and expected when there was a single attempt.",
+      "properties": {
+        "verdict": {
+          "enum": ["flaky", "failing", "passedAfterRetry", "unknown"],
+          "description": "flaky: passed on a retry. failing: failed every attempt. passedAfterRetry: passed on the final attempt. unknown: not enough attempts to decide."
+        },
+        "attempts": { "type": "integer", "minimum": 1 },
+        "passedAttempts": { "type": "integer", "minimum": 0 },
+        "failedAttempts": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form labels applied by the collector or by configuration."
+    }
+  }
+}

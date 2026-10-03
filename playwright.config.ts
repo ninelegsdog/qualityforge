@@ -35,13 +35,25 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
 
+  /**
+   * Reports.
+   *
+   * JSON and JUnit land in artifacts/json/ so the defect collector, and any CI
+   * dashboard, can read machine-readable output instead of scraping the HTML
+   * report. Locally the list reporter stays for immediate feedback.
+   */
   reporter: process.env.CI
     ? [
         ["github"],
         ["html", { outputFolder: "playwright-report", open: "never" }],
-        ["junit", { outputFile: "test-results/junit.xml" }],
+        ["json", { outputFile: "artifacts/json/playwright-results.json" }],
+        ["junit", { outputFile: "artifacts/json/junit.xml" }],
       ]
-    : [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+    : [
+        ["list"],
+        ["html", { outputFolder: "playwright-report", open: "never" }],
+        ["json", { outputFile: "artifacts/json/playwright-results.json" }],
+      ],
 
   use: {
     baseURL: BASE_URL,

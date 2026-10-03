@@ -94,10 +94,30 @@ path`, not `testGet404`.
 - Every new test must be able to fail. Add it, then break the thing it guards
   and confirm it goes red. A test that has never failed is unverified.
 
-## Adding evidence fields
+## The defect contract
 
-Evidence artifacts are a public contract. Any change to the defect schema needs
-a version bump (`v1` → `v2`), a migration note, and a changelog entry.
+Artifacts under `artifacts/defects/` are a published contract. Read
+`docs/defect-schema.md` before touching them.
+
+1. **Extend `error-context.md`, never re-implement it.** The artifact records a
+   path to Playwright's `error-context.md` and adds only what that file cannot
+   carry. Parsing its prose would be the most fragile link in the pipeline.
+2. **Strip terminal escapes.** Playwright embeds ANSI codes in `error.message`.
+   `stripAnsi()` handles this; never write a raw message into an artifact.
+3. **Never record a secret.** `baseUrl` is reduced to an origin before it is
+   stored. The config loader rejects a `baseUrl` carrying credentials or a query
+   string, so the mistake is caught at the source.
+4. **Fail closed on unknown input.** An unrecognised status becomes `failed`,
+   never `passed`.
+5. **Do not guess.** Evidence pointers are recorded only when the runner
+   actually attached the file. An absent trace on a run with no retry is normal.
+6. **Validate before writing.** The collector validates every artifact against
+   `validateDefect()` before it touches disk. If validation fails, fix the
+   producer rather than relaxing the contract.
+7. **Version any breaking change.** Removing or renaming a field, or changing a
+   type or meaning, is a major bump: `v1` to `v2`, with a migration note and a
+   changelog entry. Adding an optional field is a minor bump. Consumers must be
+   able to ignore unknown fields.
 
 ## Current state
 

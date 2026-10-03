@@ -6,6 +6,7 @@ dist/
 
 # Evidence artifacts — output, not source. Prettier must not touch these.
 artifacts/
+artifacts/**
 test-results/
 playwright-report/
 blob-report/

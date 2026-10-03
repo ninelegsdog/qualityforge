@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `defect.v1` artifact contract: `schemas/defect.v1.schema.json` (JSON Schema
+  2020-12), runtime types and a hand-written validator in `src/defect/types.ts`.
+- Defect collector in `src/defect/collect.ts`, reading Playwright's JSON report
+  and writing one artifact per non-passing spec plus a `quality-summary.v1.json`.
+- CLI `npm run defects:collect` that doubles as a CI quality gate. Exit `0`
+  when the gate passes, `1` on a threshold violation, `2` when collection could
+  not run. Supports `--json` and `--config`.
+- `config/project.json`: project name, origin under test, evidence policy, gate
+  thresholds, artifact location. Validated on load, with every problem reported
+  at once and the exact path named.
+- `docs/defect-schema.md` documenting the contract and the rules a consumer can
+  rely on.
+- `scripts/clean.mjs` behind `npm run report:clean`, refusing to delete anything
+  outside the project.
+- `npm run test:unit` for the unit suite.
+- 37 unit tests covering the config validator, the contract validator, and the
+  collector, including failure paths.
+
+### Changed
+
+- JSON and JUnit reporters now write to `artifacts/json/`, so the collector and
+  any CI dashboard read machine-readable output instead of scraping HTML.
+- `artifacts/` is ignored in its entirety with no `.gitkeep`: a `.gitkeep` in an
+  output directory is the first thing a cleanup removes, and the tree is created
+  on demand instead.
+
 - Demo application under `fixtures/`: overview with an entity list fetched from
   `/api/items`, a documentation page, and a contact form with client-side
   validation and accessible error reporting.

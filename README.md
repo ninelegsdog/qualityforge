@@ -115,14 +115,65 @@ Everything else — selectors, fixtures, thresholds — is meant to be added und
 On CI, prefer the **trace viewer** over screenshots and videos when debugging: it
 gives the DOM snapshot at each action plus the full network log.
 
+## Defect artifacts
+
+A failing test is only useful if the failure can be read later without
+re-running anything. QualityForge turns each failure into one normalized,
+versioned artifact:
+
+```bash
+npm test                    # writes artifacts/json/playwright-results.json
+npm run defects:collect     # writes artifacts/defects/<runId>/
+```
+
+```jsonc
+{
+  "id": "form-validation-smoke-shows-an-error-when-email-is-empty",
+  "status": "failed",
+  "test": { "file": "tests/smoke/form-validation.smoke.spec.ts", "line": 15 },
+  "failure": {
+    "message": "Error: expect(locator).toHaveText(expected) failed\n\nExpected: \"Email is required\"",
+    "errorContextRef": "test-results/.../error-context.md",
+  },
+  "evidence": { "screenshot": "test-results/.../test-failed-1.png" },
+  "context": { "commit": "43c761f", "baseUrl": "http://127.0.0.1:4311" },
+  "flakiness": { "verdict": "unknown", "attempts": 1 },
+}
+```
+
+The artifact deliberately **extends** Playwright's `error-context.md` rather
+than duplicating it: it records a path to that file and adds stable identity,
+run correlation, VCS context, evidence pointers and a flakiness verdict. See
+[`docs/defect-schema.md`](docs/defect-schema.md).
+
+`npm run defects:collect` doubles as a CI quality gate. It exits `0` when the
+gate passes, `1` when thresholds are violated, and `2` when collection could
+not run at all.
+
+## Configuration
+
+[`config/project.json`](config/project.json) declares the project name, the
+origin under test, the evidence policy, gate thresholds, and where artifacts
+are written. It is validated on load, and every problem is reported at once
+with the exact path:
+
+```
+Configuration error: Invalid configuration in /…/config/project.json
+  - thresholds.maxFailureRate must be a number between 0 and 1, got "high"
+  - baseUrl must not contain credentials, a query string or a fragment
+```
+
 ## Commands
 
 ```bash
-npm test              # full suite
-npm run test:smoke    # Chromium only
-npm run test:debug    # Playwright Inspector, step through a test
-npm run report        # open the HTML report
-npm run verify        # lint + typecheck + format check (what CI runs first)
+npm test                    # full suite
+npm run test:smoke          # Chromium only
+npm run test:unit           # unit tests, no browser launched
+npm run test:debug          # Playwright Inspector, step through a test
+npm run report              # open the HTML report
+npm run report:clean        # remove generated output
+npm run defects:collect     # build defect artifacts from the last run
+npm run verify              # lint + typecheck + format check (what CI runs first)
 ```
 
 ## Quality rules enforced in CI
@@ -149,6 +200,8 @@ Selector policy — which locator to reach for, and why — is in
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — how the pieces fit together
+- [`docs/defect-schema.md`](docs/defect-schema.md) — the `defect.v1` contract
+- [`docs/selectors-and-testid.md`](docs/selectors-and-testid.md) — locator policy
 - [`docs/roadmap.md`](docs/roadmap.md) — where this is going
 - [`AGENTS.md`](AGENTS.md) — rules for coding agents working in this repo
 - [`CHANGELOG.md`](CHANGELOG.md) — release history

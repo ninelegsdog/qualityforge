@@ -12,13 +12,21 @@ dist/
 .env.*
 !.env.example
 
-# Playwright test artifacts — these are the product's output, not source.
+# Evidence artifacts — the product's output, not source.
+#
+# The whole tree is ignored, with no .gitkeep. A .gitkeep inside an output
+# directory is a liability: it is the first thing a cleanup script removes, and
+# then the directory shape silently depends on whatever ran last. Consumers
+# create the tree on demand instead.
 artifacts/
+
+# Playwright working directories
 test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
 .playwright/
+playwright-cli/
 
 # Screenshots / videos / traces produced ad hoc
 *.png

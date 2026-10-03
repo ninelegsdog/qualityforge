@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "qualityforge-demo",
+  "baseUrl": "http://127.0.0.1:4311",
+  "projects": ["chromium"],
+  "evidence": {
+    "trace": "on-first-retry",
+    "screenshot": "only-on-failure",
+    "video": "retain-on-failure"
+  },
+  "thresholds": {
+    "maxFailureRate": 0.05,
+    "maxAttemptsPerTest": 2,
+    "maxDurationMs": 900000
+  },
+  "defects": {
+    "directory": "artifacts/defects",
+    "writeSummary": true,
+    "referenceErrorContext": true
+  },
+  "tags": ["demo", "smoke"]
+}

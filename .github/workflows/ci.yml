@@ -83,3 +83,20 @@ jobs:
           path: test-results/junit.xml
           retention-days: 14
           if-no-files-found: ignore
+
+      # Turns the run into normalized defect artifacts and enforces the
+      # thresholds from config/project.json. Exit 1 here is a gate violation,
+      # which is a different signal from "the tests failed". Both matter, and CI
+      # should not conflate them.
+      - name: Collect defect artifacts
+        if: ${{ !cancelled() }}
+        run: npm run defects:collect
+
+      - name: Upload defect artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: defects-${{ matrix.browser }}
+          path: artifacts/defects/
+          retention-days: 30
+          if-no-files-found: ignore

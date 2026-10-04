@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.2.0** and is
+Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.3.0** and is
 published; nothing here has a release tag yet, so there is nothing to pin.
 
 This file was rewritten on 2026-10-04 because it had drifted: it still listed the
@@ -20,8 +20,14 @@ work that _is_ outstanding invisible.
   duplicate ids; records the page and the application under test; treats an
   aborted suite as one outage instead of a defect per test.
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
-  confinement. Three tools, resources, a `triage_failure` prompt. Verified against
+  confinement. Five tools, resources, a `triage_failure` prompt. Verified against
   OpenCode v2.0.16; Kilo and MiMo are out of scope by decision.
+- **Run history.** An optional `history` block keeps one compact file per run in a
+  committed directory, plus a per-suite composition shared between runs, so "is this
+  a regression or has it always been this way?" has an answer. Two MCP tools read
+  it: `quality_flaky_tests` separates a spec that recovered from one that never did,
+  and `quality_get_trend` reports a direction over a window and answers `unknown`
+  below four runs. Both verified over real stdio against a seeded two-run window.
 - **CI on six legs**: lint and typecheck, unit tests on Node 22 and 24, the suite
   on three browsers. Checks that cannot be written as unit tests run there too —
   three MCP checks and one that drives a real Playwright to verify two rules about
@@ -34,11 +40,6 @@ work that _is_ outstanding invisible.
 pointing a client at a `.ts` file through `tsx`. The floor in `engines` is
 deliberately permissive for the same reason. Issue #4 tracks the decision.
 
-**Run history.** The server answers for one run — `quality_get_latest_run` — and
-there is no store of previous runs, so "is this a regression or has it always been
-this way?" has no answer. This is the largest functional gap and the reason the
-project does not yet deliver the thing it is for.
-
 **A live client in CI.** OpenCode was connected by hand, once. That is a single
 unautomated point of trust, and it is documented rather than verified.
 
@@ -49,11 +50,10 @@ unautomated point of trust, and it is documented rather than verified.
 
 These change meaning, not just behaviour, so they are not mine to decide:
 
-- Reconciling `context.baseUrl` against `page.url`. `baseUrl` is wrong in a
-  third-party run; `page.url` is ground truth and is now recorded, but the
-  reconciliation is a contract question. Issue #8.
-- The vocabulary for `failure.attribution`. It is `suite | unknown` today, and the
-  richer version needs information no collector has.
+Both questions below were answered on 2026-10-04 and are no longer the owner's
+to call: `context.baseUrl` is now reconciled against the observed page (1.3.0,
+issue #8) and `failure.attribution` is `suite | hook | unknown`, where the split
+is about files rather than line numbers.
 
 ## Open, and mine to do
 
@@ -82,13 +82,12 @@ to describe. It needs a full clone, so it is not in CI, where
 
 Still open, and the reason each is still open:
 
-| Issue | Why it is open                                                               |
-| ----- | ---------------------------------------------------------------------------- |
-| #1    | one third-party application is proven; the issue asks for more than one      |
-| #4    | the distribution decision, which is the owner's                              |
-| #6    | which clients implement 2026-07-28 is unanswered; see above                  |
-| #8    | `baseUrl` reconciliation changes a field's meaning, so it is a contract call |
-| #12   | we advertise the pre-2026 capability shape on the wire                       |
+| Issue | Why it is open                                                          |
+| ----- | ----------------------------------------------------------------------- |
+| #1    | one third-party application is proven; the issue asks for more than one |
+| #4    | the distribution decision, which is the owner's                         |
+| #6    | which clients implement 2026-07-28 is unanswered; see above             |
+| #12   | we advertise the pre-2026 capability shape on the wire                  |
 
 ## Later
 

@@ -15,16 +15,40 @@
  * Exit code 1 is what makes this usable as a CI quality gate.
  */
 import { readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig, ConfigError } from "../config/load-config.js";
 import { collectDefects } from "../defect/collect.js";
 import { readGitInfo } from "../defect/git-info.js";
 
-const ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
+/** Where this script lives, used only as a fallback. */
+const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 const DEFAULT_REPORT = "artifacts/json/playwright-results.json";
 const DEFAULT_TEST_DIR = "tests";
+
+/**
+ * The project this run belongs to.
+ *
+ * Everything used to resolve against `PACKAGE_ROOT`, which is correct inside
+ * this repository and wrong the moment a consuming project runs the collector:
+ * the config came from `node_modules/qualityforge/config/project.json`, the
+ * report was looked for inside `node_modules`, the artifacts were written back
+ * into `node_modules`, and the recorded git commit was ours rather than the
+ * caller's. Every one of those collected the wrong project while exiting 0.
+ *
+ * A CLI runs where it is run, so the working directory wins whenever it holds a
+ * project of its own. Falling back to this checkout keeps the old behaviour for
+ * anyone invoking the script from a subdirectory of this repository.
+ */
+function projectRootFor(configPath: string | undefined): string {
+  const cwd = process.cwd();
+  if (configPath !== undefined) return cwd;
+  if (existsSync(path.join(cwd, "config", "project.json"))) return cwd;
+  if (existsSync(path.join(PACKAGE_ROOT, "config", "project.json"))) return PACKAGE_ROOT;
+  return cwd;
+}
 
 interface Args {
   configPath: string | undefined;
@@ -93,10 +117,11 @@ function parseArgs(argv: string[]): Args {
 
 async function main(): Promise<number> {
   const { configPath, reportPath, outDir, asJson, noHistory } = parseArgs(process.argv.slice(2));
+  const projectRoot = projectRootFor(configPath);
 
   let config;
   try {
-    config = await loadConfig(ROOT, configPath);
+    config = await loadConfig(projectRoot, configPath);
   } catch (error) {
     if (error instanceof ConfigError) {
       console.error(`Configuration error:\n${error.message}`);
@@ -111,7 +136,7 @@ async function main(): Promise<number> {
   // origin without saying where that claim came from.
   const environmentBaseUrl = process.env.BASE_URL;
 
-  const { commit, branch, problem } = await readGitInfo(ROOT);
+  const { commit, branch, problem } = await readGitInfo(projectRoot);
   if (problem !== undefined) {
     // stderr, never stdout: --json promises that stdout carries the summary and
     // nothing else, and a warning printed there would corrupt it for whoever
@@ -123,7 +148,7 @@ async function main(): Promise<number> {
 
   try {
     const { defects, summary, runDir, history } = await collectDefects({
-      projectRoot: ROOT,
+      projectRoot,
       testDir: DEFAULT_TEST_DIR,
       outputDir: outDir ?? config.defects.directory,
       reportPath: reportPath ?? DEFAULT_REPORT,
@@ -156,7 +181,9 @@ async function main(): Promise<number> {
           // not have to be hunted for in the gate violations.
           (summary.counts.aborted === 0 ? "" : ` · aborted ${summary.counts.aborted}`),
       );
-      console.log(`  artifacts in ${path.relative(ROOT, runDir)}/ (${written.length} files)`);
+      console.log(
+        `  artifacts in ${path.relative(projectRoot, runDir)}/ (${written.length} files)`,
+      );
       for (const defect of defects) {
         console.log(`  - ${defect.status} ${defect.id}`);
         console.log(
@@ -175,7 +202,7 @@ async function main(): Promise<number> {
         console.error(`  history NOT written: ${history.failed}`);
       } else if (history !== undefined) {
         console.log(
-          `  history ${path.relative(ROOT, history.path)}` +
+          `  history ${path.relative(projectRoot, history.path)}` +
             (history.removed.length === 0
               ? ""
               : ` (pruned ${history.removed.length} older run(s))`),

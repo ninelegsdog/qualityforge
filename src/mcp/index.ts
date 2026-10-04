@@ -63,7 +63,9 @@ function usage(): string {
   return [
     `${SERVER_NAME} ${SERVER_VERSION}`,
     "",
-    "Usage: qualityforge-mcp [--root <dir>] [--history <dir>]",
+    "Usage:",
+    "  this repository     npm run mcp -- [--root <dir>] [--history <dir>]",
+    "  a consuming project npx tsx node_modules/qualityforge/src/mcp/index.ts [--root <dir>] [--history <dir>]",
     "",
     "  --root <dir>    artifacts root to serve (default: " + DEFAULT_ROOT + ")",
     "  --history <dir> run-history directory to serve, if the project keeps one",

@@ -66,8 +66,9 @@ function parseArgs(argv: string[]): Args {
       noHistory = true;
     } else if (arg === "--help" || arg === "-h") {
       console.log(
-        "Usage: npm run defects:collect -- [--config <path>] [--report <path>] " +
-          "[--out <dir>] [--json] [--no-history]\n" +
+        "Usage:\n" +
+          "  this repository     npm run defects:collect -- [flags]\n" +
+          "  a consuming project npx tsx node_modules/qualityforge/src/cli/collect-defects.ts [flags]\n" +
           "\n" +
           "  --config <path>  configuration file (default config/project.json)\n" +
           "  --report <path>  Playwright JSON report to read (default " +

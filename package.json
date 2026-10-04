@@ -30,7 +30,7 @@
     "report": "playwright show-report",
     "report:clean": "node scripts/clean.mjs",
     "defects:collect": "tsx src/cli/collect-defects.ts",
-    "defects:check": "python3 scripts/abort-check.py .",
+    "defects:check": "python3 scripts/report-check.py .",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

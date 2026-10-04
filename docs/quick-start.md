@@ -241,8 +241,9 @@ there are no defects. Step 3 produces some on purpose.
 **A check passes locally and fails in CI.** Run `npm run verify`,
 `npm run ci:validate`, `npm run mcp:check:all` and `npm run defects:check` in
 that order — they are the four things CI runs, in the same order. The last one
-is the slow one: it starts a real Playwright to check a rule that depends on the
-shape of the report, which is the kind of assumption a unit test cannot test.
+needs a browser and no network: it starts a real Playwright to check two rules
+that depend on the shape of the report, which is the kind of assumption a unit
+test cannot test.
 
 ## Where to go next
 

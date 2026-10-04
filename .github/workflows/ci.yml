@@ -136,16 +136,6 @@ jobs:
           python3 scripts/mcp-session-check.py .
           python3 scripts/mcp-tools-check.py .
 
-      # The suite-abort rule is the one piece of the collector that depends on what
-      # the runner actually writes, and it shipped broken through a fully green
-      # suite because its tests were fed a hand-written report. A unit test cannot
-      # catch that class of bug - it agrees with whatever shape its author believed
-      # in - so this runs a real Playwright and reads the report that comes out.
-      # It needs no browser, hence this job rather than the one that installs one.
-      - name: Check the suite-abort rule against a real report
-        if: ${{ !cancelled() }}
-        run: npm run defects:check
-
       - name: Upload defect artifacts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -256,6 +246,23 @@ jobs:
         run: |
           python3 scripts/mcp-session-check.py .
           python3 scripts/mcp-tools-check.py .
+
+      # Two rules in this repository depend on the shape Playwright writes, and both
+      # were wrong when first written down: the suite-abort rule never fired on a real
+      # `beforeAll` abort, and nothing at all checked that an expected failure keeps
+      # its evidence. A unit test cannot catch that class of bug - it agrees with
+      # whatever shape its author believed in - so this runs a real Playwright and
+      # reads the report that comes out.
+      #
+      # Chromium only. It needs a browser, because the fixture claim goes through our
+      # own page fixture, and that claim is about how Playwright records an attachment
+      # rather than about any engine - so three legs would pay three times over for
+      # the same fact.
+      - name: Check the report-shape rules against a real report
+        if: ${{ !cancelled() && matrix.browser == 'chromium' }}
+        run: npm run defects:check
+        env:
+          REPORT_CHECK_BROWSER: ${{ matrix.browser }}
 
       - name: Upload defect artifacts
         if: ${{ !cancelled() }}

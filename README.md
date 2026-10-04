@@ -318,7 +318,7 @@ npm run test:debug          # Playwright Inspector, step through a test
 npm run report              # open the HTML report
 npm run report:clean        # remove generated output
 npm run defects:collect     # build defect artifacts from the last run
-npm run defects:check       # prove the suite-abort rule on a real Playwright report
+npm run defects:check       # prove two report-shape rules on a real Playwright run
 npm run mcp                 # start the read-only MCP server on stdio
 npm run mcp:check:all       # drive the server over real stdio and check it
 npm run verify              # lint + typecheck + format check (what CI runs first)
@@ -327,15 +327,26 @@ npm run verify              # lint + typecheck + format check (what CI runs firs
 `mcp:check*`, `defects:check` and `ci:validate` need Python 3. They are separate
 scripts because `verify` must stay runnable with only Node installed.
 
-`defects:check` is the one check here that could not be written as a unit test. The
-collector treats an unreachable target as one outage rather than a defect per test,
-and that rule depends on the shape Playwright actually writes: a `beforeAll` throw
-marks the first spec `failed` and every later one `skipped`, not all of them failed.
-It shipped broken once because its tests were fed a hand-written report of four
-identical failures, which the real runner never produces. So this one runs a real
-Playwright in a scratch directory — no browser, no network — and asserts both
-halves: a dead `beforeAll` writes no artifact and is named in the gate, while a
-test that fails on its own assertion still writes exactly one.
+`defects:check` is the one check here that could not be written as a unit test,
+because two of its rules are claims about what Playwright writes and both were
+wrong when first written down.
+
+The collector treats an unreachable target as one outage rather than a defect per
+test. That rule needed two or more identical failures, and a `beforeAll` throw
+never produces two: real Playwright marks the first spec `failed` and every later
+one `skipped`. So the rule could not fire on the case it was written for, and an
+outage produced exactly the one artifact it existed to remove — through a fully
+green suite, because its tests were fed a hand-written report.
+
+The evidence fixture keeps its payload on a failure rather than on a difference
+from what was expected, so `test.fail()` does not delete the evidence. The
+decision function has been unit-tested for a while; nothing checked that the
+runner records the attachment at all.
+
+So this runs a real Playwright and reads the report it produces: a dead
+`beforeAll` writes no artifact and is named in the gate, a genuine assertion
+failure still writes exactly one, and a `test.fail()` still carries a page URL
+in its attachment. Needs a browser, for the fixture claim, and no network.
 
 Both MCP checks produce their own evidence to check against: each runs the
 deliberately failing `tests/smoke/evidence-pipeline.spec.ts` and collects the real

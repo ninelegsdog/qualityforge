@@ -59,13 +59,25 @@ jobs. Those describe the tree you committed, not whether your report is accurate
 
 **A green test cannot validate your assumption about someone else's output.** If
 a test asserts against a hand-written fixture, it agrees with whatever shape you
-believed in — it is your belief, with a green tick on it. This is not abstract
-here: the suite-abort rule shipped broken through a fully green suite, because its
-tests were fed a report where every spec failed on one error while real Playwright
-marks the first `failed` and the rest `skipped`. Nothing failed, because nothing in
-the suite could fail. When a rule depends on the shape of a report, a protocol
-frame or a runner's verdict, run the real producer and assert on what it emits;
-`npm run defects:check` exists for exactly that and is the pattern to copy.
+believed in — it is your belief, with a green tick on it.
+
+Not abstract here. Two rules in this repository are claims about what Playwright
+writes, and both were wrong when written down:
+
+- The suite-abort rule shipped broken through a fully green suite. Its tests were
+  fed a report where every spec failed on one error; real Playwright marks the
+  first `failed` and the rest `skipped`, so the rule could not fire on the case it
+  existed for. Nothing failed, because nothing in the suite could fail.
+- The fixture's decision to keep evidence on an expected failure has been
+  unit-tested for a while, and nothing checked the other side of it — whether the
+  runner records the attachment at all for a `test.fail()`.
+
+When a rule depends on the shape of a report, a protocol frame or a runner's
+verdict, run the real producer and assert on what it emits. `npm run
+defects:check` exists for exactly that and is the pattern to copy. Note where it
+looks: the JSON reporter base64-encodes an inline attachment body and writes no
+file for it, so a check that reads `test-results/` finds nothing and reports a
+working fixture broken.
 
 ## The rule: nothing is done until it has run in the real environment
 

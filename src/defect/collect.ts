@@ -254,7 +254,25 @@ export function defectIdFrom(file: string, title: string, project?: string): str
   return slug.length > 0 ? `${slug}${suffix}` : `unknown-defect${suffix}`;
 }
 
-/** Build a run id: sortable timestamp plus a short digest for uniqueness. */
+/**
+ * Build a run id: a sortable timestamp plus a short digest.
+ *
+ * The id must sort lexicographically into chronological order, because that is
+ * how the artifact store decides which run is the latest one - it compares the
+ * strings and nothing else. So every field keeps a fixed width, and a change to
+ * the format that drops the padding breaks "latest run" silently rather than
+ * loudly. `tests/unit/defect-collector.test.ts` pins that property.
+ *
+ * The digest does not make the id unique. It is derived from the same timestamp
+ * the stamp already encodes, so two calls for the same instant return the same
+ * id and both runs would share one directory. An earlier comment here claimed the
+ * digest was "for uniqueness", which was not true of the code.
+ *
+ * Reaching it needs two collections inside one millisecond, which no CI job does
+ * - separate legs are separate runners - so this is left as it is rather than
+ * changed under an artifact contract. It is written down so that the day it does
+ * bite, the cause is a two-line read rather than a mystery.
+ */
 export function makeRunId(now: Date): string {
   const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/z$/, "Z");
   const digest = createHash("sha256").update(now.toISOString()).digest("hex").slice(0, 6);

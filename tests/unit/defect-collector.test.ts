@@ -157,6 +157,68 @@ test.describe("pure helpers", () => {
     expect(first).not.toContain(":");
   });
 
+  test("run ids sort as strings into the same order as the instants they name", () => {
+    // `ArtifactStore.latestRun` picks a run by `b.runId.localeCompare(a.runId)`,
+    // so "the latest run" is decided by a string comparison and nothing else.
+    // That is only the same answer as "the most recent run" because every field
+    // of the timestamp is fixed width: drop the zero-padding on a month, or stop
+    // emitting milliseconds, and `2026-9-9` sorts after `2026-10-01` with nothing
+    // anywhere reporting a problem.
+    //
+    // The dates below are chosen for the fields that would break: single-digit
+    // month, day, hour and minute, a day boundary, a month boundary, a year
+    // boundary, and a leap day. A format change that broke ordering would break
+    // one of these.
+    const instants = [
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-09T00:00:00.000Z",
+      "2026-02-28T23:59:59.999Z",
+      "2026-03-01T00:00:00.000Z",
+      "2026-09-09T09:09:09.009Z",
+      "2026-10-01T00:00:00.000Z",
+      "2026-10-03T00:00:00.000Z",
+      "2026-10-03T00:00:00.001Z",
+      "2026-10-09T19:59:00.000Z",
+      "2026-10-31T23:00:00.000Z",
+      "2026-11-01T00:00:00.000Z",
+      "2028-02-29T12:00:00.000Z",
+    ].map((iso) => new Date(iso));
+
+    const ids = instants.map((at) => makeRunId(at));
+
+    // Every field keeps its width, which is the property doing the work.
+    for (const id of ids) {
+      expect(id).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{6}$/);
+    }
+
+    // The store's own comparison, against the order it is supposed to mean.
+    const byString = [...ids].sort((a, b) => b.localeCompare(a));
+    const byInstant = [...instants]
+      .sort((a, b) => b.getTime() - a.getTime())
+      .map((at) => makeRunId(at));
+
+    expect(byString).toEqual(byInstant);
+  });
+
+  test("two runs in the same millisecond share a run id, which is a known limit", () => {
+    // Pinned because it is counter-intuitive, not because it is desirable. The
+    // digest is derived from the same instant the stamp already encodes, so it
+    // adds no uniqueness: same instant, same id, and both runs would write into
+    // one directory.
+    //
+    // Reachable only by collecting twice inside a millisecond, which no CI leg
+    // does. If this ever starts failing, the fix is not in this test - it is that
+    // the id needs a real uniqueness source, and that is an artifact-contract
+    // change rather than a bug fix.
+    const at = new Date("2026-10-03T00:00:00.000Z");
+
+    expect(makeRunId(at)).toBe(makeRunId(at));
+    // Still correctly ordered against its neighbours, which is what the store
+    // relies on.
+    expect(makeRunId(at) < makeRunId(new Date("2026-10-03T00:00:00.001Z"))).toBe(true);
+    expect(makeRunId(new Date("2026-10-02T23:59:59.999Z")) < makeRunId(at)).toBe(true);
+  });
+
   test("classifyAttempts calls a single attempt unknown rather than guessing", () => {
     // One observation is not evidence of a pattern.
     expect(classifyAttempts(["failed"])).toMatchObject({ verdict: "unknown", failed: 1 });

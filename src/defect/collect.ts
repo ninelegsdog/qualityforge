@@ -196,23 +196,73 @@ export interface TargetResolution {
   source?: TargetSource;
 }
 
+/**
+ * The directory a report's `spec.file` values are relative to.
+ *
+ * `report.config.rootDir` when the runner recorded one, resolved against
+ * `projectRoot` if it is itself relative. Otherwise the configured `testDir`, which
+ * is what a report without a `rootDir` implies.
+ */
+function rootDirFor(projectRoot: string, testDir: string, reported: unknown): string {
+  if (typeof reported === "string" && reported !== "") {
+    return path.isAbsolute(reported) ? reported : path.resolve(projectRoot, reported);
+  }
+  return path.resolve(projectRoot, testDir);
+}
+
 export function resolveTarget(input: {
   environmentBaseUrl?: string;
   reportWebServerUrl?: string;
   configuredBaseUrl?: string;
+  /**
+   * The URL the browser was actually on, when a failing test drove a page.
+   *
+   * This is the only input that is not a declaration of intent. The three
+   * configured sources all say what someone *meant* the target to be, and in a run
+   * against an application this project did not build they are wrong in the same
+   * way - the report named the bundled fixture's origin while the browser was on
+   * the target. So when an observed origin disagrees with the configured answer,
+   * the observation wins and the source is recorded as `observed`.
+   *
+   * Compared against the candidate that would have won anyway, not against all
+   * three. A lower-priority candidate that disagrees is irrelevant when a
+   * higher-priority one agrees: the artifact would have carried the winner either
+   * way, so nothing is being corrected.
+   *
+   * When they agree, or when there is no observation, the configured answer and
+   * its name are returned unchanged. Only the disagreement case is new, and that
+   * is the case that was wrong.
+   */
+  observedPageUrl?: string;
 }): TargetResolution {
-  for (const [value, source] of [
-    [input.environmentBaseUrl, "environment"],
-    [input.reportWebServerUrl, "report"],
-    [input.configuredBaseUrl, "config"],
+  let resolved: { origin: string; source: TargetSource } | undefined;
+  for (const [source, value] of [
+    ["environment", input.environmentBaseUrl],
+    ["report", input.reportWebServerUrl],
+    ["config", input.configuredBaseUrl],
   ] as const) {
-    const origin = originOf(value);
     // Only an absolute, parseable URL counts. A relative BASE_URL is a
-    // configuration error that Playwright will report far more clearly than
-    // this function could, so it must not become a recorded origin.
-    if (origin !== undefined) return { origin, source };
+    // configuration error that Playwright reports far more clearly than this
+    // function could, so it must not become a recorded origin.
+    const origin = originOf(value ?? "");
+    if (origin !== undefined) {
+      resolved = { origin, source };
+      break;
+    }
   }
-  return {};
+
+  const observed = originOf(input.observedPageUrl ?? "");
+
+  // Nothing was configured. An observation is then the only thing known, and it is
+  // worth recording rather than dropping - "there was no configuration" and "the
+  // browser was here" are different facts.
+  if (resolved === undefined) {
+    return observed === undefined ? {} : { origin: observed, source: "observed" };
+  }
+
+  if (observed === undefined || observed === resolved.origin) return resolved;
+
+  return { origin: observed, source: "observed" };
 }
 
 /**
@@ -779,9 +829,12 @@ export function findSuiteAborts(failures: AbortableFailure[]): Map<string, Suite
  *
  * Sound in both the directions it claims and silent in the one it cannot:
  *
- * - `suite` — the location names a different file, or a line before the spec's
- *   declaration. Both are outside the body, because a test body is at or after its
- *   own `test(` call.
+ * - `suite` — the location names a different file. Outside the body by definition,
+ *   because the body is in this file.
+ * - `hook` — the location is in this spec's own file but at or above the line
+ *   where the spec is declared, which a test body cannot do. A `beforeAll` that
+ *   throws is the measured case: the error carries the hook's line, and the spec
+ *   reported as failed is declared below it.
  * - `unknown` — no location at all.
  * - absent — at or after the declaration in its own file. Not a claim that the body
  *   raised it: an error from a helper defined *below* the test is equally
@@ -796,8 +849,12 @@ export function attributionFor(input: {
   const { file, line } = input.errorLocation ?? {};
   if (file === undefined || line === undefined) return "unknown";
   const absolute = path.isAbsolute(file) ? file : path.resolve(input.projectRoot, file);
+  // A different file is a different file, whatever the line number says: a line in
+  // another file cannot be "above this spec" in any meaningful sense, and folding
+  // it into `hook` would send a reader looking at a hook in their own file for a
+  // failure that came from someone else's.
   if (absolute !== input.absoluteTestFile) return "suite";
-  if (input.specLine !== undefined && line < input.specLine) return "suite";
+  if (input.specLine !== undefined && line < input.specLine) return "hook";
   return undefined;
 }
 
@@ -848,7 +905,9 @@ export async function collectDefects(options: CollectOptions): Promise<{
   const runDir = path.resolve(projectRoot, outputDir, runId);
   await mkdir(runDir, { recursive: true });
 
-  const { origin, source: targetSource } = resolveTarget({
+  // The three configured inputs, kept as one object so a defect can re-resolve with
+  // its own observed page instead of repeating the precedence.
+  const targetInputs = {
     ...(options.environmentBaseUrl === undefined
       ? {}
       : { environmentBaseUrl: options.environmentBaseUrl }),
@@ -856,7 +915,8 @@ export async function collectDefects(options: CollectOptions): Promise<{
       ? {}
       : { reportWebServerUrl: report.config.webServer.url }),
     ...(options.baseUrl === undefined ? {} : { configuredBaseUrl: options.baseUrl }),
-  });
+  };
+  const { origin, source: targetSource } = resolveTarget(targetInputs);
   const defects: DefectV1[] = [];
   /**
    * Id to artifact, for the run being collected.
@@ -925,10 +985,24 @@ export async function collectDefects(options: CollectOptions): Promise<{
     specs += 1;
 
     const pwFile = spec.file ?? "unknown.spec.ts";
-    // spec.file is relative to testDir, not to the project root.
+    // `spec.file` is relative to the **runner's** rootDir — the directory holding
+    // the specs — and to nothing else. Not to this process's working directory, and
+    // not to the configured `testDir`, which is a separate value that happens to
+    // coincide with rootDir in this repository's own layout.
+    //
+    // Measured, after `defects:check` started failing for no visible reason: a
+    // report whose specs live in `test-results/report-check-<pid>/tests` records
+    // `spec.file: "hook.spec.ts"` and `rootDir` pointing at that directory, so
+    // resolving against `testDir` produced a path that does not exist. Two things
+    // broke quietly: `test.file` in the artifact pointed at nothing, and
+    // `attributionFor` concluded the error came from a different file, so a dead
+    // `beforeAll` was reported as a defect instead of an outage.
+    //
+    // `testDir` stays as the fallback for a report with no `rootDir`, which is the
+    // case a hand-written report describes.
     const absoluteTestFile = path.isAbsolute(pwFile)
       ? pwFile
-      : path.resolve(projectRoot, testDir, pwFile);
+      : path.resolve(rootDirFor(projectRoot, testDir, report.config?.rootDir), pwFile);
     const relativeTestFile = path.isAbsolute(pwFile)
       ? relativize(projectRoot, pwFile)
       : relativize(projectRoot, absoluteTestFile);
@@ -987,7 +1061,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
         specLine: spec.line,
         absoluteTestFile,
         projectRoot,
-      }) === "suite";
+      }) === "hook";
 
     abortable.push({
       file: pwFile,
@@ -1086,6 +1160,15 @@ export async function collectDefects(options: CollectOptions): Promise<{
         if (size !== undefined) errorContextBytes = size;
       }
     }
+
+    // Where the browser actually was, when the failure drove a page. Resolved per
+    // defect rather than once per run, because `page` belongs to this defect and a
+    // run can visit more than one origin.
+    const observed = resolveTarget({
+      ...targetInputs,
+      ...(page?.url === undefined ? {} : { observedPageUrl: page.url }),
+    });
+
     // Evidence is whatever the runner actually attached. An absent trace on a
     // local run with no retry is normal, so nothing is invented to fill a gap.
 
@@ -1131,8 +1214,13 @@ export async function collectDefects(options: CollectOptions): Promise<{
       },
       evidence,
       context: {
-        ...(origin === undefined ? {} : { baseUrl: origin }),
-        ...(targetSource === undefined ? {} : { targetSource }),
+        // Re-resolved per defect, because only here is the page known. The run-level
+        // answer says what was configured; a defect can say where the browser
+        // actually was. When the two disagree the artifact records the observation
+        // and marks it `observed`, so a consumer grouping defects by origin cannot
+        // merge two applications' failures under one wrong origin.
+        ...(observed.origin === undefined ? {} : { baseUrl: observed.origin }),
+        ...(observed.source === undefined ? {} : { targetSource: observed.source }),
         commit,
         branch,
         ci,

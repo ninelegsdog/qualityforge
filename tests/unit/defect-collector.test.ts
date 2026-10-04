@@ -8,6 +8,7 @@ import {
   defectIdFrom,
   makeRunId,
   originOf,
+  resolveTarget,
   stripAnsi,
 } from "../../src/defect/collect.js";
 import { readGitInfo } from "../../src/defect/git-info.js";
@@ -47,7 +48,7 @@ function reportWith(
   }[],
 ): string {
   return JSON.stringify({
-    config: { rootDir: root },
+    config: { rootDir: path.join(root, "tests") },
     stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 1234.5 },
     suites: [
       {
@@ -929,6 +930,59 @@ test.describe("the page a failure happened on", () => {
   });
 });
 
+test.describe("reconciling the configured target against the page", () => {
+  test("an observation that disagrees replaces the configured origin", () => {
+    // The case from issue #8: the report named the bundled fixture's origin while
+    // the browser was on a real third-party target. Grouping defects by origin
+    // merged two applications' failures under one wrong value, and nothing in the
+    // artifact said so.
+    expect(
+      resolveTarget({
+        reportWebServerUrl: "http://127.0.0.1:4311",
+        configuredBaseUrl: "http://127.0.0.1:4311",
+        observedPageUrl: "https://quotes.toscrape.com/login",
+      }),
+    ).toEqual({ origin: "https://quotes.toscrape.com", source: "observed" });
+  });
+
+  test("an observation that agrees leaves the configured source alone", () => {
+    // Ordinary runs must not churn. If BASE_URL set the target and the browser went
+    // there, the artifact says `environment` and stays byte-identical to 1.2.0 —
+    // otherwise every existing artifact would need rewriting for no correction.
+    expect(
+      resolveTarget({
+        environmentBaseUrl: "http://127.0.0.1:4311",
+        reportWebServerUrl: "http://127.0.0.1:9999",
+        observedPageUrl: "http://127.0.0.1:4311/form?x=1#y",
+      }),
+    ).toEqual({ origin: "http://127.0.0.1:4311", source: "environment" });
+  });
+
+  test("no observation at all leaves the configured answer untouched", () => {
+    expect(resolveTarget({ configuredBaseUrl: "http://127.0.0.1:4311" })).toEqual({
+      origin: "http://127.0.0.1:4311",
+      source: "config",
+    });
+    expect(resolveTarget({})).toEqual({});
+  });
+
+  test("an observation with nothing configured is still recorded", () => {
+    // "Nothing was configured" and "the browser was here" are different facts, and
+    // only the second one tells a reader where to look.
+    expect(resolveTarget({ observedPageUrl: "https://example.test/a" })).toEqual({
+      origin: "https://example.test",
+      source: "observed",
+    });
+  });
+
+  test("an unparseable observation does not invent an origin", () => {
+    expect(
+      resolveTarget({ observedPageUrl: "not a url", configuredBaseUrl: "http://a.test" }),
+    ).toEqual({ origin: "http://a.test", source: "config" });
+    expect(resolveTarget({ observedPageUrl: "" })).toEqual({});
+  });
+});
+
 test.describe("which application was under test", () => {
   const OPTIONS = {
     testDir: "tests",
@@ -1056,7 +1110,7 @@ test.describe("colliding ids", () => {
     specs: { file: string; title: string; line: number; message: string }[],
   ): string {
     return JSON.stringify({
-      config: { rootDir: root },
+      config: { rootDir: path.join(root, "tests") },
       stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 1234.5 },
       suites: specs.map((spec, i) => ({
         title: `tests/${spec.file}`,
@@ -1664,7 +1718,7 @@ test.describe("an outage is not four defects", () => {
     const { specLine = 20, raiseLine = 13, sameMessage = true, withLocation = true } = override;
     const specFile = path.join(root, "tests/smoke/demo.spec.ts");
     return JSON.stringify({
-      config: { rootDir: root },
+      config: { rootDir: path.join(root, "tests") },
       stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 30 },
       suites: [
         {
@@ -1844,7 +1898,7 @@ test.describe("an outage is not four defects", () => {
       ],
     }));
     return JSON.stringify({
-      config: { rootDir: root },
+      config: { rootDir: path.join(root, "tests") },
       stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 30 },
       suites: [
         {
@@ -2056,7 +2110,7 @@ test.describe("failure attribution", () => {
   async function oneFailure(root: string, raiseLine: number, withLocation = true): Promise<string> {
     const specFile = path.join(root, "tests/smoke/demo.spec.ts");
     const report = JSON.stringify({
-      config: { rootDir: root },
+      config: { rootDir: path.join(root, "tests") },
       stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 10 },
       suites: [
         {
@@ -2097,14 +2151,17 @@ test.describe("failure attribution", () => {
     return root;
   }
 
-  test("an error raised above the test is attributed to the suite, not the test", async () => {
-    // A beforeEach, a file-level fixture or a helper declared above the test all
-    // raise from above it. A test body never does, so this is provable.
+  test("an error raised above the test is attributed to a hook, not to the test", async () => {
+    // A beforeAll, a file-level fixture or a helper declared above the test all
+    // raise from above it. A test body never does, so this is provable - and the
+    // line is in the reader's own file, which is why this says `hook` rather than
+    // `suite`. A hook attribution names a line above the test, so the first place
+    // to look is that hook, not the assertion that never ran.
     const root = await oneFailure(await scaffold(() => ({})), 4);
 
     const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
 
-    expect(defects[0]?.failure.attribution).toBe("suite");
+    expect(defects[0]?.failure.attribution).toBe("hook");
   });
 
   test("an error raised inside the test carries no attribution", async () => {
@@ -2124,6 +2181,61 @@ test.describe("failure attribution", () => {
     const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
 
     expect(defects[0]).not.toHaveProperty("failure.attribution");
+  });
+
+  test("a foreign file stays suite even when its line number is lower", async () => {
+    // The boundary between `hook` and `suite`, and it is a boundary about *files*,
+    // not about line numbers. A shared helper at line 3 of another module is not a
+    // hook in this reader's file, and labelling it `hook` would send them looking
+    // above a test that did not raise it.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": JSON.stringify({
+        config: { rootDir: path.join(sandbox, "tests") },
+        stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 10 },
+        suites: [
+          {
+            title: "tests/smoke/demo.spec.ts",
+            file: "smoke/demo.spec.ts",
+            specs: [
+              {
+                id: "one",
+                title: "shows the status",
+                file: "smoke/demo.spec.ts",
+                line: 20,
+                column: 1,
+                tests: [
+                  {
+                    projectName: "chromium",
+                    expectedStatus: "passed",
+                    results: [
+                      {
+                        status: "failed",
+                        retry: 0,
+                        duration: 5,
+                        startTime: "2026-10-03T00:00:00.000Z",
+                        attachments: [],
+                        error: {
+                          message: "Error: the shared helper gave up",
+                          location: {
+                            // Beside the test file, not inside it: a shared module.
+                            file: path.join(sandbox, "helpers.ts"),
+                            line: 3,
+                          },
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    }));
+
+    const { defects } = await collectDefects({ ...OPTIONS, projectRoot: root });
+
+    expect(defects[0]?.failure.attribution).toBe("suite");
   });
 
   test("an error raised in another file is attributed to the suite", async () => {

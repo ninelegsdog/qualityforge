@@ -22,7 +22,7 @@
  * minor again for the same reason. Nothing was removed, renamed, retyped or
  * given a new sense.
  */
-export const DEFECT_SCHEMA_VERSION = "1.2.0" as const;
+export const DEFECT_SCHEMA_VERSION = "1.3.0" as const;
 
 /** Outcome of a single attempt. Mirrors Playwright's status vocabulary. */
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
@@ -100,7 +100,27 @@ export interface DefectLocation {
  * all and this field has nothing to say — see `counts.aborted` on the run
  * summary.
  */
-export type FailureAttribution = "suite" | "unknown";
+/**
+ * Where a failure was raised, as far as the report shows.
+ *
+ * Not whose fault it is — no producer can decide that.
+ *
+ * - `suite` — raised in a **different file** from the spec, so outside its body by
+ *   definition. A shared helper module, or a fixture another spec file owns.
+ * - `hook` — raised in this spec's own file, but at or above the line where the
+ *   spec is declared, which a test body cannot do. A `beforeAll` that throws is the
+ *   measured case.
+ * - `unknown` — no location at all.
+ *
+ * `hook` is separated from `suite` because the two need different things from a
+ * reader. A `suite` failure points at code the reader does not own. A `hook`
+ * failure points at a line in the reader's own file, above their test, which is
+ * where a `beforeAll` or a `describe`-level fixture lives — so the first place to
+ * look is that hook, not the test.
+ *
+ * Both mean "not a defect in this test". Neither is a verdict on blame.
+ */
+export type FailureAttribution = "suite" | "hook" | "unknown";
 
 export interface DefectFailure {
   message: string;
@@ -149,7 +169,17 @@ export interface DefectEvidence {
  * - `report` — `webServer.url` from the Playwright report, the runner's own view.
  * - `config` — `config/project.json`, the fallback when nothing said otherwise.
  */
-export type TargetSource = "environment" | "report" | "config";
+/**
+ * Which input the recorded `baseUrl` came from.
+ *
+ * - `environment` — `BASE_URL`, which is the value the runner's config reads.
+ * - `report` — `webServer.url` from the report.
+ * - `config` — `config/project.json`.
+ * - `observed` — the page the browser was actually on, recorded because it
+ *   **disagreed** with every configured candidate. Added in 1.3.0; a run whose
+ *   inputs agree is unaffected and keeps its configured source.
+ */
+export type TargetSource = "environment" | "report" | "config" | "observed";
 
 /**
  * Run context. Excludes anything secret by construction: no environment values,
@@ -321,7 +351,7 @@ export function validateDefect(value: unknown): ValidationResult {
     }
     const attribution = value.failure.attribution;
     if (attribution !== undefined) {
-      const allowed: FailureAttribution[] = ["suite", "unknown"];
+      const allowed: FailureAttribution[] = ["suite", "hook", "unknown"];
       if (!allowed.includes(attribution as FailureAttribution)) {
         problems.push(
           `failure.attribution must be one of ${allowed.join(" | ")}, got ${JSON.stringify(attribution)}`,
@@ -339,7 +369,7 @@ export function validateDefect(value: unknown): ValidationResult {
   } else {
     const source = value.context.targetSource;
     if (source !== undefined) {
-      const allowed: TargetSource[] = ["environment", "report", "config"];
+      const allowed: TargetSource[] = ["environment", "report", "config", "observed"];
       if (!allowed.includes(source as TargetSource)) {
         problems.push(
           `context.targetSource must be one of ${allowed.join(" | ")}, got ${JSON.stringify(source)}`,

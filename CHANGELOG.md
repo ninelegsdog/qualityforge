@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`defect.v1` is now 1.3.0** (minor, additive). Two new enum members, both
+  answering a defect this project found in itself by running the suite against an
+  application it did not build.
+
+  - **`context.targetSource: "observed"`.** `BASE_URL`, `webServer.url` and
+    `config/project.json` all record what someone _meant_ the target to be. In a
+    third-party run they were wrong in the same way — the report named the bundled
+    fixture's origin while the browser was on the real target — so grouping defects
+    by origin merged two applications' failures under one wrong value. When a
+    failing test drove a page and that page disagrees with the configured answer,
+    the artifact records the observation and marks it `observed`.
+
+    Measured on the real third-party run, before and after:
+
+    ```
+    before   context.baseUrl = http://127.0.0.1:4311     targetSource = report
+    after    context.baseUrl = https://quotes.toscrape.com   targetSource = observed
+    ```
+
+    A run whose inputs agree is unchanged and keeps its configured source, so
+    ordinary artifacts are byte-identical to what 1.2.0 produced. The run summary
+    keeps the configured answer, because a summary has no page; the observation
+    lands in per-defect context.
+
+  - **`failure.attribution: "hook"`.** The vocabulary was `suite | unknown` and
+    `suite` was doing two jobs. A `beforeAll` that throws and a failure inside a
+    shared helper module are both "not this test's body", but they send a reader
+    somewhere completely different. The above-the-declaration case in the spec's own
+    file is now `hook`; `suite` means "a different file"; `unknown` is unchanged.
+
+    The split is a boundary about files, not about line numbers. A helper at line 3
+    of another module stays `suite`, because a line in another file is not "above
+    this spec" in any meaningful sense.
+
 ### Added
 
 - Read-only MCP server on stdio speaking protocol **2026-07-28**:

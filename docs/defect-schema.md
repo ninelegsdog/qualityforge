@@ -249,7 +249,7 @@ moved.
 ```jsonc
 {
   "$schema": "https://qualityforge.dev/schemas/defect.v1.schema.json",
-  "schemaVersion": "1.2.0",
+  "schemaVersion": "1.3.0",
   "id": "form-validation-smoke-shows-an-error-when-email-is-empty",
   "runId": "2026-10-03T00-43-13-217Z-443909",
   "createdAt": "2026-10-03T00:43:13.217Z",
@@ -722,11 +722,60 @@ capped, the way `signals.dropped` already does.
 
 `schemaVersion` is semantic. The file name carries `v1` to match.
 
-- Adding an optional field: minor bump. That is how `signals` arrived in
-  `1.1.0`, the file suffix staying `v1` and every `1.0.0` reader still working,
-  and how `page` and `context.targetSource` arrived in `1.2.0`.
+- Adding an optional field, or a new member of an existing enum: minor bump.
+  That is how `signals` arrived in `1.1.0`, the file suffix staying `v1` and every
+  `1.0.0` reader still working; how `page` and `context.targetSource` arrived in
+  `1.2.0`; and how `targetSource: "observed"` and `attribution: "hook"` arrived in
+  `1.3.0`.
 - Removing a field, renaming one, or changing a type or meaning: major bump,
   and the file suffix changes to `v2`.
+
+### 1.3.0 — the configured target is reconciled against the page
+
+Two changes, both additive, both answering a defect this repository found in itself
+by running against an application it did not build.
+
+**`context.targetSource: "observed"`.** The three existing sources all record what
+someone _meant_ the target to be. In a third-party run they were wrong in the same
+way: the report named the bundled fixture's origin while the browser was on the real
+target, so grouping defects by origin merged two applications' failures under one
+wrong value.
+
+`page.url` is the only input that is not a declaration of intent, so when a failing
+test drove a page and that page disagrees with the configured answer, the artifact
+records the observation and marks it `observed`. Compared against the candidate that
+would have won the precedence anyway — a lower-priority candidate that disagrees is
+irrelevant when a higher-priority one agrees, because nothing is being corrected in
+that case.
+
+**A run whose inputs agree is byte-identical to what `1.2.0` produced.** Ordinary
+artifacts do not change and `targetSource` keeps its configured name. Only the
+disagreement case is new, and that is the case that was wrong.
+
+The run summary keeps the configured answer, because a summary has no page: it
+describes what was configured, not where the browser went. Per-defect context is
+where the observation lands. A consumer that wants to know whether the two ever
+disagreed should compare `summary.baseUrl` with a defect's `context.baseUrl`.
+
+**`failure.attribution: "hook"`.** The vocabulary was `suite | unknown`, and `suite`
+was doing two jobs. A `beforeAll` that throws and a failure inside a shared helper
+module are both "not this test's body", but they send a reader somewhere completely
+different: one to a line in their own file above the test, the other to a file they
+may not own. So the above-the-declaration case in the spec's own file is now `hook`,
+and `suite` means "a different file". `unknown` is unchanged.
+
+The split is a boundary about **files**, not about line numbers, and it is measured:
+a `beforeAll` throw reports the hook's line, above the declaration of the spec marked
+failed. A helper at line 3 of another module stays `suite` even though 3 is lower
+than most test declarations, because a line in another file is not "above this spec"
+in any meaningful sense.
+
+Nothing in `1.3.0` was removed, renamed, retyped or given a new sense. Both are new
+members of existing enums, which is why this is a minor bump: the only thing that
+would notice is a consumer validating against the old enum, and it should ignore
+unknown members the same way it ignores unknown fields.
+
+### What 1.2.0 did
 
 Nothing in `1.2.0` was removed, renamed, retyped or given a new sense:
 `context.baseUrl` still means "an origin", `context.targetSource` says how much

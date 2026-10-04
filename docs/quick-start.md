@@ -45,14 +45,14 @@ clone is green with no configuration and no third-party network access.
 
 | Count                                       | Number |
 | ------------------------------------------- | ------ |
-| Specs, all four projects                    | 333    |
+| Specs, all four projects                    | 349    |
 | Skipped without any configuration           | 36     |
 | — of those, `evidence-pipeline.spec.ts`     | 6      |
 | — of those, `quotes-toscrape.smoke.spec.ts` | 30     |
 
 Those skips are deliberate and all of them are described below: the evidence
 pipeline fails on purpose, and the third-party suite needs an application this
-repository did not build. The remaining 297 run.
+repository did not build. The remaining 313 run.
 
 Every number in that table is checked against the suite by
 `npm run docs:numbers`, which counts what Playwright actually collects rather
@@ -199,13 +199,16 @@ Three notes, and the [README](../README.md#the-mcp-server) has the detail:
   other in review.
 
 Add `--root <dir>` to serve artifacts from somewhere other than the default
-`artifacts/defects`.
+`artifacts/defects`, and `--history <dir>` to serve run history from somewhere
+other than `quality-history`.
 
 | Tool                     | What it answers                                                       |
 | ------------------------ | --------------------------------------------------------------------- |
 | `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed       |
 | `quality_list_failures`  | Compact records: id, status, test location, flakiness                 |
 | `quality_get_defect`     | One defect in full, including console, network and page-error signals |
+| `quality_flaky_tests`    | Which specs failed across runs: flaky, failing, new, or gone          |
+| `quality_get_trend`      | Pass rate per run, direction, duration, distinct failing specs        |
 
 There is a prompt too, `triage_failure`, which asks for facts before
 hypotheses.

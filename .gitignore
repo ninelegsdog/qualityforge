@@ -20,6 +20,10 @@ dist/
 # create the tree on demand instead.
 artifacts/
 
+# Run history is committed on purpose: it is a few hundred bytes per run, it is how
+# "is this a regression" gets an answer, and an answer nobody kept is worth less than
+# the bytes. Configured via `history.directory`; this covers the default.
+
 # Playwright working directories
 test-results/
 playwright-report/

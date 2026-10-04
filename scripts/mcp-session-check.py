@@ -25,7 +25,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import evidence_seed  # noqa: E402  (needs the path above)
+import evidence_seed
+from tool_list import EXPECTED_TOOLS  # noqa: E402  (needs the path above)
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
 
@@ -332,8 +333,7 @@ if tl.get("cacheScope") != "private":
     problems.append("tools/list result lacks cacheScope=private")
 
 names = [t.get("name") for t in (tl.get("tools") or [])]
-expected = ["quality_get_latest_run", "quality_list_failures", "quality_get_defect"]
-if names != expected:
+if names != EXPECTED_TOOLS:
     problems.append(f"unexpected tool list: {names}")
 print(f"  tools: {names}")
 

@@ -26,6 +26,7 @@ on prior state.
 
 Usage: python3 scripts/mcp-tools-check.py [project-root]
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -57,11 +58,20 @@ def envelope() -> dict:
     return {META_PROTOCOL_VERSION: MODERN, META_CLIENT_CAPABILITIES: {}}
 
 
-def run(requests: list[dict], root: pathlib.Path) -> tuple[dict, list, int]:
+def run(
+    requests: list[dict],
+    root: pathlib.Path,
+    history: pathlib.Path | None = None,
+) -> tuple[dict, list, int]:
     """Drive the real server over a real pipe and collect its frames."""
+    argv = ["npx", "tsx", "src/mcp/index.ts", "--root", str(root)]
+    if history is not None:
+        # An explicit flag, so the check does not depend on the repository happening
+        # to contain a history directory — and so it exercises the flag itself.
+        argv += ["--history", str(history)]
     payload = "".join(json.dumps(r) + "\n" for r in requests)
     proc = subprocess.run(
-        ["npx", "tsx", "src/mcp/index.ts", "--root", str(root)],
+        argv,
         input=payload,
         capture_output=True,
         text=True,
@@ -81,8 +91,50 @@ def run(requests: list[dict], root: pathlib.Path) -> tuple[dict, list, int]:
     return frames, corrupt, proc.returncode
 
 
+def seed_history(scratch: pathlib.Path) -> pathlib.Path:
+    """Write two runs of one spec — failing, then passing — in the real format.
+
+    Written by hand rather than by running the collector, because this check is
+    self-seeding by design and running a suite to produce history would double its
+    runtime for no extra coverage. The format is small enough to reproduce here;
+    if it ever drifts, the assertions below fail rather than quietly pass.
+
+    Two runs is the smallest window in which `flaky` means anything: one run can
+    only ever say "it failed", which is all a bare failure log keeps.
+    """
+    history = scratch / "quality-history"
+    (history / "compositions").mkdir(parents=True, exist_ok=True)
+    spec_id = "seeded-spec-that-fails-then-passes"
+    key = hashlib.sha256(spec_id.encode()).hexdigest()[:12]
+    (history / "compositions" / f"{key}.json").write_text(
+        json.dumps({"schemaVersion": "1.0.0", "specIds": [spec_id]}) + "\n",
+        encoding="utf-8",
+    )
+    for index, failed in enumerate((True, False)):
+        run_id = f"2026-10-0{index + 1}T00-00-00-000Z-seed"
+        entry = {
+            "schemaVersion": "1.0.0",
+            "runId": run_id,
+            "createdAt": f"2026-10-0{index + 1}T00:00:00.000Z",
+            "counts": {
+                "specs": 1,
+                "passed": 0 if failed else 1,
+                "failed": 1 if failed else 0,
+                "timedOut": 0,
+                "skipped": 0,
+                "flaky": 0,
+                "aborted": 0,
+            },
+            "outcomes": {spec_id: "failed"} if failed else {},
+            "composition": key,
+        }
+        (history / f"{run_id}.json").write_text(json.dumps(entry) + "\n", encoding="utf-8")
+    return history
+
+
 def main() -> int:
     scratch, served_root, problems = evidence_seed.seed(ROOT)
+    history_root = seed_history(scratch)
     if not os.environ.get(evidence_seed.SHARED_SCRATCH_ENV):
         print(evidence_seed.describe(scratch, served_root))
 
@@ -161,8 +213,30 @@ def main() -> int:
                     "protocolVersion": MODERN,
                 },
             },
+            # The history tools, against the seeded two-run window.
+            {
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "tools/call",
+                "params": {
+                    "name": "quality_flaky_tests",
+                    "arguments": {},
+                    "_meta": envelope(),
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "tools/call",
+                "params": {
+                    "name": "quality_get_trend",
+                    "arguments": {},
+                    "_meta": envelope(),
+                },
+            },
         ],
         served_root,
+        history_root,
     )
 
     if corrupt:
@@ -232,6 +306,45 @@ def main() -> int:
 
     print(
         f"envelope: tools/call with `_meta` served, without it {without}"
+    )
+
+    # --- the history tools, over the same pipe ------------------------------
+    #
+    # Neither takes a path: the client names no directory, so there is nothing to
+    # confine — which is what makes a second root safe to add at all.
+    flaky_frame = frames.get(13, {})
+    flaky_sc = (flaky_frame.get("result") or {}).get("structuredContent") or {}
+    if "error" in flaky_frame:
+        problems.append(f"flaky_tests returned an error: {flaky_frame['error']}")
+    if flaky_sc.get("window") != 2:
+        problems.append(f"flaky_tests window={flaky_sc.get('window')!r}, expected 2")
+    flaky_tests = flaky_sc.get("tests") or []
+    if len(flaky_tests) != 1:
+        problems.append(f"flaky_tests returned {len(flaky_tests)} spec(s), expected 1")
+    else:
+        only = flaky_tests[0]
+        if only.get("verdict") != "flaky":
+            problems.append(f"verdict={only.get('verdict')!r}, expected 'flaky'")
+        if only.get("runs") != 2 or only.get("failedRuns") != 1:
+            problems.append(f"runs={only.get('runs')}/{only.get('failedRuns')}, expected 2/1")
+
+    trend_frame = frames.get(14, {})
+    trend_sc = (trend_frame.get("result") or {}).get("structuredContent") or {}
+    if "error" in trend_frame:
+        problems.append(f"get_trend returned an error: {trend_frame['error']}")
+    if len(trend_sc.get("points") or []) != 2:
+        problems.append(f"trend points={len(trend_sc.get('points') or [])}, expected 2")
+    # Two runs cannot show a direction, and saying so is the point: an answer of
+    # "improving" here would be invented rather than derived.
+    if trend_sc.get("direction") != "unknown":
+        problems.append(f"trend direction={trend_sc.get('direction')!r}, expected 'unknown'")
+    if trend_sc.get("distinctFailing") != 1:
+        problems.append(f"distinctFailing={trend_sc.get('distinctFailing')!r}, expected 1")
+
+    print(
+        f"history: flaky_tests window={flaky_sc.get('window')} "
+        f"verdict={(flaky_tests[0].get('verdict') if flaky_tests else None)!r} · "
+        f"trend direction={trend_sc.get('direction')!r}"
     )
 
     if defect_path:

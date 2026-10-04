@@ -31,6 +31,8 @@ interface Args {
   reportPath: string | undefined;
   outDir: string | undefined;
   asJson: boolean;
+  /** Suppress run history, whatever `config.history` says. */
+  noHistory: boolean;
 }
 
 /** Flags that take a value, so a missing one gets a message and not a guess. */
@@ -41,6 +43,7 @@ function parseArgs(argv: string[]): Args {
   let reportPath: string | undefined;
   let outDir: string | undefined;
   let asJson = false;
+  let noHistory = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === undefined) continue;
@@ -59,10 +62,12 @@ function parseArgs(argv: string[]): Args {
       i += 1;
     } else if (arg === "--json") {
       asJson = true;
+    } else if (arg === "--no-history") {
+      noHistory = true;
     } else if (arg === "--help" || arg === "-h") {
       console.log(
         "Usage: npm run defects:collect -- [--config <path>] [--report <path>] " +
-          "[--out <dir>] [--json]\n" +
+          "[--out <dir>] [--json] [--no-history]\n" +
           "\n" +
           "  --config <path>  configuration file (default config/project.json)\n" +
           "  --report <path>  Playwright JSON report to read (default " +
@@ -70,7 +75,8 @@ function parseArgs(argv: string[]): Args {
           ")\n" +
           "  --out <dir>      where to write run artifacts (default " +
           "defects.directory from the config)\n" +
-          "  --json           print the run summary as JSON and nothing else\n",
+          "  --json           print the run summary as JSON and nothing else\n" +
+          "  --no-history     do not append to the run history, whatever the config says\n",
       );
       process.exit(0);
     } else {
@@ -81,11 +87,11 @@ function parseArgs(argv: string[]): Args {
       process.exit(2);
     }
   }
-  return { configPath, reportPath, outDir, asJson };
+  return { configPath, reportPath, outDir, asJson, noHistory };
 }
 
 async function main(): Promise<number> {
-  const { configPath, reportPath, outDir, asJson } = parseArgs(process.argv.slice(2));
+  const { configPath, reportPath, outDir, asJson, noHistory } = parseArgs(process.argv.slice(2));
 
   let config;
   try {
@@ -115,7 +121,7 @@ async function main(): Promise<number> {
   }
 
   try {
-    const { defects, summary, runDir } = await collectDefects({
+    const { defects, summary, runDir, history } = await collectDefects({
       projectRoot: ROOT,
       testDir: DEFAULT_TEST_DIR,
       outputDir: outDir ?? config.defects.directory,
@@ -123,6 +129,11 @@ async function main(): Promise<number> {
       baseUrl: config.baseUrl,
       ...(environmentBaseUrl === undefined ? {} : { environmentBaseUrl }),
       referenceErrorContext: config.defects.referenceErrorContext,
+      // `--no-history` exists for runs that are not runs of this project: a seeded
+      // check produces a 100%-failing run inside a scratch directory, and letting it
+      // append would mean every CI pass wrote synthetic entries into a history whose
+      // whole value is that it records what actually happened here.
+      ...(config.history === undefined || noHistory ? {} : { history: config.history }),
       tags: config.tags,
       thresholds: config.thresholds,
       commit,
@@ -156,6 +167,22 @@ async function main(): Promise<number> {
           ? "  gate PASSED"
           : `  gate FAILED\n${summary.gate.violations.map((v) => `    - ${v}`).join("\n")}`,
       );
+      // History problems are printed, never thrown on: the artifacts are already
+      // written and uploaded, and a red build over a missing index would train people
+      // to ignore the one line that says it did not work.
+      if (history?.failed !== undefined) {
+        console.error(`  history NOT written: ${history.failed}`);
+      } else if (history !== undefined) {
+        console.log(
+          `  history ${path.relative(ROOT, history.path)}` +
+            (history.removed.length === 0
+              ? ""
+              : ` (pruned ${history.removed.length} older run(s))`),
+        );
+        if (history.rotationFailed !== undefined) {
+          console.error(`  history not pruned: ${history.rotationFailed}`);
+        }
+      }
     }
 
     return summary.gate.passed ? 0 : 1;

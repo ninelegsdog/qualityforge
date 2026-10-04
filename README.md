@@ -237,7 +237,8 @@ config file that was present, valid and unchanged throughout. That first line is
 not evidence that your block is wrong.
 
 Add `--root <dir>` to serve artifacts from somewhere other than
-`artifacts/defects`.
+`artifacts/defects`, and `--history <dir>` to serve run history from somewhere
+other than `quality-history`.
 
 Four things about that block, each checked against a real client rather than
 assumed:
@@ -277,6 +278,8 @@ says nothing about whether they accept it — and it should not be assumed to.
 | `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed       |
 | `quality_list_failures`  | Compact records: id, status, test location, flakiness                 |
 | `quality_get_defect`     | One defect in full, including console, network and page-error signals |
+| `quality_flaky_tests`    | Which specs failed across runs: flaky, failing, new, or gone          |
+| `quality_get_trend`      | Pass rate per run, direction, duration, distinct failing specs        |
 
 Plus resources for the latest run summary and any defect, and a
 `triage_failure` prompt that asks for facts before hypotheses.
@@ -316,6 +319,29 @@ Configuration error: Invalid configuration in /…/config/project.json
   - thresholds.maxFailureRate must be a number between 0 and 1, got "high"
   - baseUrl must not contain credentials, a query string or a fragment
 ```
+
+### Run history
+
+An optional `history` block keeps one compact file per run, so the question
+"is this a regression, or has it always been this way" has an answer:
+
+```json
+"history": { "directory": "quality-history", "keep": 200 }
+```
+
+It is committed on purpose, unlike `artifacts/`. The rule that evidence
+artifacts are output and never checked in is about evidence: screenshots,
+traces, full reports. A history entry is a few hundred bytes of counts and
+outcomes, and it is the only thing that makes a run worth having had.
+
+Each entry records which specs did _not_ pass, plus a hash pointing at the list
+of every spec that ran. That list is stored once per distinct suite and shared by
+every run in that state, so an entry stays small and a diff of a run shows counts
+rather than three hundred ids. Both halves matter: without knowing who was
+present, a spec that failed once in two runs and a spec that failed every time it
+ran are the same string — which is the distinction the history exists for.
+
+Left unset, history is off and nothing extra is written.
 
 ## Commands
 

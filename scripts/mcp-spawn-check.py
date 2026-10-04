@@ -53,6 +53,9 @@ import tempfile
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from tool_list import EXPECTED_TOOLS  # noqa: E402  (needs the path above)
+
 MODERN = "2026-07-28"
 LEGACY = "2025-11-25"
 META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion"
@@ -275,7 +278,7 @@ def report(label: str, frames: dict, corrupt: list, code: int, stderr: str) -> t
 
     # stdout carried frames only, and the server is still answering.
     tools = [t.get("name") for t in (result_of(frames.get(2, {})).get("tools") or [])]
-    if tools != ["quality_get_latest_run", "quality_list_failures", "quality_get_defect"]:
+    if tools != EXPECTED_TOOLS:
         problems.append(f"{label}: unexpected tool list {tools}")
 
     echoed = True

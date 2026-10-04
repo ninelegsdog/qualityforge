@@ -63,29 +63,41 @@ function usage(): string {
   return [
     `${SERVER_NAME} ${SERVER_VERSION}`,
     "",
-    "Usage: qualityforge-mcp [--root <dir>]",
+    "Usage: qualityforge-mcp [--root <dir>] [--history <dir>]",
     "",
-    "  --root <dir>  artifacts root to serve (default: " + DEFAULT_ROOT + ")",
-    "  --help        this message",
+    "  --root <dir>    artifacts root to serve (default: " + DEFAULT_ROOT + ")",
+    "  --history <dir> run-history directory to serve, if the project keeps one",
+    "                  (default: quality-history, when that directory exists)",
+    "  --help          this message",
     "",
     "Reads only. Writes nothing.",
   ].join("\n");
 }
 
-function parseArgs(argv: string[]): { root: string | undefined; help: boolean } {
+function parseArgs(argv: string[]): {
+  root: string | undefined;
+  history: string | undefined;
+  help: boolean;
+} {
   let root: string | undefined;
+  let history: string | undefined;
   let help = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
       help = true;
-    } else if (arg === "--root") {
-      root = argv[i + 1];
+    } else if (arg === "--root" || arg === "--history") {
+      const value = argv[i + 1];
       i += 1;
-      if (root === undefined) {
+      if (value === undefined) {
         // stderr, always: stdout is the protocol channel.
-        console.error("[qualityforge-mcp] --root requires a directory");
+        console.error(`[qualityforge-mcp] ${arg} requires a directory`);
         process.exit(1);
+      }
+      if (arg === "--root") {
+        root = value;
+      } else {
+        history = value;
       }
     } else {
       console.error(`[qualityforge-mcp] unknown argument: ${arg}`);
@@ -93,11 +105,11 @@ function parseArgs(argv: string[]): { root: string | undefined; help: boolean } 
       process.exit(1);
     }
   }
-  return { root, help };
+  return { root, history, help };
 }
 
 async function main(): Promise<number> {
-  const { root, help } = parseArgs(process.argv.slice(2));
+  const { root, history, help } = parseArgs(process.argv.slice(2));
 
   if (help) {
     console.error(usage());
@@ -128,7 +140,17 @@ async function main(): Promise<number> {
     }
   }
 
-  const store = new ArtifactStore({ root: absoluteRoot });
+  // The history directory is a second root, not a subdirectory of the artifacts
+  // root: artifacts are gitignored output, history is committed, and neither lives
+  // under the other. An explicit flag wins; otherwise the conventional name is used
+  // only if it exists, so a project that keeps no history gets no history rather
+  // than a path that fails to resolve.
+  const historyDir =
+    history ?? ["quality-history"].find((candidate) => existsSync(path.resolve(cwd, candidate)));
+  const store = new ArtifactStore({
+    root: absoluteRoot,
+    ...(historyDir === undefined ? {} : { historyRoot: path.resolve(cwd, historyDir) }),
+  });
   try {
     await store.init();
   } catch (error) {

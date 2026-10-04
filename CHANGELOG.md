@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Run history, and two MCP tools that read it.** An optional `history` block in
+  `config/project.json` keeps one compact file per run, which is how the question
+  "is this a regression, or has it always been this way" gets an answer instead of
+  a guess.
+
+  ```json
+  "history": { "directory": "quality-history", "keep": 200 }
+  ```
+
+  Committed on purpose, in its own directory and never under `artifacts/`. The rule
+  that evidence is output and never checked in is about evidence — screenshots,
+  traces, full reports. A history entry is a few hundred bytes of counts and
+  outcomes, and it is the only thing that makes a run worth having had.
+
+  **The composition is what makes it correct.** A pass leaves no outcome of its
+  own, so a bare failure log cannot tell a spec that failed in one run of two from
+  one that failed every time it ran — which is the difference between a flake and a
+  regression, and the entire reason to keep history at all. Each entry therefore
+  carries a hash pointing at the list of every spec that ran, and that list is
+  stored once per distinct suite rather than once per run:
+
+  Measured on two consecutive full runs of this repository's own suite — 349
+  specs, 313 passing, 36 deliberately skipped:
+
+  ```
+  quality-history/
+  ├── 2026-10-04T08-04-56-467Z-da0b19.json    3,962 bytes
+  ├── 2026-10-04T08-07-23-977Z-c2fda5.json    3,962 bytes
+  └── compositions/eb6a4bb9011a.json          27,635 bytes, written once
+  ```
+
+  A third run with an unchanged suite adds only its entry: 4 KB, not 28. The
+  composition is the large half and it is shared, which is the entire reason the
+  entry can stay small.
+
+  An entry whose composition cannot be read is reported as `partial` rather than
+  guessed at, and errs towards `failing` rather than `flaky`: a reader who acts on
+  a false regression investigates, and a reader who acts on a false flake waits.
+
+- **`quality_flaky_tests`** reports which specs failed across the window and how
+  to read each: `flaky` (failed and passed), `failing` (failed every time it
+  ran), `new` (first appearance in the window is a failure), `quiet` (failed, but
+  is no longer in the suite). Sorted worst first, stable across calls.
+
+- **`quality_get_trend`** reports pass rate per run, a direction from the first
+  half of the window against the second, mean duration of each half, and how many
+  distinct specs failed anywhere in it. Under four runs it answers `unknown`
+  rather than fitting a line to two points.
+
+  Both are read-only, and neither takes a path: the client names no directory, so
+  there is nothing to confine — which is what makes a second root safe to serve at
+  all. `--history <dir>` points the server at it; without the flag the
+  conventional `quality-history` is used only when it exists.
+
 ### Changed
 
 - **`defect.v1` is now 1.3.0** (minor, additive). Two new enum members, both

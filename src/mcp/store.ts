@@ -22,6 +22,12 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { validateDefect, type DefectV1 } from "../defect/types.js";
+import {
+  readHistory,
+  readHistoryRecords,
+  type HistoryEntry,
+  type HistoryRecord,
+} from "../defect/history.js";
 
 /** Raised for any rejected path. The message never echoes the absolute target. */
 export class PathAccessError extends Error {
@@ -39,6 +45,19 @@ export class PathAccessError extends Error {
 export interface StoreOptions {
   /** Absolute path to the directory the server may read. */
   root: string;
+  /**
+   * Absolute path to the run-history directory, if the project keeps one.
+   *
+   * A second root, deliberately, and not a subdirectory of the first: artifacts are
+   * output and gitignored, history is committed, and pretending otherwise would mean
+   * moving or duplicating one of them.
+   *
+   * Nothing a client sends reaches this path. The tools that read history take no
+   * path argument at all — they read the whole directory — so there is no traversal
+   * surface here to confine. It is still a configured absolute path rather than
+   * something derived from a request, and it is still only ever read.
+   */
+  historyRoot?: string;
 }
 
 /** One run directory inside the root. */
@@ -55,9 +74,37 @@ export class ArtifactStore {
   readonly #root: string;
   /** Absolute realpath of the root, resolved once at construction. */
   #realRoot = "";
+  /** Absolute history directory, when the project keeps one. */
+  readonly #historyRoot: string | undefined;
 
   constructor(options: StoreOptions) {
     this.#root = path.resolve(options.root);
+    this.#historyRoot =
+      options.historyRoot === undefined ? undefined : path.resolve(options.historyRoot);
+  }
+
+  /**
+   * Every run-history entry, oldest first.
+   *
+   * Empty when the project keeps no history, which is the ordinary case rather than
+   * an error: a tool that answers "I have nothing to compare" is more useful to an
+   * agent than one that fails.
+   */
+  async readHistory(): Promise<HistoryEntry[]> {
+    if (this.#historyRoot === undefined) return [];
+    return readHistory(this.#historyRoot, ".");
+  }
+
+  /**
+   * Every run with who was present in it, oldest first.
+   *
+   * The composition is what separates a flake from a regression: a pass leaves no
+   * outcome of its own, so presence has to be read rather than assumed. Empty when
+   * the project keeps no history, which tools report as an absence of evidence.
+   */
+  async readHistoryRecords(): Promise<HistoryRecord[]> {
+    if (this.#historyRoot === undefined) return [];
+    return readHistoryRecords(this.#historyRoot, ".");
   }
 
   /**

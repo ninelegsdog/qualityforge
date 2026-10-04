@@ -41,6 +41,30 @@ export interface DefectConfig {
   referenceErrorContext: boolean;
 }
 
+/**
+ * Run history: enough to answer "is this a regression, or has it always been this
+ * way" across runs.
+ *
+ * Stored in its own committed directory rather than under `defects.directory`,
+ * because the repository rule is that evidence artifacts are output and never
+ * committed. A history entry is not an artifact: it is a few hundred bytes of
+ * counts and outcomes, it is what makes the project useful over time, and a
+ * question with no answer is worth more to keep than to lose to a gitignore.
+ *
+ * Only outcomes that are *not* a plain pass are recorded. Absence means the spec
+ * ran and passed, which keeps an entry small enough that a hundred of them still
+ * read as a directory rather than as a dataset.
+ */
+export interface HistoryConfig {
+  /** Directory, relative to the project root, for one compact file per run. */
+  directory: string;
+  /**
+   * How many runs to keep. The oldest entries are deleted past this, so a history
+   * cannot grow without bound in a repository.
+   */
+  keep: number;
+}
+
 export interface ProjectConfig {
   schemaVersion: typeof CONFIG_SCHEMA_VERSION;
   /** Short human-readable project name. */
@@ -52,6 +76,8 @@ export interface ProjectConfig {
   evidence: EvidenceConfig;
   thresholds: ThresholdsConfig;
   defects: DefectConfig;
+  /** Run history across runs. Omitted means history is off. */
+  history?: HistoryConfig;
   /** Labels copied onto every produced defect artifact. */
   tags: string[];
 }

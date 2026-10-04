@@ -123,6 +123,10 @@ def _seed_fresh(project_root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path,
             str(report),
             "--out",
             str(defects_root),
+            # A seeded run is not a run of this project: it happens in a scratch
+            # directory, fails on purpose, and must not append itself to the committed
+            # history, whose only value is that it records what really happened here.
+            "--no-history",
         ],
         cwd=project_root,
         capture_output=True,

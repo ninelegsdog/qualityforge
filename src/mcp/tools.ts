@@ -9,6 +9,7 @@
  * Tool names follow SEP-986: 1 to 64 characters from `[A-Za-z0-9_./-]`, so
  * `quality_list_failures` is valid, and the `quality_` prefix namespaces them.
  */
+import { flakinessReport, trendReport } from "../defect/flakiness.js";
 import type { ArtifactStore } from "./store.js";
 
 export const SERVER_INSTRUCTIONS = [
@@ -153,6 +154,77 @@ export const TOOLS: ToolDefinition[] = [
       openWorldHint: false,
     },
   },
+  {
+    name: "quality_flaky_tests",
+    title: "Which tests are flaky across runs",
+    description:
+      "Compare the run history and report which specs are unstable: `flaky` " +
+      "(failed and passed at least once in the window), `failing` (failed in " +
+      "every run it appeared in), `new` (failed in the newest run with no earlier " +
+      "record), or `quiet` (absent from the newest run). Use this before deciding " +
+      "whether a failure is worth chasing: a regression and a known flake call for " +
+      "different responses. Empty window when the project keeps no history, which " +
+      "is an absence of evidence rather than an all-clear. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "number",
+          description: "How many specs to return, 1..100 (default 20), worst first",
+        },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        window: { type: "number" },
+        latestRunId: { type: "string" },
+        tests: { type: "array" },
+      },
+      required: ["window", "tests"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "quality_get_trend",
+    title: "Pass rate and duration across runs",
+    description:
+      "Read the run history oldest-first and report pass rate per run, a " +
+      "direction derived from the first half of the window against the second " +
+      "(`improving`, `worsening`, `flat`, or `unknown` below four runs), mean " +
+      "duration of each half, and how many distinct specs failed anywhere in the " +
+      "window. This is how you tell one bad run from a suite that is actually " +
+      "getting worse. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        direction: { type: "string" },
+        points: { type: "array" },
+        durationMs: { type: "object" },
+        distinctFailing: { type: "number" },
+      },
+      required: ["direction", "points", "distinctFailing"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 export interface ToolCallResult {
@@ -204,6 +276,10 @@ export async function callTool(
       return listFailures(store, args);
     case "quality_get_defect":
       return getDefect(store, args);
+    case "quality_flaky_tests":
+      return flakyTests(store, args);
+    case "quality_get_trend":
+      return getTrend(store);
     default:
       return {
         content: text(
@@ -543,5 +619,95 @@ export function capabilitiesFor(_clientCapabilities?: Record<string, unknown>): 
     tools: { listChanged: false },
     resources: { listChanged: false },
     prompts: { listChanged: false },
+  };
+}
+
+async function flakyTests(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const limitRaw = args.limit;
+  const limit = typeof limitRaw === "number" ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+  const records = await store.readHistoryRecords();
+
+  if (records.length === 0) {
+    return {
+      content: text(
+        "No run history. Either config/project.json has no `history` block, or nothing " +
+          "has been collected since one was added. Nothing to compare against — this is " +
+          "an absence of evidence, not an all-clear.",
+      ),
+      structuredContent: { window: 0, tests: [] },
+    };
+  }
+
+  const report = flakinessReport(records);
+  const tests = report.tests.slice(0, limit);
+  const lines = tests.map(
+    (test) =>
+      `  ${test.verdict.padEnd(7)} ${test.id} ` +
+      `(${test.failedRuns}/${test.runs} run(s) failed, last: ${test.lastOutcome})`,
+  );
+  const body =
+    report.tests.length === 0
+      ? "  none — every spec passed every run in the window"
+      : lines.join("\n");
+  // A window whose compositions could not all be read cannot separate a flake from a
+  // regression with confidence, and saying so is better than a verdict the reader
+  // will take at face value.
+  const caveat =
+    report.partial === true
+      ? "\n\nNote: at least one run's composition file was missing, so presence for that run " +
+        "is only what it recorded a non-pass for. Treat `failing` there as unconfirmed."
+      : "";
+  return {
+    content: text(
+      `Window: ${report.window} run(s), newest ${report.latestRunId ?? "unknown"}. ` +
+        `Specs that failed at least once: ${report.tests.length}.\n${body}` +
+        caveat,
+    ),
+    structuredContent: {
+      window: report.window,
+      latestRunId: report.latestRunId ?? "",
+      partial: report.partial === true,
+      tests,
+    },
+  };
+}
+
+async function getTrend(store: ArtifactStore): Promise<ToolCallResult> {
+  const entries = await store.readHistory();
+
+  if (entries.length === 0) {
+    return {
+      content: text(
+        "No run history, so there is no trend to read. Collect a run with a `history` " +
+          "block configured in config/project.json.",
+      ),
+      structuredContent: { direction: "unknown", points: [], distinctFailing: 0 },
+    };
+  }
+
+  const report = trendReport(entries);
+  const lines = report.points.map(
+    (point) =>
+      `  ${point.runId}  specs ${point.specs} · passed ${point.passed} · ` +
+      `failed ${point.failed} · ${(point.passRate * 100).toFixed(1)}%` +
+      (point.durationMs === undefined ? "" : ` · ${(point.durationMs / 1000).toFixed(1)}s`),
+  );
+  const { earlier, recent } = report.durationMs;
+  const duration =
+    earlier === undefined && recent === undefined
+      ? "no timings recorded"
+      : `mean duration ${earlier ?? "n/a"}ms → ${recent ?? "n/a"}ms`;
+
+  return {
+    content: text(
+      `Direction: ${report.direction} over ${report.points.length} run(s) ` +
+        `(fewer than four runs cannot show a direction).\n` +
+        `Mean duration: ${duration}. Distinct failing specs in window: ` +
+        `${report.distinctFailing}.\n${lines.join("\n")}`,
+    ),
+    structuredContent: report as unknown as Record<string, unknown>,
   };
 }

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ArtifactStore } from "../../../src/mcp/store.js";
+import { recordHistory } from "../../../src/defect/history.js";
 import { dispatch, type Logger } from "../../../src/mcp/server.js";
 import {
   INVALID_PARAMS,
@@ -57,6 +58,47 @@ async function makeContext() {
     "utf8",
   );
   const store = new ArtifactStore({ root });
+  await store.init();
+  return { root, store, logger: silentLogger };
+}
+
+/**
+ * A store whose project keeps run history: the same artifact root plus two runs of
+ * one spec — failing, then passing.
+ *
+ * Two runs is the smallest window in which "flaky" is a claim at all: one run can
+ * only ever say "it failed", and one run is exactly what a bare failure log keeps.
+ */
+async function makeHistoryContext() {
+  const context = await makeContext();
+  const historyDirectory = "quality-history";
+  for (const [index, failed] of [true, false].entries()) {
+    await recordHistory({
+      projectRoot: context.root,
+      directory: historyDirectory,
+      keep: 10,
+      specIds: ["demo-shows-the-status"],
+      entry: {
+        schemaVersion: "1.0.0",
+        runId: `2026-10-0${index + 1}T00-00-00-000Z-abcdef`,
+        createdAt: `2026-10-0${index + 1}T00:00:00.000Z`,
+        counts: {
+          specs: 1,
+          passed: failed ? 0 : 1,
+          failed: failed ? 1 : 0,
+          timedOut: 0,
+          skipped: 0,
+          flaky: 0,
+          aborted: 0,
+        },
+        outcomes: failed ? { "demo-shows-the-status": "failed" } : {},
+      },
+    });
+  }
+  const store = new ArtifactStore({
+    root: context.root,
+    historyRoot: path.join(context.root, historyDirectory),
+  });
   await store.init();
   return { store, logger: silentLogger };
 }
@@ -890,6 +932,98 @@ test.describe("tools", () => {
       errorOf(await dispatch(context, { jsonrpc: "2.0", id: 1, method: "tools/call", params: {} }))
         .code,
     ).toBe(INVALID_PARAMS);
+  });
+
+  test("flaky_tests separates a spec that recovered from one that never did", async () => {
+    const context = await makeHistoryContext();
+    const payload = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "quality_flaky_tests", arguments: {} },
+      }),
+    );
+
+    const structured = payload.structuredContent as {
+      window: number;
+      latestRunId: string;
+      tests: Record<string, unknown>[];
+    };
+    expect(structured.window).toBe(2);
+    expect(structured.latestRunId).toBe("2026-10-02T00-00-00-000Z-abcdef");
+    // Failed in the first run and passed in the second. Its pass leaves no outcome of
+    // its own, so this verdict can only come from the run's composition.
+    expect(structured.tests).toHaveLength(1);
+    expect(structured.tests[0]?.verdict).toBe("flaky");
+    expect(structured.tests[0]?.failedRuns).toBe(1);
+    expect(structured.tests[0]?.runs).toBe(2);
+    expect(JSON.stringify(payload.content)).toContain("flaky");
+  });
+
+  test("get_trend says unknown rather than fitting a line to two runs", async () => {
+    const context = await makeHistoryContext();
+    const payload = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "quality_get_trend", arguments: {} },
+      }),
+    );
+
+    const structured = payload.structuredContent as {
+      direction: string;
+      points: unknown[];
+      distinctFailing: number;
+    };
+    expect(structured.points).toHaveLength(2);
+    expect(structured.direction).toBe("unknown");
+    expect(structured.distinctFailing).toBe(1);
+    expect(JSON.stringify(payload.content)).toContain("fewer than four runs");
+  });
+
+  test("history tools say there is nothing to compare, not that all is well", async () => {
+    // A project that keeps no history: the store has no historyRoot at all.
+    const context = await makeContext();
+
+    const flaky = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "quality_flaky_tests", arguments: {} },
+      }),
+    );
+    expect((flaky.structuredContent as { window: number }).window).toBe(0);
+    expect(JSON.stringify(flaky.content)).toContain("absence of evidence, not an all-clear");
+
+    const trend = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "quality_get_trend", arguments: {} },
+      }),
+    );
+    expect((trend.structuredContent as { points: unknown[] }).points).toEqual([]);
+    expect(JSON.stringify(trend.content)).toContain("no trend");
+  });
+
+  test("history tools are read-only, like every other tool", async () => {
+    const context = await makeContext();
+    const payload = result(
+      await dispatch(context, { jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    );
+
+    const tools = payload.tools as { name: string; annotations: Record<string, unknown> }[];
+    for (const name of ["quality_flaky_tests", "quality_get_trend"]) {
+      const tool = tools.find((entry) => entry.name === name);
+      expect(tool, `missing tool ${name}`).toBeDefined();
+      expect(tool?.annotations.readOnlyHint).toBe(true);
+      expect(tool?.annotations.destructiveHint).toBe(false);
+    }
+    expect(tools.map((entry) => entry.name)).toContain("quality_flaky_tests");
   });
 
   test("there is no write-capable tool", async () => {

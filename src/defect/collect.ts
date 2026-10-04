@@ -42,6 +42,13 @@ import {
   type TestStatus,
   validateDefect,
 } from "./types.js";
+import {
+  HISTORY_SCHEMA_VERSION,
+  recordHistory,
+  rotateHistory,
+  type HistoryEntry,
+  type HistoryOutcome,
+} from "./history.js";
 
 /**
  * An attachment as the JSON reporter writes it.
@@ -554,6 +561,14 @@ export interface CollectOptions {
   testDir: string;
   /** Defect output directory, relative to projectRoot. */
   outputDir: string;
+  /**
+   * Where to keep one compact entry per run, and how many to keep.
+   *
+   * Omitted means history is off and nothing extra is written. Not an error: a
+   * project that has not opted in should not be forced to invent a directory for a
+   * feature it does not use.
+   */
+  history?: { directory: string; keep: number };
   /** Playwright JSON report path, relative to projectRoot. */
   reportPath: string;
   /**
@@ -867,6 +882,20 @@ export async function collectDefects(options: CollectOptions): Promise<{
   defects: DefectV1[];
   summary: RunSummary;
   runDir: string;
+  /**
+   * What history recording did, or `undefined` when history is off.
+   *
+   * Reported rather than thrown on purpose: the caller is a CI step whose artifact
+   * upload is already wired up, and turning a missing convenience index into a red
+   * build would train people to ignore it.
+   */
+  history?: {
+    path: string;
+    removed: string[];
+    removedCompositions: string[];
+    rotationFailed?: string;
+    failed?: string;
+  };
 }> {
   const {
     projectRoot,
@@ -874,6 +903,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     outputDir,
     reportPath,
     referenceErrorContext = false,
+    history,
     tags = [],
     thresholds,
     now = new Date(),
@@ -976,6 +1006,31 @@ export async function collectDefects(options: CollectOptions): Promise<{
     units.map((u) => u.test?.projectName).filter((n): n is string => typeof n === "string"),
   ).size;
 
+  /**
+   * Non-pass outcomes per spec id, for the history entry.
+   *
+   * Absence means "ran and passed", which is what keeps a full run down to a few
+   * lines. `aborted` is a value of its own rather than being folded into `failed`,
+   * because a spec whose suite died never ran at all, and recording that as a
+   * failure would make one outage look like a regression on the next run.
+   */
+  const historyOutcomes: Record<string, HistoryOutcome> = {};
+  /**
+   * Every spec id that ran, in report order — the composition the entry points at.
+   * Without it, "failed in one run of two" and "failed every time it ran" are the
+   * same string, because a pass has no outcome of its own.
+   */
+  const historyIds: string[] = [];
+  let historyResult:
+    | {
+        path: string;
+        removed: string[];
+        removedCompositions: string[];
+        rotationFailed?: string;
+        failed?: string;
+      }
+    | undefined;
+
   // Counted here, read after the loop: Playwright emits the specs that never ran
   // *after* the one that failed, so a failure cannot know about its own skipped
   // siblings while it is still being recorded.
@@ -1013,19 +1068,39 @@ export async function collectDefects(options: CollectOptions): Promise<{
     const lastAttempt = attempts[attempts.length - 1];
     const projectName = pwTest?.projectName;
 
+    // One id per unit, taken before any branch: the composition needs an entry for
+    // every spec that ran, not only for the ones that misbehaved. Identical to the
+    // defect id, including the `?? "untitled"` and the single-project elision — a
+    // history key that did not match the id in the artifact would join two different
+    // identities of the same spec.
+    const historyId = defectIdFrom(
+      pwFile,
+      spec.title ?? "untitled",
+      projectCount > 1 ? projectName : undefined,
+    );
+    historyIds.push(historyId);
+
     if (finalStatus === "passed") {
       passed += 1;
-      if (statuses.some((s) => s !== "passed" && s !== "skipped")) flakySpecs += 1;
+      if (statuses.some((s) => s !== "passed" && s !== "skipped")) {
+        flakySpecs += 1;
+        historyOutcomes[historyId] = "flaky";
+      }
       continue;
     }
     if (finalStatus === "skipped") {
       skipped += 1;
       skippedByFile.set(pwFile, (skippedByFile.get(pwFile) ?? 0) + 1);
+      historyOutcomes[historyId] = "skipped";
       continue;
     }
     if (finalStatus === "timedOut") timedOut += 1;
 
     const { verdict, passed: passedAttempts, failed: failedAttempts } = classifyAttempts(statuses);
+
+    // Entries that turn out to be part of an outage are overwritten with `aborted`
+    // below, once the whole file is known.
+    historyOutcomes[historyId] = finalStatus === "timedOut" ? "timedOut" : "failed";
 
     const retryHistory: RetryEntry[] = attempts.map((attempt, i) => ({
       attempt: attempt.retry ?? i,
@@ -1082,7 +1157,18 @@ export async function collectDefects(options: CollectOptions): Promise<{
   const aborts = findSuiteAborts(abortable);
   for (const abort of aborts.values()) {
     for (const entry of pending) {
-      if (entry.pwFile === abort.file) suppressedSpecs.add(entry.spec);
+      if (entry.pwFile === abort.file) {
+        suppressedSpecs.add(entry.spec);
+        // Never ran, as distinct from ran and failed. Its own outcome, so an outage
+        // does not read as a regression on the next run.
+        historyOutcomes[
+          defectIdFrom(
+            entry.pwFile,
+            entry.spec.title ?? "untitled",
+            projectCount > 1 ? entry.projectName : undefined,
+          )
+        ] = "aborted";
+      }
     }
     aborted += abort.count;
     gateViolations.push(
@@ -1337,5 +1423,51 @@ export async function collectDefects(options: CollectOptions): Promise<{
     "utf8",
   );
 
-  return { defects, summary, runDir };
+  if (history !== undefined) {
+    // After the summary, so a history entry never claims a run whose summary is
+    // missing. Reported rather than thrown: the artifacts are the product, and losing
+    // them because a convenience index could not be appended is the wrong trade.
+    const entry: Omit<HistoryEntry, "composition"> = {
+      schemaVersion: HISTORY_SCHEMA_VERSION,
+      runId,
+      createdAt,
+      ...(origin === undefined ? {} : { baseUrl: origin }),
+      ...(targetSource === undefined ? {} : { targetSource }),
+      counts: summary.counts,
+      ...(runDuration === undefined ? {} : { durationMs: Math.round(runDuration) }),
+      outcomes: historyOutcomes,
+    };
+    // Written first, then rotated. Pruning after the write means this run's own entry
+    // is never the one deleted; pruning before it would drop the run it was called
+    // for as soon as `keep` is one.
+    const recorded = await recordHistory({
+      projectRoot,
+      directory: history.directory,
+      keep: history.keep,
+      specIds: historyIds,
+      entry,
+    });
+    if (recorded.failed !== undefined) {
+      historyResult = { path: "", removed: [], removedCompositions: [], failed: recorded.failed };
+    } else {
+      const rotated = await rotateHistory({
+        projectRoot,
+        directory: history.directory,
+        keep: history.keep,
+      });
+      historyResult = {
+        path: recorded.path,
+        removed: rotated.removed,
+        removedCompositions: rotated.removedCompositions,
+        ...(rotated.failed === undefined ? {} : { rotationFailed: rotated.failed }),
+      };
+    }
+  }
+
+  return {
+    defects,
+    summary,
+    runDir,
+    ...(historyResult === undefined ? {} : { history: historyResult }),
+  };
 }

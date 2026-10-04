@@ -18,5 +18,9 @@
     "writeSummary": true,
     "referenceErrorContext": true
   },
+  "history": {
+    "directory": "quality-history",
+    "keep": 200
+  },
   "tags": ["demo", "smoke"]
 }

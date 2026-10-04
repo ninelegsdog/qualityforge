@@ -177,6 +177,23 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
     requireBoolean(raw.defects.referenceErrorContext, "defects.referenceErrorContext", problems);
   }
 
+  // Optional, and validated when present rather than required. A repository that
+  // has not opted in should not be forced to invent a directory for a feature it
+  // is not using, and a missing key is not a mistake worth an error.
+  if (raw.history !== undefined) {
+    if (!isRecord(raw.history)) {
+      problems.push("history must be an object");
+    } else {
+      requireString(raw.history.directory, "history.directory", problems);
+      requireNumberInRange(raw.history.keep, "history.keep", 1, 100000, problems);
+      // Whole runs only. A fractional keep would silently round, and the directory
+      // would then hold a number nobody chose.
+      if (typeof raw.history.keep === "number" && !Number.isInteger(raw.history.keep)) {
+        problems.push(`history.keep must be a whole number, got ${raw.history.keep}`);
+      }
+    }
+  }
+
   requireStringArray(raw.tags, "tags", problems);
 
   if (problems.length > 0) {

@@ -14,6 +14,7 @@ describes how to use it in the next ten minutes.
 | Node.js           | 22 or newer. Node 20 reached end-of-life in March 2026       |
 | Playwright driver | installed via `npx playwright install`, not a global install |
 | Python 3          | only for `npm run mcp:check*` and `npm run ci:validate`      |
+| Platform          | Linux is verified; Windows and macOS are untested            |
 
 `npm run verify` deliberately needs no Python, so the bulk of the project stays
 usable on a Node-only machine.

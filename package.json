@@ -41,6 +41,7 @@
     "ci:validate": "python3 scripts/validate-ci.py .",
     "docs:check": "python3 scripts/check-links.py .",
     "docs:numbers": "python3 scripts/doc-numbers-check.py .",
+    "board:check": "python3 scripts/board-check.py .",
     "mcp:check": "python3 scripts/mcp-session-check.py .",
     "mcp:check:tools": "python3 scripts/mcp-tools-check.py .",
     "mcp:check:all": "python3 scripts/mcp-check-all.py .",

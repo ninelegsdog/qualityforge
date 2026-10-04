@@ -69,11 +69,16 @@ These change meaning, not just behaviour, so they are not mine to decide:
 
 ## Board
 
-`v0.1.0-alpha` carries five open issues and seven closed. The closed ones are the
-defects this repository found in itself by pointing the suite at an application it
-did not build: #2, #7, #9, #10, #11. Two of them (#9 and #11) were closed only after
-a second pass, because each had shipped broken through a green suite — see the
-closing comments, which say so rather than claiming a first-time fix.
+The closed issues on `v0.1.0-alpha` are the defects this repository found in
+itself by pointing the suite at an application it did not build. Two of them (#9
+and #11) were closed only after a second pass, because each had shipped broken
+through a green suite — see the closing comments, which say so rather than
+claiming a first-time fix.
+
+Run `npm run board:check` for the current state. The counts are deliberately absent
+here: they were correct for an hour, which is the whole problem this section exists
+to describe. It needs a full clone, so it is not in CI, where
+`actions/checkout` fetches depth 1 and every closed issue would read as uncited.
 
 Still open, and the reason each is still open:
 

@@ -41,6 +41,18 @@ segmentation fault under one Node 24.21.0 build, on this machine, reproducibly �
 4 runs in 8 failed on 24 and 0 in 30 on 22. If you use a version manager, run
 `nvm use` before anything else.
 
+**Platforms.** Linux is what CI runs and therefore what is verified. The core is
+written to be platform-neutral — `path.sep` and `path.relative` throughout, no
+POSIX-only calls, and the fixture server uses `node:path` — so Windows and macOS
+should work, and _have not been tested_. Treat them as unverified rather than
+supported. The maintainer checks under `scripts/*.py` need Python 3 and are not
+part of the shipped path; nothing a consumer runs requires them.
+
+**Node 20 is untested, not supported.** The `engines` floor stays permissive on
+purpose so an install is not blocked, but CI runs 22 and 24 only. Nothing has ever
+been executed against 20 here, so the permissive floor is a statement about install
+politeness, not about behaviour.
+
 ```bash
 git clone https://github.com/ninelegsdog/qualityforge.git
 cd qualityforge

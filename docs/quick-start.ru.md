@@ -15,6 +15,7 @@
 | Node.js            | 22 или новее. Node 20 закончился в марте 2026           |
 | Драйвер Playwright | ставится через `npx playwright install`, не глобально   |
 | Python 3           | только для `npm run mcp:check*` и `npm run ci:validate` |
+| Платформа          | Linux проверен; Windows и macOS не проверены            |
 
 `npm run verify` намеренно не требует Python, чтобы основная часть проекта
 оставалась доступна на машине только с Node.

@@ -57,12 +57,33 @@ These change meaning, not just behaviour, so they are not mine to decide:
 
 ## Open, and mine to do
 
-- Close the issues that are fixed but still open: #2, #7, #9, #10, #11.
+- Record which clients implement protocol 2026-07-28, as a table rather than as a
+  connection check. Issue #6. OpenCode connects, but issue #12 found it advertises
+  the _pre_-2026 capability shape, so "it works" and "it implements the revision" are
+  different claims and only the first is established.
 - A base fixture and a worked `BasePage` example. The selector policy is written
   down and lint-guarded against `waitForTimeout()`, but there is no reference page
   object to copy.
 - Lint guards against CSS and XPath selectors, to finish the policy the docs state.
 - More than one entry point proven against a real third-party application.
+
+## Board
+
+`v0.1.0-alpha` carries five open issues and seven closed. The closed ones are the
+defects this repository found in itself by pointing the suite at an application it
+did not build: #2, #7, #9, #10, #11. Two of them (#9 and #11) were closed only after
+a second pass, because each had shipped broken through a green suite — see the
+closing comments, which say so rather than claiming a first-time fix.
+
+Still open, and the reason each is still open:
+
+| Issue | Why it is open                                                               |
+| ----- | ---------------------------------------------------------------------------- |
+| #1    | one third-party application is proven; the issue asks for more than one      |
+| #4    | the distribution decision, which is the owner's                              |
+| #6    | which clients implement 2026-07-28 is unanswered; see above                  |
+| #8    | `baseUrl` reconciliation changes a field's meaning, so it is a contract call |
+| #12   | we advertise the pre-2026 capability shape on the wire                       |
 
 ## Later
 

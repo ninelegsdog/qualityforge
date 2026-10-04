@@ -5,20 +5,36 @@
  * Speaks JSON-RPC 2.0 over stdio. Protocol 2026-07-28, with the 2025-11-25
  * handshake accepted for clients that still send it.
  *
- * Wire it into OpenCode, Kilo or MiMo with the same block, because all three
- * read the same `mcp` shape:
+ * Wired into OpenCode, which is the only client this has ever been connected
+ * with:
  *
  * ```jsonc
  * {
+ *   "$schema": "https://opencode.ai/config.json",
  *   "mcp": {
  *     "qualityforge": {
  *       "enabled": true,
  *       "type": "local",
- *       "command": ["node", "/path/to/qualityforge/dist/mcp/index.js"]
- *     }
- *   }
+ *       "command": [
+ *         "node",
+ *         "/absolute/path/to/qualityforge/node_modules/tsx/dist/cli.mjs",
+ *         "/absolute/path/to/qualityforge/src/mcp/index.ts",
+ *       ],
+ *     },
+ *   },
  * }
  * ```
+ *
+ * The `.ts` entry point and `tsx` are deliberate, and there is no compiled
+ * alternative to point at: `tsconfig.json` sets `noEmit` and the project has no
+ * build step, so `dist/` does not exist. An earlier version of this comment
+ * named `dist/mcp/index.js`, which no install of this repository has ever
+ * produced.
+ *
+ * Kilo and MiMo are **not supported, by decision** — they read a similar `mcp`
+ * shape, but only OpenCode was ever connected, so "all three read the same
+ * shape" was a claim about the format and not about this server working. See
+ * the end of the MCP section in `README.md`.
  *
  * Flags:
  *   --root <dir>   artifacts root to serve (default artifacts/defects)

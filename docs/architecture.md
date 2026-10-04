@@ -98,18 +98,29 @@ Two properties are enforced structurally:
 The entity list is fetched asynchronously on purpose: it forces the tests to use
 auto-retrying assertions rather than a sleep.
 
-## Planned layout
+## Layout
 
 ```
-packages/
-├── core/
-│   └── src/schemas/defect.v1.schema.ts
-└── mcp/
-    └── src/{server.ts,index.ts,tools/,resources/,repositories/}
-artifacts/
-├── quality-summary.v1.json
-└── defects/<ID>.v1.json
+config/project.json          thresholds, baseUrl, artifact root
+fixtures/                    the demo app: html, js, and a dependency-free server
+schemas/defect.v1.schema.json  the published contract
+src/
+├── cli/                      defects:collect
+├── config/                   load and validate config/project.json
+├── defect/                   artifact shape, collector, gate, git and page context
+├── fixtures/                 the Playwright fixtures a test imports
+├── mcp/                      the read-only server
+└── quality/                  signal capture and redaction
+scripts/                      checks that need a real producer, not a mock
+tests/{unit,smoke}/           unit specs, and browser specs against the demo app
+artifacts/defects/<run>/      quality-summary.v1.json and <ID>.v1.json
 ```
+
+An earlier version of this section was titled "Planned layout" and showed a
+`packages/core` + `packages/mcp` monorepo. That structure was never decided —
+it appeared here before the distribution question was ever asked, which made an
+unmade decision look settled. Issue #4 is still open, and the shape above is what
+exists rather than what is intended.
 
 A monorepo split is planned, not yet created. It stays a single package until
 the MCP server genuinely needs its own version line.

@@ -59,6 +59,15 @@ jobs:
       - name: Check documentation links
         run: npm run docs:check
 
+      # The one check that is a claim about prose rather than about code. Nothing
+      # compiles the quick-start and nothing executes it, so "139 specs" survived
+      # through a matrix going from one browser to three and a third-party suite
+      # appearing, with every code check green throughout. This counts what
+      # Playwright collects and compares; `playwright test --list` does it in a few
+      # seconds without a browser.
+      - name: Check documented numbers against the suite
+        run: npm run docs:numbers
+
   # The Node axis, spent where Node-version sensitivity actually lives.
   #
   # The pure-logic tests are the Node-sensitive half of this repository: config

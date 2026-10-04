@@ -39,10 +39,26 @@ npm test
 ```
 
 This starts the bundled demo app in `fixtures/` on `http://127.0.0.1:4311`,
-runs 139 specs and shuts the server down again. A clean clone is green with no
-configuration and no third-party network access.
+runs every spec in all four projects and shuts the server down again. A clean
+clone is green with no configuration and no third-party network access.
 
-Expect two skips. They are deliberate: see step 3.
+| Count                                       | Number |
+| ------------------------------------------- | ------ |
+| Specs, all four projects                    | 327    |
+| Skipped without any configuration           | 36     |
+| — of those, `evidence-pipeline.spec.ts`     | 6      |
+| — of those, `quotes-toscrape.smoke.spec.ts` | 30     |
+
+Those skips are deliberate and all of them are described below: the evidence
+pipeline fails on purpose, and the third-party suite needs an application this
+repository did not build. The remaining 291 run.
+
+Every number in that table is checked against the suite by
+`npm run docs:numbers`, which counts what Playwright actually collects rather
+than trusting this file. An earlier version of this paragraph said "139 specs"
+and "expect two skips" — both were true when the matrix was one browser and the
+third-party suite did not exist, and neither was noticed, because a green suite
+says nothing about whether the documentation describes it.
 
 Look at the report:
 

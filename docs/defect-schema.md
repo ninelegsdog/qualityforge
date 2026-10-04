@@ -249,7 +249,7 @@ moved.
 ```jsonc
 {
   "$schema": "https://qualityforge.dev/schemas/defect.v1.schema.json",
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.2.0",
   "id": "form-validation-smoke-shows-an-error-when-email-is-empty",
   "runId": "2026-10-03T00-43-13-217Z-443909",
   "createdAt": "2026-10-03T00:43:13.217Z",

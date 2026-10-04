@@ -324,8 +324,8 @@ npm run mcp:check:all       # drive the server over real stdio and check it
 npm run verify              # lint + typecheck + format check (what CI runs first)
 ```
 
-`mcp:check*`, `defects:check` and `ci:validate` need Python 3. They are separate
-scripts because `verify` must stay runnable with only Node installed.
+`mcp:check*`, `defects:check`, `docs:numbers` and `ci:validate` need Python 3. They
+are separate scripts because `verify` must stay runnable with only Node installed.
 
 `defects:check` is the one check here that could not be written as a unit test,
 because two of its rules are claims about what Playwright writes and both were

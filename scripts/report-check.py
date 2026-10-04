@@ -141,6 +141,24 @@ def playwright_rows(report: pathlib.Path) -> list[dict]:
     return rows
 
 
+def history_directory() -> pathlib.Path:
+    """Where the project's own config says run history lives."""
+    config = ROOT / "config" / "project.json"
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ROOT / "quality-history"
+    history = data.get("history", {}) if isinstance(data, dict) else {}
+    return ROOT / str(history.get("directory", "quality-history"))
+
+
+def history_snapshot(directory: pathlib.Path) -> set[str]:
+    """Every history file present, relative to its directory."""
+    if not directory.exists():
+        return set()
+    return {str(path.relative_to(directory)) for path in directory.rglob("*.json")}
+
+
 def main() -> int:
     problems: list[str] = []
     for path, what in ((CLI, "cli.js"), (LOADER, "tsx loader"), (COLLECT, "collector")):
@@ -223,6 +241,14 @@ def main() -> int:
             f"expected exactly one failed spec in genuine.spec.ts, saw {len(genuine_failed)}"
         )
 
+    # The collector records every run in the committed history. This is not a run
+    # of the project: it is a scratch suite of five specs with two deliberate
+    # failures, and a record of it would make the repository claim a run that
+    # never happened. `--no-history` keeps it out; the snapshot is what notices
+    # if that flag ever stops being passed.
+    history_dir = history_directory()
+    history_before = history_snapshot(history_dir)
+
     out = scratch / "out"
     collect = subprocess.run(
         [
@@ -234,12 +260,21 @@ def main() -> int:
             str(report),
             "--out",
             str(out),
+            "--no-history",
         ],
         cwd=ROOT,
         capture_output=True,
         text=True,
         timeout=600,
     )
+
+    written = sorted(history_snapshot(history_dir) - history_before)
+    if written:
+        problems.append(
+            "the collector wrote to the committed run history "
+            f"({', '.join(written)}) - this check must pass --no-history, its "
+            "scratch suite is not a run of this project"
+        )
 
     summaries = sorted(out.glob("*/quality-summary.v1.json"))
     if not summaries:

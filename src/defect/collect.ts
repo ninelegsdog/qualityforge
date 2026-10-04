@@ -579,17 +579,49 @@ export interface AbortableFailure {
   message: string;
   /** The runner's source location for the error, when it reported one. */
   errorLocation?: { file?: string; line?: number; column?: number };
+  /**
+   * True when the error was raised above this spec's own declaration, which a
+   * test body cannot do.
+   */
+  raisedAboveDeclaration?: boolean;
+  /**
+   * How many specs in the same file were skipped rather than run.
+   *
+   * This is what separates a suite that aborted from a suite where one test
+   * failed for its own reason. Verified against real Playwright output: a
+   * `beforeAll` throw produces one `failed` and then `skipped` for the rest of
+   * the file, while a genuine assertion failure leaves the siblings `passed`.
+   * Location alone is not enough - a helper defined above the test and called
+   * from its body raises the same way, so requiring both keeps a real defect
+   * from being silently dropped.
+   */
+  skippedInFile?: number;
 }
 
-/** A file whose specs all failed on one raise site. */
+/** A file whose specs did not run, and why that is one fact rather than many. */
 export interface SuiteAbort {
   file: string;
-  /** How many specs never ran. */
+  /** How many failures are written off as this one outage. */
   count: number;
   /** The message every one of them carries. */
   message: string;
   /** `file:line:column` the error was raised at. */
   site: string;
+  /**
+   * Which of the two shapes produced it.
+   *
+   * They look nothing alike in a report and the gate message has to describe
+   * the real one, or it explains a five-failure outage using words that fit a
+   * single one.
+   *
+   * - `repeated` - several specs failed on one identical error, which is what a
+   *   serial-mode runner produces when a shared fixture dies.
+   * - `hook` - one spec failed above its own declaration and the rest of the
+   *   file was skipped, which is what Playwright actually produces for a
+   *   `beforeAll` throw. Measured, not assumed: the first spec is `failed` and
+   *   every later one is `skipped`, never `failed`.
+   */
+  shape: "repeated" | "hook";
 }
 
 /**
@@ -681,17 +713,45 @@ export function findSuiteAborts(failures: AbortableFailure[]): Map<string, Suite
 
   const aborts = new Map<string, SuiteAbort>();
   for (const [file, list] of byFile) {
-    if (list.length < 2) continue;
     const sites = list.map((failure) => raiseSite(failure.errorLocation));
+    // No raise site means no site to explain it by, and a guess is worse than
+    // writing a defect we can defend.
     if (sites.some((site) => site === undefined)) continue;
     const site = sites[0];
     if (site === undefined) continue;
-    if (sites.some((other) => other !== site)) continue;
+
     // The message is part of the identity of the failure, not decoration. One
     // raise site producing four different messages is four facts, not one outage.
     const message = list[0]?.message ?? "";
-    if (list.some((failure) => failure.message !== message)) continue;
-    aborts.set(file, { file, count: list.length, message, site });
+    const oneMessage = list.every((failure) => failure.message === message);
+
+    // Shape `repeated`: one raise site, one message, several failures.
+    if (list.length >= 2 && sites.every((other) => other === site) && oneMessage) {
+      aborts.set(file, { file, count: list.length, message, site, shape: "repeated" });
+      continue;
+    }
+
+    // Shape `hook`: a single failure, raised above the spec's own declaration,
+    // with the rest of the file never having run.
+    //
+    // This is the shape Playwright really emits for a `beforeAll` throw, and the
+    // one that matters: the original rule needed two or more failures and so
+    // never fired on it, leaving one artifact per unreachable target - the exact
+    // outcome this detector exists to prevent. Its unit coverage was green
+    // throughout, because it was fed a synthetic report of four failures rather
+    // than a real one.
+    //
+    // Both signals are required. Location alone would also catch a helper
+    // defined above the test and called from its body, and suppressing a real
+    // defect is the worse error to make.
+    const only = list.length === 1 ? list[0] : undefined;
+    if (
+      only !== undefined &&
+      only.raisedAboveDeclaration === true &&
+      (only.skippedInFile ?? 0) > 0
+    ) {
+      aborts.set(file, { file, count: 1, message, site, shape: "hook" });
+    }
   }
   return aborts;
 }
@@ -838,6 +898,11 @@ export async function collectDefects(options: CollectOptions): Promise<{
     units.map((u) => u.test?.projectName).filter((n): n is string => typeof n === "string"),
   ).size;
 
+  // Counted here, read after the loop: Playwright emits the specs that never ran
+  // *after* the one that failed, so a failure cannot know about its own skipped
+  // siblings while it is still being recorded.
+  const skippedByFile = new Map<string, number>();
+
   for (const { spec, test: pwTest } of units) {
     specs += 1;
 
@@ -863,6 +928,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     }
     if (finalStatus === "skipped") {
       skipped += 1;
+      skippedByFile.set(pwFile, (skippedByFile.get(pwFile) ?? 0) + 1);
       continue;
     }
     if (finalStatus === "timedOut") timedOut += 1;
@@ -897,13 +963,27 @@ export async function collectDefects(options: CollectOptions): Promise<{
       retryHistory,
     });
 
+    const raisedAbove =
+      attributionFor({
+        ...(error.location === undefined ? {} : { errorLocation: error.location }),
+        specLine: spec.line,
+        absoluteTestFile,
+        projectRoot,
+      }) === "suite";
+
     abortable.push({
       file: pwFile,
       message,
       ...(error.location === undefined ? {} : { errorLocation: error.location }),
+      ...(raisedAbove ? { raisedAboveDeclaration: true } : {}),
     });
 
     continue;
+  }
+
+  for (const failure of abortable) {
+    const siblings = skippedByFile.get(failure.file) ?? 0;
+    if (siblings > 0) failure.skippedInFile = siblings;
   }
 
   // The decision that needs every spec at once, taken before anything is written.
@@ -914,11 +994,17 @@ export async function collectDefects(options: CollectOptions): Promise<{
     }
     aborted += abort.count;
     gateViolations.push(
-      `${abort.count} spec(s) in ${abort.file} never ran: every one failed on the same ` +
-        `error raised at ${abort.site}, outside the test bodies.\n` +
-        `    This is a suite or environment failure, not ${abort.count} defects, so no ` +
-        `artifact was written for them.\n` +
-        `    message: ${abort.message.split("\n")[0] ?? ""}`,
+      abort.shape === "hook"
+        ? `1 spec in ${abort.file} failed on a hook, not on its own body: the error was ` +
+            `raised at ${abort.site}, above the spec's declaration, and the rest of the file ` +
+            `was skipped rather than run.\n` +
+            `    This is a suite or environment failure, not a defect, so no artifact was ` +
+            `written for it.\n`
+        : `${abort.count} spec(s) in ${abort.file} never ran: every one failed on the same ` +
+            `error raised at ${abort.site}, outside the test bodies.\n` +
+            `    This is a suite or environment failure, not ${abort.count} defects, so no ` +
+            `artifact was written for them.\n` +
+            `    message: ${abort.message.split("\n")[0] ?? ""}`,
     );
   }
 

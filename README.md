@@ -318,13 +318,24 @@ npm run test:debug          # Playwright Inspector, step through a test
 npm run report              # open the HTML report
 npm run report:clean        # remove generated output
 npm run defects:collect     # build defect artifacts from the last run
+npm run defects:check       # prove the suite-abort rule on a real Playwright report
 npm run mcp                 # start the read-only MCP server on stdio
 npm run mcp:check:all       # drive the server over real stdio and check it
 npm run verify              # lint + typecheck + format check (what CI runs first)
 ```
 
-`mcp:check*` and `ci:validate` need Python 3. They are separate scripts because
-`verify` must stay runnable with only Node installed.
+`mcp:check*`, `defects:check` and `ci:validate` need Python 3. They are separate
+scripts because `verify` must stay runnable with only Node installed.
+
+`defects:check` is the one check here that could not be written as a unit test. The
+collector treats an unreachable target as one outage rather than a defect per test,
+and that rule depends on the shape Playwright actually writes: a `beforeAll` throw
+marks the first spec `failed` and every later one `skipped`, not all of them failed.
+It shipped broken once because its tests were fed a hand-written report of four
+identical failures, which the real runner never produces. So this one runs a real
+Playwright in a scratch directory — no browser, no network — and asserts both
+halves: a dead `beforeAll` writes no artifact and is named in the gate, while a
+test that fails on its own assertion still writes exactly one.
 
 Both MCP checks produce their own evidence to check against: each runs the
 deliberately failing `tests/smoke/evidence-pipeline.spec.ts` and collects the real

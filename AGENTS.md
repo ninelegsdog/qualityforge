@@ -57,6 +57,16 @@ for the result of `verify`. CI caught it, because CI reads the exit code.
 Being inside your zone does not make it true either, and neither does six green
 jobs. Those describe the tree you committed, not whether your report is accurate.
 
+**A green test cannot validate your assumption about someone else's output.** If
+a test asserts against a hand-written fixture, it agrees with whatever shape you
+believed in — it is your belief, with a green tick on it. This is not abstract
+here: the suite-abort rule shipped broken through a fully green suite, because its
+tests were fed a report where every spec failed on one error while real Playwright
+marks the first `failed` and the rest `skipped`. Nothing failed, because nothing in
+the suite could fail. When a rule depends on the shape of a report, a protocol
+frame or a runner's verdict, run the real producer and assert on what it emits;
+`npm run defects:check` exists for exactly that and is the pattern to copy.
+
 ## The rule: nothing is done until it has run in the real environment
 
 **A check is not finished until it has been executed where it will actually

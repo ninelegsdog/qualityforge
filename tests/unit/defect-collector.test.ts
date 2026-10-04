@@ -1582,13 +1582,12 @@ test.describe("an outage is not four defects", () => {
   } as const;
 
   /**
-   * A report shaped like the one a real `beforeAll` failure produces.
+   * Several specs carrying one identical error — the shape a serial-mode runner
+   * produces when a shared fixture dies and every test runs it.
    *
-   * Every spec in the file carries the same message and the same error location,
-   * because there was one `throw` and it ran four times. This is the exact shape
-   * captured from a live run against a dead port, including the fact that the
-   * report carries no `stage` field at all — verified against the 1.63.0
-   * reporter source, which serialises `result.error` straight through.
+   * This is **not** the shape Playwright produces for a `beforeAll` throw, which
+   * is one failure followed by skips. See `hookReport` below for the real one,
+   * and for why mistaking the two is what let a shipped bug through a green suite.
    */
   function outageReport(
     root: string,
@@ -1699,11 +1698,143 @@ test.describe("an outage is not four defects", () => {
     expect(summary.counts.aborted).toBe(2);
   });
 
-  test("one spec alone proves nothing and is still recorded", async () => {
-    // A single failure is a defect even when the error came from a shared helper.
-    // Requiring two is what stops this rule eating real bugs.
+  test("one spec alone, with its siblings still running, is a defect", async () => {
+    // A single failure is a defect when nothing proves the file was aborted.
+    // This is the guard that stops the hook rule eating real bugs: a helper
+    // defined above the test and called from its body raises at a line above the
+    // declaration too, and the only thing separating it from a dead `beforeAll`
+    // is that its siblings ran.
     const root = await scaffold((sandbox) => ({
       "artifacts/json/playwright-results.json": outageReport(sandbox, 1),
+    }));
+
+    const { defects, summary } = await collect(root);
+
+    expect(defects).toHaveLength(1);
+    expect(summary.counts.aborted).toBe(0);
+  });
+
+  /**
+   * The report a real `beforeAll` failure produces, recorded from a live run.
+   *
+   * Every detail here was measured, and each one contradicts the obvious guess:
+   *
+   * - Playwright marks the **first** spec `failed` and every later spec in the
+   *   file `skipped`. It does not repeat the hook's error across them, so a rule
+   *   looking for repeated identical failures has nothing to match, and one
+   *   unreachable target produced exactly one defect artifact instead of none.
+   * - The error's location is the `throw` inside the hook, which sits *above* the
+   *   declaration of the spec reported as failed.
+   * - There is no `stage` field, so nothing in the report names the phase.
+   *
+   * The siblings being skipped is what tells this apart from a real failure. That
+   * was measured too, and it is the load-bearing half: with one test failing on its
+   * own assertion, the next test in the same file reports `passed`.
+   */
+  function hookReport(root: string, siblings: number): string {
+    const specFile = path.join(root, "tests/smoke/demo.spec.ts");
+    const failed = {
+      id: "spec-0",
+      title: "probe 1",
+      file: "smoke/demo.spec.ts",
+      line: 20,
+      column: 1,
+      tests: [
+        {
+          projectName: "chromium",
+          expectedStatus: "passed",
+          results: [
+            {
+              status: "failed",
+              retry: 0,
+              duration: 3,
+              startTime: "2026-10-03T00:00:00.000Z",
+              attachments: [],
+              error: {
+                message: "Error: the target is unreachable, so this suite did not run",
+                location: { file: specFile, line: 13, column: 11 },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const skipped = Array.from({ length: siblings }, (_unused, i) => ({
+      id: `spec-${i + 1}`,
+      title: `probe ${i + 2}`,
+      file: "smoke/demo.spec.ts",
+      line: 20 + i,
+      column: 1,
+      tests: [
+        {
+          projectName: "chromium",
+          expectedStatus: "passed",
+          results: [
+            {
+              status: "skipped",
+              retry: 0,
+              duration: 0,
+              startTime: "2026-10-03T00:00:00.000Z",
+              attachments: [],
+            },
+          ],
+        },
+      ],
+    }));
+    return JSON.stringify({
+      config: { rootDir: root },
+      stats: { startTime: "2026-10-03T00:00:00.000Z", duration: 30 },
+      suites: [
+        {
+          title: "tests/smoke/demo.spec.ts",
+          file: "smoke/demo.spec.ts",
+          specs: [failed, ...skipped],
+        },
+      ],
+    });
+  }
+
+  test("a beforeAll that throws produces no artifact, which is the shape that shipped broken", async () => {
+    // The regression. The rule this exercises needed two or more identical
+    // failures, and a real `beforeAll` throw never produces two, so the rule
+    // could not fire on the case it was written for. Its own unit tests stayed
+    // green because they were fed a synthetic report of four failures - a
+    // plausible guess that the real runner never produces.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": hookReport(sandbox, 1),
+    }));
+
+    const { defects, summary, runDir } = await collect(root);
+
+    expect(defects).toHaveLength(0);
+    // One failure written off, and counted as an abort rather than a defect.
+    expect(summary.counts.aborted).toBe(1);
+    expect(summary.counts.failed).toBe(0);
+    // The sibling was skipped, so it is not a failure either.
+    expect(summary.counts.skipped).toBe(1);
+    expect(await readdir(runDir)).toEqual(["quality-summary.v1.json"]);
+  });
+
+  test("the hook's own wording names the hook, not a repeated failure", async () => {
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": hookReport(sandbox, 1),
+    }));
+
+    const { summary } = await collect(root);
+
+    expect(summary.gate.passed).toBe(false);
+    const violation = summary.gate.violations.join("\n");
+    expect(violation).toContain("failed on a hook");
+    expect(violation).toContain("smoke/demo.spec.ts");
+    // The diagnosis a reader needs: which file, and where the throw was.
+    expect(violation).toContain("13");
+  });
+
+  test("a lone failure above the declaration is suppressed only when siblings were skipped", async () => {
+    // Both halves are required. Drop the location and a genuine outage writes
+    // artifacts again; drop the skipped siblings and a real defect disappears.
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": hookReport(sandbox, 0),
     }));
 
     const { defects, summary } = await collect(root);

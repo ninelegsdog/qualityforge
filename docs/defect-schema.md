@@ -123,6 +123,36 @@ Rules a consumer can rely on:
   `Authorization: Bearer [redacted]` into `Authorization: [redacted] [redacted]`
   destroys the diagnostic value while protecting nothing extra.
 
+### Every signal carries the host it came from
+
+`origin` on `consoleErrors`, `consoleWarnings`, `requestFailures` and `httpErrors` is
+the URL `host` of the entry — which includes the port, so a failure on the
+application's own port and one on a different port on the same machine are
+separable.
+
+It exists because a third party's failure and the application's own are otherwise
+identical. Measured against a real site: one blocked Google font produced
+
+```
+page.url   https://quotes.toscrape.com/
+consoleErrors    origin=fonts.gstatic.com      url=https://fonts.gstatic.com/s/raleway/...
+requestFailures  origin=fonts.gstatic.com      url=https://fonts.gstatic.com/s/raleway/...
+```
+
+and in the same run a 404 produced `origin=quotes.toscrape.com`. Without `origin`
+those two read as one undifferentiated pile of network noise.
+
+**It is a fact, not a verdict.** Nothing here decides whether an origin is "ours";
+that judgement is left to the reader, against `page.url` — which is ground truth in
+a way `context.baseUrl` is not, for the reason described above. Encoding the
+comparison in the collector would bake in a decision it is not positioned to make
+correctly.
+
+**`pageErrors` is never attributed.** Those entries are the error message as a
+plain string, with no location, so there is no host to report. The field is absent
+rather than guessed, and this paragraph is here so that absence does not read as
+an oversight.
+
 ### Signals are not comparable across browsers
 
 Measured on one broken third-party font, against `quotes.toscrape.com`:

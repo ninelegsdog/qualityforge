@@ -170,12 +170,16 @@ export interface DefectContext {
 export interface ConsoleEntry {
   type: string;
   text: string;
+  /** Host the entry came from; absent when no usable URL was available. */
+  origin?: string;
   location?: { url: string; line: number; column: number };
 }
 
 export interface RequestFailureEntry {
   method: string;
   url: string;
+  /** Host the failure came from. */
+  origin?: string;
   resourceType?: string;
   failure?: string | null;
 }
@@ -183,6 +187,8 @@ export interface RequestFailureEntry {
 export interface HttpErrorEntry {
   method: string;
   url: string;
+  /** Host the response came from. */
+  origin?: string;
   status: number;
   statusText?: string;
 }

@@ -301,6 +301,10 @@
               "text": {
                 "type": "string"
               },
+              "origin": {
+                "type": "string",
+                "description": "Host the entry came from, as URL.host gives it - which includes the port, so a failure on the application's own port and one on a different port are separable. Recorded so a third party's failure is distinguishable from the application's own. A fact, not a verdict: compare it against page.url, which is ground truth in a way context.baseUrl is not. Absent when the entry carried no usable URL, which is always the case for pageErrors."
+              },
               "location": {
                 "type": "object",
                 "additionalProperties": false,
@@ -332,6 +336,10 @@
               },
               "text": {
                 "type": "string"
+              },
+              "origin": {
+                "type": "string",
+                "description": "Host the entry came from, as URL.host gives it - which includes the port, so a failure on the application's own port and one on a different port are separable. Recorded so a third party's failure is distinguishable from the application's own. A fact, not a verdict: compare it against page.url, which is ground truth in a way context.baseUrl is not. Absent when the entry carried no usable URL, which is always the case for pageErrors."
               }
             }
           }
@@ -356,6 +364,10 @@
               "url": {
                 "type": "string"
               },
+              "origin": {
+                "type": "string",
+                "description": "Host the entry came from, as URL.host gives it - which includes the port, so a failure on the application's own port and one on a different port are separable. Recorded so a third party's failure is distinguishable from the application's own. A fact, not a verdict: compare it against page.url, which is ground truth in a way context.baseUrl is not. Absent when the entry carried no usable URL, which is always the case for pageErrors."
+              },
               "resourceType": {
                 "type": "string"
               },
@@ -377,6 +389,10 @@
               },
               "url": {
                 "type": "string"
+              },
+              "origin": {
+                "type": "string",
+                "description": "Host the entry came from, as URL.host gives it - which includes the port, so a failure on the application's own port and one on a different port are separable. Recorded so a third party's failure is distinguishable from the application's own. A fact, not a verdict: compare it against page.url, which is ground truth in a way context.baseUrl is not. Absent when the entry carried no usable URL, which is always the case for pageErrors."
               },
               "status": {
                 "type": "integer",

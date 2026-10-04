@@ -1,85 +1,80 @@
 # Roadmap
 
-Status: early alpha, pre-release. Dates below are targets, not commitments.
+Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.2.0** and is
+published; nothing here has a release tag yet, so there is nothing to pin.
 
-## Where this is going
+This file was rewritten on 2026-10-04 because it had drifted: it still listed the
+repository, the licence and the community files as unbuilt, and Phases 2 and 3 as
+untouched, all of which had been done for days. A roadmap that understates what
+exists is not neutral — it costs a reader the time to find out, and it makes the
+work that _is_ outstanding invisible.
 
-The short version: a reusable browser-quality core that produces **normalized,
-vendor-neutral evidence**, plus a **read-only** surface that lets any AI agent
-read that evidence without being able to act on the system.
+## What exists today
 
-## Phase 0 — Foundation (this sprint)
+- **Evidence pipeline.** Trace on first retry, screenshot and video on failure, in
+  Chromium, Firefox and WebKit. A run that fails still publishes its artifacts.
+- **`defect.v1` at 1.2.0** — schema, producer and documentation, including the
+  measured table of how the three engines disagree on identical faults.
+- **Collector and quality gate.** Splits by spec × project so one test across
+  three engines is three artifacts rather than three retries of one; refuses
+  duplicate ids; records the page and the application under test; treats an
+  aborted suite as one outage instead of a defect per test.
+- **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
+  confinement. Three tools, resources, a `triage_failure` prompt. Verified against
+  OpenCode v2.0.16; Kilo and MiMo are out of scope by decision.
+- **CI on six legs**: lint and typecheck, unit tests on Node 22 and 24, the suite
+  on three browsers. Checks that cannot be written as unit tests run there too —
+  three MCP checks and one that drives a real Playwright to verify two rules about
+  the shape of its report.
 
-- [x] Repository, license, README, contributor and security policy
-- [x] Playwright 1.63.0 with Chromium
-- [x] Evidence policy: trace on-first-retry, screenshot and video on failure
-- [x] Reporters: HTML locally; GitHub + HTML + JUnit on CI
-- [x] Zero-dependency fixture server so a clean clone runs green
-- [x] CI publishing artifacts even when the run fails
-- [ ] Public repository, labels, `v0.1.0-alpha` milestone
-- [ ] CONTRIBUTING, SECURITY, CODE_OF_CONDUCT
+## Not done, and why it is not done
 
-## Phase 1 — Stable tests and evidence
+**Distribution.** No build step (`tsconfig.json` sets `noEmit`), and no `bin`,
+`exports` or `files` in `package.json`. Consuming this means cloning it and
+pointing a client at a `.ts` file through `tsx`. The floor in `engines` is
+deliberately permissive for the same reason. Issue #4 tracks the decision.
 
-- Base fixture (`base.fixture.ts`) and a reference `BasePage`
-- Login page object as the worked example
-- Selector policy: prefer role, label and test id; document the `data-testid` contract
-- Lint guard against `page.waitForTimeout()` (already in place) and against CSS/XPath selectors
-- Secret redaction in textual reports
-- A deliberately failing test, to prove the trace/screenshot/video pipeline works
-- `npm run test:smoke` / `test:debug` / `report` wired into docs
+**Run history.** The server answers for one run — `quality_get_latest_run` — and
+there is no store of previous runs, so "is this a regression or has it always been
+this way?" has no answer. This is the largest functional gap and the reason the
+project does not yet deliver the thing it is for.
 
-Exit criterion: every failure leaves a trace that can be opened and understood
-without re-running the test.
+**A live client in CI.** OpenCode was connected by hand, once. That is a single
+unautomated point of trust, and it is documented rather than verified.
 
-## Phase 2 — Defect intelligence
+**A release.** No tag, no milestone issues closed against one. `0.1.0-alpha.0` in
+`package.json` is a placeholder, not a distribution.
 
-- `defect.v1` JSON Schema, versioned and documented
-- Collector that turns runner output plus artifacts into one defect file
-- `quality-summary.v1.json` per run
-- Quality metrics: pass rate, duration trend, flake rate per test
-- History storage so regressions are visible across runs
+## Open, and waiting on the owner
 
-Exit criterion: a defect file can be read by a human or an agent and be enough
-to start triage.
+These change meaning, not just behaviour, so they are not mine to decide:
 
-## Phase 3 — Read-only MCP server
+- Reconciling `context.baseUrl` against `page.url`. `baseUrl` is wrong in a
+  third-party run; `page.url` is ground truth and is now recorded, but the
+  reconciliation is a contract question. Issue #8.
+- The vocabulary for `failure.attribution`. It is `suite | unknown` today, and the
+  richer version needs information no collector has.
 
-- `@qualityforge/mcp`, stdio, read-only
-- Tools: `quality_get_latest_run`, `quality_list_failures`, `quality_get_defect`
-- Resources for the latest run and for individual defects
-- Prompt: evidence-first triage (list facts, then at most three hypotheses with
-  confidence and safe verification steps)
-- Path confinement to a configured artifacts root
-- Protocol 2026-07-28 compliance: `server/discover`, `resultType`,
-  `ttlMs`/`cacheScope`, stderr-only logging
+## Open, and mine to do
 
-Exit criterion: an agent reads real failure data through MCP and produces a
-triage **without** any manual copy-paste of logs.
+- Close the issues that are fixed but still open: #2, #7, #9, #10, #11.
+- A base fixture and a worked `BasePage` example. The selector policy is written
+  down and lint-guarded against `waitForTimeout()`, but there is no reference page
+  object to copy.
+- Lint guards against CSS and XPath selectors, to finish the policy the docs state.
+- More than one entry point proven against a real third-party application.
 
-## Phase 4 — Widening quality coverage
+## Later
 
-- Accessibility checks (axe-core based)
-- Visual regression
-- Performance budgets
-- API and network assertions; failed request and console error capture
-- Cross-project configuration so one policy applies to many repositories
+Only after the above:
 
-## Phase 5 — Controlled write access
-
-Only after the read-only surface is stable:
-
-- `quality_run_test`, `quality_run_smoke`, `quality_validate_fix`
-- Audit log of every invocation
-- Sandboxed execution
-- Issue drafting without auto-publish
+- Accessibility checks, visual regression, performance budgets, API assertions.
+- Cross-project configuration, so one policy applies to many repositories.
+- Write access, and only behind the read-only surface being stable: run a test,
+  validate a fix, draft an issue — sandboxed and audit-logged, never auto-published.
 
 ## Out of scope
 
-- Replacing Playwright, Lighthouse, axe-core, Sentry or Grafana.
+- Replacing Playwright, axe-core, Lighthouse, Sentry or Grafana.
 - An autonomous agent that writes, merges and deploys code.
-
-## Related
-
-- [`architecture.md`](architecture.md)
-- [`../CHANGELOG.md`](../CHANGELOG.md)
+- Clients other than OpenCode, by decision rather than by omission.

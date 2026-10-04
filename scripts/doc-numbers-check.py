@@ -139,6 +139,39 @@ def main() -> int:
             f"to {matched_total}"
         )
 
+    # The Russian quick-start states the same number in prose, and until now
+    # nothing read it: it still promised 139 specs while the suite collected
+    # 353. A second document that says a number this script checks is only
+    # trustworthy when the script checks that one too.
+    ru = ROOT / "docs" / "quick-start.ru.md"
+    if ru.exists():
+        ru_text = ru.read_text(encoding="utf-8")
+        ru_match = re.search(r"прогоняет\s+(\d+)\s+спек", ru_text)
+        if ru_match is None:
+            problems.append(
+                "quick-start.ru has no `прогоняет <N> спек...` sentence, so its "
+                "count is not checked — put the number back in that shape"
+            )
+        elif int(ru_match.group(1)) != total:
+            problems.append(
+                f"quick-start.ru says {ru_match.group(1)} specs, the suite collects {total}"
+            )
+
+        # The skip count is not derivable from `test --list`, which lists skipped
+        # tests without saying so. What is checkable is that the two documents
+        # agree, and the English number is the one compared against the suite.
+        ru_skip = re.search(r"(\d+)\s+пропущенн", ru_text)
+        if ru_skip is None:
+            problems.append(
+                "quick-start.ru has no `<N> пропущенн...` sentence, so its skip "
+                "count is not checked"
+            )
+        elif skip_match is not None and int(ru_skip.group(1)) != int(skip_match.group(1)):
+            problems.append(
+                f"quick-start.ru says {ru_skip.group(1)} skipped, quick-start says "
+                f"{skip_match.group(1)}"
+            )
+
     if problems:
         print(f"\nFAIL: {len(problems)} problem(s)")
         for problem in problems:

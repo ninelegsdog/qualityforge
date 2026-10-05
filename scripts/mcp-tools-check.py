@@ -249,6 +249,46 @@ def main() -> int:
         problems.append("get_latest_run returned no runId")
     print(f"latest run: {s1.get('runId')}  gate={(s1.get('gate') or {}).get('passed')}")
 
+    # The window verdict must survive the wire, not only exist in the collector.
+    # The seeded run is collected with --no-history and fails on purpose, so its
+    # summary can only answer `unknown` — which is the value worth pinning: a
+    # producer that guessed, or a tool that dropped the block on the way out, would
+    # say something else, and a client would never see the difference.
+    flakiness = s1.get("flakiness")
+    if not isinstance(flakiness, dict):
+        problems.append(
+            f"get_latest_run carries no flakiness block (structuredContent keys: "
+            f"{sorted(s1)}) - the summary's window verdict never reached the client"
+        )
+    else:
+        print(f"flakiness: {json.dumps(flakiness, sort_keys=True)}")
+        if flakiness.get("window") != 0:
+            problems.append(
+                f"flakiness.window={flakiness.get('window')!r}, expected 0 "
+                "(the seeded run was collected with --no-history)"
+            )
+        if flakiness.get("verdict") != "unknown":
+            problems.append(
+                f"flakiness.verdict={flakiness.get('verdict')!r}, expected 'unknown' - "
+                "a failing run with no history must not be guessed"
+            )
+        if flakiness.get("direction") != "unknown":
+            problems.append(
+                f"flakiness.direction={flakiness.get('direction')!r}, expected 'unknown'"
+            )
+        counts = flakiness.get("counts")
+        if not isinstance(counts, dict) or sorted(counts) != [
+            "failing",
+            "flaky",
+            "new",
+            "regression",
+        ]:
+            problems.append(
+                f"flakiness.counts is "
+                f"{sorted(counts) if isinstance(counts, dict) else counts!r}, "
+                "expected the four buckets"
+            )
+
     s2 = (frames.get(2, {}).get("result", {}) or {}).get("structuredContent") or {}
     defects = s2.get("defects") or []
     print(f"listed failures: {s2.get('total')}")

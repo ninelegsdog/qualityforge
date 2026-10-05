@@ -49,8 +49,9 @@ export const TOOLS: ToolDefinition[] = [
     title: "Get the latest quality run",
     description:
       "Return the most recent run's summary: pass and fail counts, duration, " +
-      "whether the configured quality gate passed, and the defect files it produced. " +
-      "Start here. Read-only.",
+      "whether the configured quality gate passed, the defect files it produced, " +
+      "and what earlier runs say about this run's failures — flaky, always " +
+      "failing, or a new regression. Start here. Read-only.",
     inputSchema: NO_PROPERTIES,
     outputSchema: {
       type: "object",
@@ -60,6 +61,7 @@ export const TOOLS: ToolDefinition[] = [
         counts: { type: "object" },
         gate: { type: "object" },
         defectCount: { type: "number" },
+        flakiness: { type: "object" },
       },
       required: ["runId", "counts", "gate"],
       additionalProperties: true,
@@ -310,6 +312,13 @@ async function getLatestRun(store: ArtifactStore): Promise<ToolCallResult> {
     gate,
     durationMs: num(summary, "durationMs"),
     defectCount: Array.isArray(summary.defects) ? summary.defects.length : 0,
+    // The window verdict, passed through rather than re-derived: it is what turns
+    // "five specs failed" into "three of them are known flakes", and an agent that
+    // reads only this tool would otherwise have no way to ask. A summary written
+    // without the field (a hand-made fixture, an older collector) simply omits it.
+    ...(typeof summary.flakiness === "object" && summary.flakiness !== null
+      ? { flakiness: summary.flakiness as Record<string, unknown> }
+      : {}),
   };
 
   return {

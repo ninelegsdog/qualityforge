@@ -92,7 +92,7 @@ function parseArgs(argv: string[]): Args {
       console.log(
         "Usage:\n" +
           "  this repository     npm run defects:collect -- [flags]\n" +
-          "  a consuming project npx tsx node_modules/qualityforge/src/cli/collect-defects.ts [flags]\n" +
+          "  a consuming project npx --no-install qualityforge [flags]\n" +
           "\n" +
           "  --config <path>  configuration file (default config/project.json)\n" +
           "  --report <path>  Playwright JSON report to read (default " +

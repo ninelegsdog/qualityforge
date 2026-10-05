@@ -68,6 +68,15 @@ jobs:
       - name: Check documented numbers against the suite
         run: npm run docs:numbers
 
+      # The only check that leaves this checkout: pack, install into a throwaway
+      # project, and run what package.json promises there. Nothing else reads
+      # `exports` or `bin` — the suite runs `src/` through tsx and the packlist
+      # test only lists file names — so a typo in either stays green everywhere
+      # and fails for the first time in a consumer. It carries two controls that
+      # must fail, which is what keeps its own green meaningful.
+      - name: Check the package installs and runs for a consumer
+        run: npm run package:check
+
   # The Node axis, spent where Node-version sensitivity actually lives.
   #
   # The pure-logic tests are the Node-sensitive half of this repository: config

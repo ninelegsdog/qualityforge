@@ -195,13 +195,25 @@ installs the package instead of cloning it imports the same fixture from the
 build, because Playwright refuses to transpile TypeScript under `node_modules`:
 
 ```ts
-import { expect, test } from "qualityforge/dist/fixtures/quality-context.js";
+import { expect, test } from "qualityforge/fixtures/quality-context.js";
 ```
 
 The package is not on npm yet; install it from GitHub with
-`npm i github:ninelegsdog/qualityforge`. That deep path is what exists today,
-not what the package will keep: an `exports` map with a stable subpath is
-packaging work that is still open, see [`docs/roadmap.md`](docs/roadmap.md).
+`npm i github:ninelegsdog/qualityforge`. The `exports` map publishes that
+subpath together with the package entry and `package.json`, and `bin` publishes
+the two commands a consuming project runs:
+
+```bash
+npx --no-install qualityforge [flags]                          # the collector
+npx --no-install qualityforge-mcp [--root <dir>] [--history <dir>]
+```
+
+`--no-install` is deliberate: without it a missing local install falls through
+to the npm registry, and a name nobody has published yet is a name somebody
+else can take. The `qualityforge/dist/…` path is refused now — the internal
+layout was never the contract — and `npm run package:check` keeps it that way by
+installing the tarball into a directory outside this checkout and running what
+it finds there.
 
 That one import change is the whole integration. Everything captured is redacted
 at the source: URLs keep scheme, host and path with query strings and
@@ -232,15 +244,16 @@ end of this section.
     "qualityforge": {
       "enabled": true,
       "type": "local",
-      "command": [
-        "node",
-        "/absolute/path/to/qualityforge/node_modules/tsx/dist/cli.mjs",
-        "/absolute/path/to/qualityforge/src/mcp/index.ts",
-      ],
+      "command": ["node", "/absolute/path/to/qualityforge/dist/mcp/index.js"],
     },
   },
 }
 ```
+
+The command points into `dist/`, which `npm ci` builds (`prepare` runs `tsc`) —
+or `npm run build`, if the install was done with `--ignore-scripts`. A project
+that installed the package needs no path at all: `["npx", "--no-install",
+"qualityforge-mcp"]` runs the same server out of `node_modules/.bin`.
 
 `opencode mcp list` then reports the connection status:
 
@@ -274,11 +287,14 @@ assumed:
   does not exist. When that happens the server falls back to this checkout and
   says so on stderr — but only if this checkout has artifacts to serve, which is
   the previous point.
-- **Spell the runner out.** `["npx", "tsx", ...]` works, and it is the shorter
-  thing to type, but it took ~3.6 s to answer `initialize` here against ~0.9 s
-  for the `node` form above, and OpenCode's documented default MCP timeout is
-  5000 ms. That is a thin margin on a slower machine, so if `npx` ever fails to
-  connect, swap in the spelled-out command before debugging anything else.
+- **Spell the runner out.** The block points at `dist/`, so nothing transpiles
+  at connection time: `initialize` was answered in ~0.24 s here, against ~2.4 s
+  for `["npx", "tsx", …, "src/mcp/index.ts"]`, and OpenCode's documented default
+  MCP timeout is 5000 ms. If `dist/` is absent, run `npm run build` — `npm ci
+--ignore-scripts` skips the `prepare` that would otherwise make it. A project
+  with the package installed should use `["npx", "--no-install",
+"qualityforge-mcp"]` instead, which is both shorter and has no path to get
+  wrong.
 - **Both `mcp.<name>` and `mcp.servers.<name>` connect.** The flat form shown
   above is what the JSON schema at `https://opencode.ai/config.json` describes —
   and that schema describes V1, so it is the wrong thing to check a V2 file

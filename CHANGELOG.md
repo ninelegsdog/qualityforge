@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from git builds before the package is packed, and `verify` includes it.
 
   ```ts
-  import { expect, test } from "qualityforge/dist/fixtures/quality-context.js";
+  import { expect, test } from "qualityforge/fixtures/quality-context.js";
   ```
 
   `tests/unit/build-output.test.ts` deletes `dist`, rebuilds and loads the
@@ -47,9 +47,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Verified by going red in all three places on purpose: a build with no inputs,
   a changed `ATTACHMENT_NAME`, and `dist` removed from `files`.
 
-  The deep path is a slice of packaging, not the whole of it — `exports` and
-  `bin` are still open, so treat `dist/…` as what exists rather than what the
-  package will keep.
+  The build is the substrate. What the package exposes on top of it — `exports`
+  and `bin` — is the next entry.
+
+- **The package can be consumed: `exports`, `bin`, and a check that installs it.**
+  A consuming project could only reach inside the tree: import the fixture by
+  its internal path and run the collector by hand as
+  `tsx node_modules/qualityforge/src/…`. An ESM package with no `exports` map
+  resolves no entry at all, and a package with no `bin` gives a client nothing
+  to spawn, so both failures were invisible here — the suite runs `src/` through
+  tsx and the packlist test only lists file names. The surface is now:
+
+  ```bash
+  npx --no-install qualityforge [flags]                          # the collector
+  npx --no-install qualityforge-mcp [--root <dir>] [--history <dir>]
+  ```
+
+  ```ts
+  import { expect, test } from "qualityforge/fixtures/quality-context.js";
+  ```
+
+  `--no-install` is part of the contract rather than a style: without it, `npx`
+  on a name nobody has published goes to the registry, and the registry is not
+  ours to keep empty. `qualityforge/dist/…` is refused with
+  `ERR_PACKAGE_PATH_NOT_EXPORTED` — internal layout was never an interface — and
+  the refusal is asserted, so reopening the deep path has to be a decision
+  rather than an accident.
+
+  **`npm run package:check` is what makes its green mean something.** It packs a
+  real tarball (`prepare` therefore runs — the build a git install performs),
+  installs it into a throwaway directory outside this checkout, and there
+  imports the entry, resolves both subpaths, executes each binary by hand and
+  through `npx`, and starts the MCP server the way a client starts it: from the
+  consumer's working directory, frames only on stdout, and — with no artifacts
+  directory to serve — exiting rather than serving a root that is not there. Two
+  controls are required to fail. The same tarball with `exports` stripped must
+  resolve the internal path it refused a moment ago, which is what separates "the
+  map refuses it" from "the file is missing"; with `bin` stripped, no link may
+  appear and `npx` must fail, which is what separates a working binary from
+  anything at all. Building the check failed its own control once: with `bin`
+  absent, spawning the missing link raised `FileNotFoundError`, and the script
+  died with a traceback whose exit code is indistinguishable from a real
+  failure. `run()` now turns that into a result to assert on.
+
+  It runs as a step of its own in CI, because it is the only check that leaves
+  the checkout.
 
 - **Run history, and two MCP tools that read it.** An optional `history` block in
   `config/project.json` keeps one compact file per run, which is how the question

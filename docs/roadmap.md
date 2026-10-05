@@ -40,15 +40,22 @@ after, and the template exists: [`ninelegsdog/qualityforge-template`](https://gi
 cloned rather than installed, installing this package from git, running green
 from a fresh clone, and carrying the MCP block already written. Under it there is
 a build — `npm run build` emits `dist/`, `prepare` runs it before an install from
-git packs the tree, and a `files` whitelist decides what travels — so an
-installing project can import the fixture at
-`qualityforge/dist/fixtures/quality-context.js`.
+git packs the tree, and a `files` whitelist decides what travels — and, since the
+packaging of 2026-10-06, a published surface: an `exports` map for `.`,
+`./fixtures/quality-context.js` and `./package.json`, plus `bin` entries for
+`qualityforge` and `qualityforge-mcp`. A consuming project therefore imports
+`qualityforge/fixtures/quality-context.js` and runs `npx --no-install qualityforge …`;
+the old `qualityforge/dist/…` deep path is refused, because internal layout was
+never the contract. `npm run package:check` packs the tarball, installs it into a
+directory outside this checkout and runs what it promises there — with two
+controls that are required to fail, so the check's own green means something.
 
-Still not done, and why this stays open: no `bin`, no `exports` map (so the deep
-path above is temporary), nothing published to npm, and every command still
-hand-run as `tsx node_modules/qualityforge/src/…`. The floor in `engines` is
-deliberately permissive for the same reason. Issue #4 is closed, because the
-decision was made and executed; the packaging it decided on is not finished.
+Still not done, and why this stays open: nothing published to npm. Until it is,
+the package installs only from git, `npx --no-install` is the only form that
+provably cannot reach the registry for somebody else's code, and the floor in
+`engines` stays deliberately permissive — publishing is what will force that
+question. Issue #4 is closed, because the decision was made and executed; the
+publication it decided on is still the owner's call.
 
 **A live client in CI.** OpenCode was connected by hand, once. That is a single
 unautomated point of trust, and it is documented rather than verified.

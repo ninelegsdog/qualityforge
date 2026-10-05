@@ -5,6 +5,23 @@
   "description": "Evidence-first browser quality automation for modern web applications.",
   "license": "Apache-2.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./fixtures/quality-context.js": {
+      "types": "./dist/fixtures/quality-context.d.ts",
+      "default": "./dist/fixtures/quality-context.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "qualityforge": "./dist/cli/collect-defects.js",
+    "qualityforge-mcp": "./dist/mcp/index.js"
+  },
   "files": [
     "dist",
     "src",
@@ -52,6 +69,7 @@
     "docs:check": "python3 scripts/check-links.py .",
     "docs:numbers": "python3 scripts/doc-numbers-check.py .",
     "board:check": "python3 scripts/board-check.py .",
+    "package:check": "python3 scripts/package-check.py .",
     "mcp:check": "python3 scripts/mcp-session-check.py .",
     "mcp:check:tools": "python3 scripts/mcp-tools-check.py .",
     "mcp:check:all": "python3 scripts/mcp-check-all.py .",

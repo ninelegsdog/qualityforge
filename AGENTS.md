@@ -328,7 +328,11 @@ one in its query string. So:
 ## Current state
 
 Early alpha, and the core is in place: the `defect.v1` contract, the collector
-with its quality gate, signal capture with redaction, and a read-only MCP server
-speaking protocol 2026-07-28. Published at <https://github.com/ninelegsdog/qualityforge>
-and green on CI. Not yet done: packaging, and a check against a live agent
-client. See [`docs/roadmap.md`](docs/roadmap.md).
+with its quality gate, signal capture with redaction, a read-only MCP server
+speaking protocol 2026-07-28, and a package surface worth consuming — `exports`
+for the entry and the fixture subpath, `bin` for the collector and the server,
+and `npm run package:check`, which installs the tarball outside this checkout and
+runs what `package.json` promises, with two controls that must fail. Published at
+<https://github.com/ninelegsdog/qualityforge> and green on CI. Not yet done:
+publication to npm, and a check against a live agent client. See
+[`docs/roadmap.md`](docs/roadmap.md).

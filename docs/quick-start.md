@@ -169,15 +169,17 @@ Kilo and MiMo were not tested and may expect something else:
     "qualityforge": {
       "enabled": true,
       "type": "local",
-      "command": [
-        "node",
-        "/absolute/path/to/qualityforge/node_modules/tsx/dist/cli.mjs",
-        "/absolute/path/to/qualityforge/src/mcp/index.ts",
-      ],
+      "command": ["node", "/absolute/path/to/qualityforge/dist/mcp/index.js"],
     },
   },
 }
 ```
+
+The command points into `dist/`, which step 1's `npm ci` builds through
+`prepare` — run `npm run build` if the install was done with
+`--ignore-scripts`. A project that installed the package instead of cloning it
+runs `["npx", "--no-install", "qualityforge-mcp"]` — no path to get wrong, and
+the `--no-install` keeps a missing install from falling through to the registry.
 
 `opencode mcp list` should then print `✓ qualityforge  connected`. Re-run it
 before you believe it: in a directory OpenCode had not seen before, the first
@@ -186,14 +188,17 @@ several runs later, with a config file that was present and correct throughout.
 
 Three notes, and the [README](../README.md#the-mcp-server) has the detail:
 
-- **Both paths are absolute on purpose.** A client starts the server from _your_
+- **The path is absolute on purpose.** A client starts the server from _your_
   project directory, so a relative root resolves somewhere that does not exist.
   The server then falls back to this checkout — which only helps if step 4 has
   already produced `artifacts/defects/`. If it has not, the server exits and all
   the client reports is `failed: Connection closed`.
-- **`["npx", "tsx", ...]` also works**, and is shorter, but it is several times
-  slower to answer than the `node` form above. If a client refuses to connect,
-  try that swap before anything else.
+- **Running from source also works**, as
+  `["node", "/abs/…/node_modules/tsx/dist/cli.mjs", "/abs/…/src/mcp/index.ts"]`,
+  but `initialize` took ~2.4 s in that form here against ~0.24 s for the `node`
+  form above, and the client's documented default timeout is 5000 ms. If a
+  client refuses to connect, check that `dist/` exists (`npm run build`) before
+  debugging anything else.
 - **`opencode mcp add` writes `mcp.servers.<name>`** rather than the `mcp.<name>`
   above. OpenCode v2.0.16 accepts both; the two forms just will not match each
   other in review.

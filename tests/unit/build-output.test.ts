@@ -24,7 +24,13 @@ import { expect, test } from "@playwright/test";
  * whitelist, and the first real consumer install arrived with no `dist` at all
  * while carrying our CI workflow instead. What none of this proves is that
  * `prepare` runs for someone installing over the network — that is checked by
- * installing the package the way a consumer does, from a clean directory.
+ * installing the package the way a consumer does, from a clean directory,
+ * which is `package-check.py`.
+ *
+ * The entry points and bin targets are in this list because `exports` and
+ * `bin` name files inside `dist`, and a name in `package.json` is a promise,
+ * not a presence: `npm pack` can succeed while omitting any one of them, and
+ * the failure would only surface in a consumer, on import or on first run.
  */
 
 const exec = promisify(execFile);
@@ -60,8 +66,12 @@ async function run(command: string, args: string[]): Promise<CommandOutcome> {
  */
 const build: CommandOutcome = { code: 1, out: "", error: "the build never ran" };
 
-/** What a consumer runs: the compiled fixture, and the `src` paths `--h` hands out. */
+/** What a consumer runs: the entry points, the bins, the compiled fixture, the sources `--help` may name. */
 const MUST_SHIP = [
+  "dist/index.js",
+  "dist/index.d.ts",
+  "dist/cli/collect-defects.js",
+  "dist/mcp/index.js",
   "dist/fixtures/quality-context.js",
   "dist/fixtures/quality-context.d.ts",
   "src/cli/collect-defects.ts",

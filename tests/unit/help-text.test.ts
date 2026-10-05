@@ -12,12 +12,12 @@ import { expect, test } from "@playwright/test";
  * Both CLIs used to advertise invocations nobody could run: the collector
  * printed `npm run defects:collect`, a script a consuming project does not
  * have, and the server printed `Usage: qualityforge-mcp`, a `bin` this package
- * does not declare. Nothing failed, because nothing read the help.
- *
- * So the help is checked against the two sources of truth: `package.json` for
- * scripts, and the filesystem for the paths it hands out. Spawning rather than
- * importing keeps the exit code in the assertion too — a help that prints and
- * exits non-zero is not a working help.
+ * did not declare. Nothing failed, because nothing read the help. The second
+ * one is declared now, so the help is checked against the two sources of truth
+ * those cases were about: `package.json` for scripts **and for bins**, and the
+ * filesystem for any path it still hands out. Spawning rather than importing
+ * keeps the exit code in the assertion too — a help that prints and exits
+ * non-zero is not a working help.
  */
 
 const exec = promisify(execFile);
@@ -25,11 +25,26 @@ const ROOT = process.cwd();
 
 const PKG = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as {
   scripts: Record<string, string>;
+  bin: Record<string, string>;
 };
 
 /** Every `npm run <name>` the text hands out. */
 function scriptsMentioned(text: string): string[] {
   return [...text.matchAll(/npm run ([a-z0-9:-]+)/g)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
+}
+
+/**
+ * Every `npx --no-install <bin>` the text hands out.
+ *
+ * This is the assertion the server's old `Usage: qualityforge-mcp` line needed
+ * and did not have: a bin name in help is a promise that `package.json`
+ * declares it, so it is checked there rather than trusted because it looks
+ * plausible.
+ */
+function binsMentioned(text: string): string[] {
+  return [...text.matchAll(/npx --no-install ([a-z0-9@/._-]+)/g)].flatMap((match) =>
     match[1] === undefined ? [] : [match[1]],
   );
 }
@@ -90,11 +105,18 @@ test.describe("help text", () => {
       ).toBe(true);
     }
 
+    for (const bin of binsMentioned(stdout)) {
+      expect(
+        bin in PKG.bin,
+        `help hands out \`npx ${bin}\`, which package.json does not declare as a bin`,
+      ).toBe(true);
+    }
+
     expectUsageLineIsRunnable(stdout);
 
     // Both ways of running it, or the section is not doing its job.
     expect(stdout).toContain("npm run defects:collect");
-    expect(stdout).toContain("node_modules/qualityforge/src/cli/collect-defects.ts");
+    expect(stdout).toContain("npx --no-install qualityforge");
   });
 
   test("server help goes to stderr and names only scripts and files that exist", async () => {
@@ -118,9 +140,16 @@ test.describe("help text", () => {
       ).toBe(true);
     }
 
+    for (const bin of binsMentioned(stderr)) {
+      expect(
+        bin in PKG.bin,
+        `help hands out \`npx ${bin}\`, which package.json does not declare as a bin`,
+      ).toBe(true);
+    }
+
     expectUsageLineIsRunnable(stderr);
 
     expect(stderr).toContain("npm run mcp --");
-    expect(stderr).toContain("node_modules/qualityforge/src/mcp/index.ts");
+    expect(stderr).toContain("npx --no-install qualityforge-mcp");
   });
 });

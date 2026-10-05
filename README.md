@@ -185,6 +185,19 @@ carries none of this, so it is collected live by the bundled fixture:
 import { test, expect } from "../fixtures.js"; // not "@playwright/test"
 ```
 
+In this repository the path is relative to your test file. A project that
+installs the package instead of cloning it imports the same fixture from the
+build, because Playwright refuses to transpile TypeScript under `node_modules`:
+
+```ts
+import { expect, test } from "qualityforge/dist/fixtures/quality-context.js";
+```
+
+The package is not on npm yet; install it from GitHub with
+`npm i github:ninelegsdog/qualityforge`. That deep path is what exists today,
+not what the package will keep: an `exports` map with a stable subpath is
+packaging work that is still open, see [`docs/roadmap.md`](docs/roadmap.md).
+
 That one import change is the whole integration. Everything captured is redacted
 at the source: URLs keep scheme, host and path with query strings and
 credentials removed, console text has tokens and JWTs replaced, and sensitive
@@ -355,11 +368,12 @@ npm run test:unit           # unit tests, no browser launched
 npm run test:debug          # Playwright Inspector, step through a test
 npm run report              # open the HTML report
 npm run report:clean        # remove generated output
+npm run build               # compile src/ to dist/ (an install runs this for you)
 npm run defects:collect     # build defect artifacts from the last run
 npm run defects:check       # prove two report-shape rules on a real Playwright run
 npm run mcp                 # start the read-only MCP server on stdio
 npm run mcp:check:all       # drive the server over real stdio and check it
-npm run verify              # lint + typecheck + format check (what CI runs first)
+npm run verify              # lint + typecheck + build + format check (CI runs this first)
 ```
 
 `mcp:check*`, `defects:check`, `docs:numbers` and `ci:validate` need Python 3. They

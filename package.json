@@ -5,6 +5,14 @@
   "description": "Evidence-first browser quality automation for modern web applications.",
   "license": "Apache-2.0",
   "type": "module",
+  "files": [
+    "dist",
+    "src",
+    "schemas",
+    "docs",
+    "AGENTS.md",
+    "CHANGELOG.md"
+  ],
   "engines": {
     "node": ">=20.19.0"
   },
@@ -32,12 +40,14 @@
     "defects:collect": "tsx src/cli/collect-defects.ts",
     "defects:check": "python3 scripts/report-check.py .",
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "serve:fixtures": "node scripts/serve.mjs",
-    "verify": "npm run lint && npm run typecheck && npm run format:check",
+    "verify": "npm run lint && npm run typecheck && npm run build && npm run format:check",
+    "prepare": "npm run build",
     "ci:validate": "python3 scripts/validate-ci.py .",
     "docs:check": "python3 scripts/check-links.py .",
     "docs:numbers": "python3 scripts/doc-numbers-check.py .",

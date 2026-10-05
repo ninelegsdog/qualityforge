@@ -35,10 +35,14 @@ work that _is_ outstanding invisible.
 
 ## Not done, and why it is not done
 
-**Distribution.** No build step (`tsconfig.json` sets `noEmit`), and no `bin`,
-`exports` or `files` in `package.json`. Consuming this means cloning it and
-pointing a client at a `.ts` file through `tsx`. The floor in `engines` is
-deliberately permissive for the same reason. Issue #4 tracks the decision.
+**Distribution.** There is a build now — `npm run build` emits `dist/`,
+`prepare` runs it before an install from git packs the tree, and a `files`
+whitelist decides what travels — so an installing project can import the fixture
+at `qualityforge/dist/fixtures/quality-context.js`. That is the whole of what is
+done: no `bin`, no `exports` map (so the deep path above is temporary), nothing
+published to npm, and every command still hand-run as
+`tsx node_modules/qualityforge/src/…`. The floor in `engines` is deliberately
+permissive for the same reason. Issue #4 tracks the decision.
 
 **A live client in CI.** OpenCode was connected by hand, once. That is a single
 unautomated point of trust, and it is documented rather than verified.

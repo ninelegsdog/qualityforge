@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The package builds, so a consumer can import the fixture.** Playwright
+  refuses to transpile TypeScript under `node_modules`, which left
+  `quality-context.ts` — the one import that turns on console, page-error and
+  network capture — unloadable for anyone who installed the package instead of
+  cloning it. `npm run build` emits `dist/`, `prepare` runs it so an install
+  from git builds before the package is packed, and `verify` includes it.
+
+  ```ts
+  import { expect, test } from "qualityforge/dist/fixtures/quality-context.js";
+  ```
+
+  `tests/unit/build-output.test.ts` deletes `dist`, rebuilds and loads the
+  emitted fixture in a spawned Node, so a green suite cannot sit next to a
+  fixture a consumer cannot import.
+
+  A build alone was not enough, and the first consumer install is how that
+  showed. `dist` is gitignored, which is exactly what npm drops from a package
+  with no `files` field: the install arrived with no fixture at all and with 88
+  files of this repository instead, `.github/workflows/ci.yml` among them.
+  `files` now whitelists `dist`, `src`, `schemas`, `docs`, `AGENTS.md` and
+  `CHANGELOG.md` — a whitelist rather than an `.npmignore`, because a whitelist
+  fails closed while an ignore file ships whatever nobody remembered to list.
+  The packlist is asserted too, in both directions.
+
+  Verified by going red in all three places on purpose: a build with no inputs,
+  a changed `ATTACHMENT_NAME`, and `dist` removed from `files`.
+
+  The deep path is a slice of packaging, not the whole of it — `exports` and
+  `bin` are still open, so treat `dist/…` as what exists rather than what the
+  package will keep.
+
 - **Run history, and two MCP tools that read it.** An optional `history` block in
   `config/project.json` keeps one compact file per run, which is how the question
   "is this a regression, or has it always been this way" gets an answer instead of

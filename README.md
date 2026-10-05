@@ -16,6 +16,11 @@ QualityForge is an open-source Playwright-based foundation for:
 **Early alpha.** The project is under active development. Expect breaking
 changes. Published at <https://github.com/ninelegsdog/qualityforge>, green on CI.
 
+To start a project from rather than to read: the template,
+<https://github.com/ninelegsdog/qualityforge-template> — installs this package
+from git, runs green from a fresh clone, and ships the MCP block already
+written.
+
 ## Why this exists
 
 Most teams end up with a pile of one-off UI tests per project: duplicated

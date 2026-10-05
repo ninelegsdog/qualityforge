@@ -35,14 +35,20 @@ work that _is_ outstanding invisible.
 
 ## Not done, and why it is not done
 
-**Distribution.** There is a build now — `npm run build` emits `dist/`,
-`prepare` runs it before an install from git packs the tree, and a `files`
-whitelist decides what travels — so an installing project can import the fixture
-at `qualityforge/dist/fixtures/quality-context.js`. That is the whole of what is
-done: no `bin`, no `exports` map (so the deep path above is temporary), nothing
-published to npm, and every command still hand-run as
-`tsx node_modules/qualityforge/src/…`. The floor in `engines` is deliberately
-permissive for the same reason. Issue #4 tracks the decision.
+**Distribution.** The owner's decision of 2026-10-04 was a template first and npm
+after, and the template exists: [`ninelegsdog/qualityforge-template`](https://github.com/ninelegsdog/qualityforge-template),
+cloned rather than installed, installing this package from git, running green
+from a fresh clone, and carrying the MCP block already written. Under it there is
+a build — `npm run build` emits `dist/`, `prepare` runs it before an install from
+git packs the tree, and a `files` whitelist decides what travels — so an
+installing project can import the fixture at
+`qualityforge/dist/fixtures/quality-context.js`.
+
+Still not done, and why this stays open: no `bin`, no `exports` map (so the deep
+path above is temporary), nothing published to npm, and every command still
+hand-run as `tsx node_modules/qualityforge/src/…`. The floor in `engines` is
+deliberately permissive for the same reason. Issue #4 is closed, because the
+decision was made and executed; the packaging it decided on is not finished.
 
 **A live client in CI.** OpenCode was connected by hand, once. That is a single
 unautomated point of trust, and it is documented rather than verified.

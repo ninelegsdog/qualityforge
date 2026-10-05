@@ -22,7 +22,7 @@
  * minor again for the same reason. Nothing was removed, renamed, retyped or
  * given a new sense.
  */
-export const DEFECT_SCHEMA_VERSION = "1.3.0" as const;
+export const DEFECT_SCHEMA_VERSION = "1.4.0" as const;
 
 /** Outcome of a single attempt. Mirrors Playwright's status vocabulary. */
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";

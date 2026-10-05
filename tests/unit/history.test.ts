@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { collectDefects, defectIdFrom } from "../../src/defect/collect.js";
+import { collectDefects, defectIdFrom, type RunSummary } from "../../src/defect/collect.js";
 import {
   compositionKey,
   readHistory,
@@ -10,7 +10,7 @@ import {
   recordHistory,
   rotateHistory,
 } from "../../src/defect/history.js";
-import { flakinessReport, trendReport } from "../../src/defect/flakiness.js";
+import { flakinessReport, trendReport, windowVerdicts } from "../../src/defect/flakiness.js";
 
 /**
  * The acceptance test for run history: two real collections, and the verdict that
@@ -100,7 +100,9 @@ async function runOnce(options: {
   specs: SpecOutcome[];
   now: Date;
   keep?: number;
-}): Promise<string> {
+  /** Collect with history off, the way `--no-history` does it. */
+  noHistory?: boolean;
+}): Promise<{ summary: RunSummary; historyPath: string }> {
   const reportPath = "artifacts/json/results.json";
   await mkdir(path.join(options.root, "artifacts/json"), { recursive: true });
   await writeFile(
@@ -109,18 +111,20 @@ async function runOnce(options: {
     "utf8",
   );
 
-  const { history } = await collectDefects({
+  const { summary, history } = await collectDefects({
     projectRoot: options.root,
     testDir: "tests",
     outputDir: "artifacts/defects",
     reportPath,
     thresholds: THRESHOLDS,
     now: options.now,
-    history: { directory: "quality-history", keep: options.keep ?? 10 },
+    ...(options.noHistory === true
+      ? {}
+      : { history: { directory: "quality-history", keep: options.keep ?? 10 } }),
   });
 
   expect(history?.failed, `history write failed: ${history?.failed ?? ""}`).toBeUndefined();
-  return history?.path ?? "";
+  return { summary, historyPath: history?.path ?? "" };
 }
 
 test.describe("two real collections", () => {
@@ -245,6 +249,183 @@ test.describe("two real collections", () => {
     expect(raw.length).toBeLessThan(1000);
     const parsed = JSON.parse(raw) as { outcomes: Record<string, string> };
     expect(Object.keys(parsed.outcomes)).toHaveLength(1);
+  });
+});
+
+test.describe("the run summary carries the window's verdict", () => {
+  const id = (title: string): string => defectIdFrom("smoke/demo.spec.ts", title);
+
+  test("tells a flake, a regression and an absence apart, and never cites itself", async () => {
+    const root = await scaffold();
+
+    // Two recorded runs, four relationships to the failure that is coming: a fails
+    // every time, b fails once then recovers, c has never failed, d appeared in the
+    // second run and failed there.
+    await runOnce({
+      root,
+      now: new Date("2026-10-05T01:00:00.000Z"),
+      specs: [
+        { title: "a", status: "failed" },
+        { title: "b", status: "failed" },
+        { title: "c", status: "passed" },
+      ],
+    });
+    await runOnce({
+      root,
+      now: new Date("2026-10-05T01:00:05.000Z"),
+      specs: [
+        { title: "a", status: "failed" },
+        { title: "b", status: "passed" },
+        { title: "c", status: "passed" },
+        { title: "d", status: "failed" },
+      ],
+    });
+
+    // The same window, asked about the five specs the next run is about to fail —
+    // e among them, which the window has never seen.
+    const window = windowVerdicts(await readHistoryRecords(root, "quality-history"), [
+      id("a"),
+      id("b"),
+      id("c"),
+      id("d"),
+      id("e"),
+    ]);
+    expect(window.partial).toBe(false);
+    expect(Object.fromEntries(window.verdicts)).toEqual({
+      [id("a")]: "failing",
+      [id("b")]: "flaky",
+      // c is the assertion this field exists for: present and healthy. Read
+      // presence from outcomes alone and c would answer "new", which claims
+      // nothing, instead of "regression", which claims the break is new.
+      [id("c")]: "regression",
+      [id("d")]: "new",
+      [id("e")]: "new",
+    });
+
+    // The third run fails all five, and its own summary must judge it on the two
+    // runs before it.
+    const { summary } = await runOnce({
+      root,
+      now: new Date("2026-10-05T01:00:10.000Z"),
+      specs: [
+        { title: "a", status: "failed" },
+        { title: "b", status: "failed" },
+        { title: "c", status: "failed" },
+        { title: "d", status: "failed" },
+        { title: "e", status: "failed" },
+      ],
+    });
+
+    const flakiness = summary.flakiness;
+    // Two, not three: a summary citing the run it describes as evidence about
+    // itself would be circular, and the count is written so a reader can see it.
+    expect(flakiness.window).toBe(2);
+    expect(flakiness.counts).toEqual({ flaky: 1, failing: 1, regression: 1, new: 2 });
+    // a broke every time it ran, and the strongest claim wins the single verdict —
+    // the order a reader would triage these in.
+    expect(flakiness.verdict).toBe("failing");
+    // Two runs is not a direction, and the field says so rather than fitting one.
+    expect(flakiness.direction).toBe("unknown");
+    expect(flakiness.partial).toBeUndefined();
+  });
+
+  test("reports a worsening window as the trend's own number", async () => {
+    const root = await scaffold();
+    const specs = (failed: number): SpecOutcome[] =>
+      Array.from({ length: 4 }, (_, index) => ({
+        title: `s${index}`,
+        status: index < failed ? "failed" : "passed",
+      }));
+
+    // Two healthy runs and two with half the suite red: four points, and the
+    // second half is worse than the first.
+    await runOnce({ root, now: new Date("2026-10-05T02:00:00.000Z"), specs: specs(0) });
+    await runOnce({ root, now: new Date("2026-10-05T02:00:05.000Z"), specs: specs(0) });
+    await runOnce({ root, now: new Date("2026-10-05T02:00:10.000Z"), specs: specs(2) });
+    await runOnce({ root, now: new Date("2026-10-05T02:00:15.000Z"), specs: specs(2) });
+
+    // The number, from the function the MCP tool answers with, on the records the
+    // next summary will read.
+    const before = await readHistory(root, "quality-history");
+    expect(before).toHaveLength(4);
+    expect(trendReport(before).direction).toBe("worsening");
+
+    const { summary } = await runOnce({
+      root,
+      now: new Date("2026-10-05T02:00:20.000Z"),
+      specs: specs(2),
+    });
+
+    // Without this assertion the field could sit at `unknown` forever on a project
+    // with four readable runs, and every consumer would read that as "no trend
+    // measured" instead of "the value never arrived".
+    expect(summary.flakiness.window).toBe(4);
+    expect(summary.flakiness.direction).toBe("worsening");
+  });
+
+  test("says unknown when there is no history, instead of guessing", async () => {
+    const root = await scaffold();
+
+    const failing = await runOnce({
+      root,
+      now: new Date("2026-10-05T03:00:00.000Z"),
+      noHistory: true,
+      specs: [
+        { title: "a", status: "failed" },
+        { title: "b", status: "passed" },
+      ],
+    });
+
+    // Not an empty object, and not `new`: a summary claiming a first failure with
+    // no history to look in would be a guess wearing the clothes of a measurement.
+    expect(failing.summary.flakiness).toEqual({
+      window: 0,
+      verdict: "unknown",
+      counts: { flaky: 0, failing: 0, regression: 0, new: 0 },
+      direction: "unknown",
+    });
+
+    // A run that failed nothing has an answer that needs no history at all.
+    const green = await runOnce({
+      root,
+      now: new Date("2026-10-05T03:00:05.000Z"),
+      noHistory: true,
+      specs: [
+        { title: "a", status: "passed" },
+        { title: "b", status: "passed" },
+      ],
+    });
+    expect(green.summary.flakiness.verdict).toBe("none");
+    expect(green.summary.flakiness.window).toBe(0);
+  });
+
+  test("says partial when a window run lost its composition", async () => {
+    const root = await scaffold();
+    const specs: SpecOutcome[] = [
+      { title: "a", status: "failed" },
+      { title: "b", status: "passed" },
+    ];
+
+    await runOnce({ root, now: new Date("2026-10-05T04:00:00.000Z"), specs });
+    await runOnce({ root, now: new Date("2026-10-05T04:00:05.000Z"), specs });
+
+    // The shallow-clone state: entries survive, who was present in them does not.
+    const compositions = path.join(root, "quality-history/compositions");
+    for (const file of await readdir(compositions)) {
+      await writeFile(path.join(compositions, file), "{ not json", "utf8");
+    }
+
+    const { summary } = await runOnce({
+      root,
+      now: new Date("2026-10-05T04:00:10.000Z"),
+      specs,
+    });
+
+    // The window is still readable and still two runs, but its passes are hidden —
+    // so the flaky/failing split inside it may be wrong, and the summary says so
+    // rather than presenting a half-blind verdict as settled.
+    expect(summary.flakiness.window).toBe(2);
+    expect(summary.flakiness.partial).toBe(true);
   });
 });
 

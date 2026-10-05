@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The run summary carries what history says: `summary.flakiness`.** The
+  per-defect `flakiness` verdict is computed from a single run's retries and dies
+  with its artifact, so a reader holding only `quality-summary.v1.json` could see
+  that five specs failed and not whether they failed the way flakes fail — the one
+  distinction this repository exists for. The summary now records `window` (how
+  many earlier runs were consulted, never the run itself), per-bucket `counts`
+  (`flaky` / `failing` / `regression` / `new`), one `verdict` over them, and
+  `direction` from `trendReport`, the same number `quality_get_trend` answers with,
+  so the summary and the tool cannot disagree. With history off it reads `unknown`
+  rather than an empty guess. `defect.v1` is now **1.4.0** (minor, additive).
+
 - **The package builds, so a consumer can import the fixture.** Playwright
   refuses to transpile TypeScript under `node_modules`, which left
   `quality-context.ts` — the one import that turns on console, page-error and

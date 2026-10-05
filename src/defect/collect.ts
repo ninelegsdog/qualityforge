@@ -44,11 +44,13 @@ import {
 } from "./types.js";
 import {
   HISTORY_SCHEMA_VERSION,
+  readHistoryRecords,
   recordHistory,
   rotateHistory,
   type HistoryEntry,
   type HistoryOutcome,
 } from "./history.js";
+import { trendReport, windowVerdicts } from "./flakiness.js";
 
 /**
  * An attachment as the JSON reporter writes it.
@@ -605,6 +607,40 @@ export interface CollectOptions {
   retries?: number;
 }
 
+/**
+ * What run history says about the specs this run failed, read before this run was
+ * appended to it.
+ *
+ * The per-defect `flakiness` verdict answers a question about one artifact and dies
+ * with it, so a reader holding only the summary could not tell a flake from a
+ * regression — which is the distinction this whole repository is built on. This is
+ * the same judgement, lifted to the run.
+ *
+ * `window` is how many earlier runs were consulted, and it is deliberately written
+ * rather than implied: a run citing itself as evidence about itself would be
+ * circular, and a consumer seeing `window: 0` knows it is reading nothing.
+ */
+export interface RunFlakiness {
+  /** Runs of history consulted. Zero means none were configured or readable. */
+  window: number;
+  /**
+   * The strongest claim this run's failures support, worst first: `failing` and
+   * `regression` beat `flaky`, which beats `new` — the same order a reader would
+   * triage them in. `none` means nothing failed, `unknown` that no history existed
+   * to ask.
+   */
+  verdict: "unknown" | "none" | "flaky" | "failing" | "regression" | "new";
+  /** How many of this run's failures landed in each bucket. */
+  counts: { flaky: number; failing: number; regression: number; new: number };
+  /** Pass-rate direction over the same window; `unknown` below four runs. */
+  direction: "improving" | "worsening" | "flat" | "unknown";
+  /**
+   * At least one run in the window had no readable composition, so its passes are
+   * hidden and the flaky/failing split may be wrong. Reported, not smoothed over.
+   */
+  partial?: boolean;
+}
+
 export interface RunSummary {
   schemaVersion: string;
   runId: string;
@@ -628,10 +664,76 @@ export interface RunSummary {
   durationMs?: number;
   startedAt?: string;
   defects: string[];
+  /** What the runs before this one said about what this one failed. */
+  flakiness: RunFlakiness;
   thresholds: ProjectConfig["thresholds"];
   gate: {
     passed: boolean;
     violations: string[];
+  };
+}
+
+/**
+ * Reduce the history window to this run's question: of the specs that failed here,
+ * what had earlier runs already said about them?
+ *
+ * Read **before** the summary is written and therefore before this run's own record
+ * exists, so `window` never contains the run it describes — a summary citing itself
+ * as evidence about itself is the circularity the window exists to avoid.
+ *
+ * With history off the answer is `unknown`: not an empty object, and not a guess.
+ * A summary claiming `new` for a project with no history would be an unfounded
+ * claim wearing the clothes of a measurement, which is the failure mode this
+ * repository's "fail closed, do not guess" rule exists to prevent.
+ */
+async function historyFlakiness(
+  projectRoot: string,
+  history: { directory: string } | undefined,
+  failingIds: string[],
+): Promise<RunFlakiness> {
+  const records =
+    history === undefined ? [] : await readHistoryRecords(projectRoot, history.directory);
+
+  const counts: RunFlakiness["counts"] = { flaky: 0, failing: 0, regression: 0, new: 0 };
+  let partial = false;
+  if (records.length > 0) {
+    const window = windowVerdicts(records, failingIds);
+    partial = window.partial;
+    for (const verdict of window.verdicts.values()) counts[verdict] += 1;
+  }
+
+  // Only runs that already have entries: trendReport is the same function
+  // quality_get_trend calls, so the direction in a summary and the direction an
+  // agent is told are one number computed one way rather than two.
+  const trend = trendReport(
+    records.map((record) => ({
+      runId: record.entry.runId,
+      ...(record.entry.createdAt === undefined ? {} : { createdAt: record.entry.createdAt }),
+      counts: record.entry.counts,
+      ...(record.entry.durationMs === undefined ? {} : { durationMs: record.entry.durationMs }),
+      outcomes: record.entry.outcomes,
+    })),
+  );
+
+  const verdict: RunFlakiness["verdict"] =
+    failingIds.length === 0
+      ? "none"
+      : records.length === 0
+        ? "unknown"
+        : counts.failing > 0
+          ? "failing"
+          : counts.regression > 0
+            ? "regression"
+            : counts.flaky > 0
+              ? "flaky"
+              : "new";
+
+  return {
+    window: records.length,
+    verdict,
+    counts,
+    direction: trend.direction,
+    ...(partial ? { partial: true } : {}),
   };
 }
 
@@ -1383,6 +1485,14 @@ export async function collectDefects(options: CollectOptions): Promise<{
     violations.push(`${flakySpecs} test(s) passed only after a retry`);
   }
 
+  // Which specs failed this run, as history ids: the same keys the window is
+  // indexed by, so the verdicts land on the specs that produced the artifacts.
+  const failingIds = Object.entries(historyOutcomes)
+    .filter(([, outcome]) => outcome === "failed" || outcome === "timedOut")
+    .map(([id]) => id)
+    .sort();
+  const flakiness = await historyFlakiness(projectRoot, history, failingIds);
+
   const summary: RunSummary = {
     schemaVersion: DEFECT_SCHEMA_VERSION,
     runId,
@@ -1410,6 +1520,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     // passed straight back as quality_get_defect's defectPath. One canonical
     // form avoids the caller having to guess which one it is holding.
     defects: defects.map((d) => `${runId}/${d.id}.v1.json`),
+    flakiness,
     thresholds,
     gate: {
       passed: violations.length === 0,

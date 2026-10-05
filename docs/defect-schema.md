@@ -249,7 +249,7 @@ moved.
 ```jsonc
 {
   "$schema": "https://qualityforge.dev/schemas/defect.v1.schema.json",
-  "schemaVersion": "1.3.0",
+  "schemaVersion": "1.4.0",
   "id": "form-validation-smoke-shows-an-error-when-email-is-empty",
   "runId": "2026-10-03T00-43-13-217Z-443909",
   "createdAt": "2026-10-03T00:43:13.217Z",
@@ -725,10 +725,56 @@ capped, the way `signals.dropped` already does.
 - Adding an optional field, or a new member of an existing enum: minor bump.
   That is how `signals` arrived in `1.1.0`, the file suffix staying `v1` and every
   `1.0.0` reader still working; how `page` and `context.targetSource` arrived in
-  `1.2.0`; and how `targetSource: "observed"` and `attribution: "hook"` arrived in
-  `1.3.0`.
+  `1.2.0`; how `targetSource: "observed"` and `attribution: "hook"` arrived in
+  `1.3.0`; and how the run summary gained `flakiness` in `1.4.0`.
 - Removing a field, renaming one, or changing a type or meaning: major bump,
   and the file suffix changes to `v2`.
+
+### 1.4.0 — the run summary carries what history says
+
+One change, additive, and it lands in the run summary rather than in the per-defect
+artifact: **`summary.flakiness`**.
+
+The per-defect `flakiness` verdict is computed from a single run's retries and dies
+with its artifact, so a reader holding only `quality-summary.v1.json` — the file
+`--json` prints and the file the MCP surface serves — could see that five specs
+failed and not whether they failed the way flakes fail. That distinction is the
+question this repository exists to answer, so it now travels with the run:
+
+```jsonc
+"flakiness": {
+  "window": 6,            // earlier runs consulted; this run is never among them
+  "verdict": "flaky",     // the strongest claim the run's failures support
+  "counts": { "flaky": 3, "failing": 1, "regression": 0, "new": 1 },
+  "direction": "worsening",
+  "partial": true          // only when some run's composition was unreadable
+}
+```
+
+- `window` is written rather than implied. Zero means no history was configured or
+  readable, and then `verdict` is `unknown` — not an empty object and not a guess,
+  because a summary is a claim.
+- `counts` buckets every spec this run failed by what the window recorded for it:
+  `flaky` (failed in some runs, passed in others), `failing` (never passed),
+  `regression` (present in the window and never failed, so this break is new) and
+  `new` (no record at all). `regression` needs positive evidence of presence; it is
+  never inferred from silence.
+- `verdict` is the strongest of those buckets, ordered as a reader would triage
+  them, with `none` for a run that failed nothing.
+- `direction` is `trendReport`'s own number — the same function `quality_get_trend`
+  answers with — so a summary and the tool cannot disagree about which way the suite
+  is moving.
+
+The block is not confined to the file: `quality_get_latest_run` passes it through in
+`structuredContent`, so a client that starts there reads the window verdict without
+a second call. That pass-through is asserted in `mcp:check:tools`, where the seeded
+run is collected with `--no-history` and fails on purpose — which is why the wire
+carries `window: 0` and `verdict: "unknown"` there, and why a producer that guessed
+instead of admitting it had no history would go red.
+
+Nothing in `1.4.0` was removed, renamed, retyped or given a new sense. `schemaVersion`
+moved from `1.3.0` to `1.4.0` and the summary gained one key, which is why this is a
+minor bump; the per-defect artifact is unchanged apart from the number it reports.
 
 ### 1.3.0 — the configured target is reconciled against the page
 

@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.3.0** and is
+Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.4.0** and is
 published; nothing here has a release tag yet, so there is nothing to pin.
 
 This file was rewritten on 2026-10-04 because it had drifted: it still listed the

@@ -167,6 +167,66 @@ export function flakinessReport(records: HistoryRecord[]): FlakinessReport {
   };
 }
 
+/** What the window can say about one spec that is failing *right now*. */
+export type WindowVerdict =
+  /** Failed in some runs of the window and passed in others: known instability. */
+  | "flaky"
+  /** Failed in every run it appeared in. */
+  | "failing"
+  /** Appeared in the window without ever failing, so this failure is new. */
+  | "regression"
+  /** No record of it in the window: nothing to compare this failure against. */
+  | "new";
+
+/**
+ * The window's verdict for a chosen set of specs — the ones a run about to be
+ * written failed — instead of for every spec that ever failed.
+ *
+ * Why this is not `flakinessReport` filtered to a list: a spec the report does not
+ * mention is in one of two opposite states, present-and-healthy (a regression) or
+ * absent (nothing to say), and the report has no reason to tell them apart because
+ * it only ever lists specs that did fail. That distinction is the whole question
+ * this repository exists to answer, so it is read here from the composition rather
+ * than inferred from silence.
+ *
+ * `regression` is a positive claim and needs positive evidence: the spec appears in
+ * some run's composition. Absence from an entry whose composition could not be read
+ * proves nothing, so those specs answer `new`, which claims nothing — and a failure
+ * recorded in such a run is still a failure, because `outcomes` survives a missing
+ * composition while `present` only narrows to it. That is why `partial` is reported
+ * alongside the verdicts rather than used to silence them: it qualifies the
+ * flaky/failing split, which depends on passes that a missing composition hides.
+ */
+export function windowVerdicts(
+  records: HistoryRecord[],
+  ids: Iterable<string>,
+): { verdicts: Map<string, WindowVerdict>; partial: boolean } {
+  const report = flakinessReport(records);
+  const byId = new Map(report.tests.map((test) => [test.id, test]));
+
+  const verdicts = new Map<string, WindowVerdict>();
+  for (const id of ids) {
+    const entry = byId.get(id);
+    if (entry !== undefined) {
+      if (entry.verdict === "flaky") verdicts.set(id, "flaky");
+      else if (entry.verdict === "failing") verdicts.set(id, "failing");
+      else if (entry.verdict === "new") verdicts.set(id, "new");
+      // `quiet` says present in the window but not in its newest run, which is a
+      // statement about appearance and not about the outcome — so the counts decide,
+      // and a spec that passed anywhere is flaky however recently it stopped showing.
+      else verdicts.set(id, entry.otherRuns > 0 ? "flaky" : "failing");
+      continue;
+    }
+
+    // Never failed in the window (a recorded failure would have put it in the
+    // report), so the only remaining question is whether it was there at all.
+    const presentSomewhere = records.some((record) => record.present.has(id));
+    verdicts.set(id, presentSomewhere ? "regression" : "new");
+  }
+
+  return { verdicts, partial: report.partial === true };
+}
+
 export interface TrendPoint {
   runId: string;
   createdAt?: string;

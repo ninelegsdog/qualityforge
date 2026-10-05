@@ -130,6 +130,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     of another module stays `suite`, because a line in another file is not "above
     this spec" in any meaningful sense.
 
+### Fixed
+
+- **The README asserted an MCP config form difference that is not one.** "The key
+  is `mcp`, not `mcp.servers`" was wrong twice over: the schema at
+  `opencode.ai/config.json` describes V1, and the V2 documentation — along with
+  `opencode mcp add` — use `mcp.servers.<name>`. Both forms connect on v2.0.16;
+  the flat block was connected here, and so was the same block wrapped in
+  `"servers"`. What separates them is which file wrote the config, not whether it
+  works.
+
+  The connection line grew no more trustworthy from being tested: four
+  consecutive `opencode mcp list` runs against one unchanged file printed
+  `connected`, `pending`, `pending`, `pending`. The README now calls it a sample
+  rather than a verdict.
+
 ### Added
 
 - Read-only MCP server on stdio speaking protocol **2026-07-28**:

@@ -247,7 +247,10 @@ Re-run it before you believe it. In a directory OpenCode had not seen before,
 v2.0.16 printed `No MCP servers configured` on the first invocation and often the
 second, then `○ qualityforge  pending`, and only then the status above — with a
 config file that was present, valid and unchanged throughout. That first line is
-not evidence that your block is wrong.
+not evidence that your block is wrong, and one `connected` is not evidence that
+it is right: four consecutive invocations of the same command against the same
+unchanged file printed `connected`, `pending`, `pending`, `pending`. Read the
+line as a sample of a connection still being formed, not as a verdict.
 
 Add `--root <dir>` to serve artifacts from somewhere other than
 `artifacts/defects`, and `--history <dir>` to serve run history from somewhere
@@ -271,12 +274,15 @@ assumed:
   for the `node` form above, and OpenCode's documented default MCP timeout is
   5000 ms. That is a thin margin on a slower machine, so if `npx` ever fails to
   connect, swap in the spelled-out command before debugging anything else.
-- **The key is `mcp`, not `mcp.servers`.** OpenCode's published JSON schema and
-  its own documentation use the flat form shown above. `opencode mcp add` writes
-  a different one — `mcp.servers.<name>` — and OpenCode v2.0.16 accepts both: a
-  copy of the block above and a copy of the same block wrapped in `"servers"`
-  each connected, each serving three tools. Expect the two forms to differ if you
-  let `mcp add` write the file for you.
+- **Both `mcp.<name>` and `mcp.servers.<name>` connect.** The flat form shown
+  above is what the JSON schema at `https://opencode.ai/config.json` describes —
+  and that schema describes V1, so it is the wrong thing to check a V2 file
+  against. The V2 documentation documents `mcp.servers.<name>`, and
+  `opencode mcp add` writes that one, so a file you did not write will not match
+  the block above. v2.0.16 accepts both: the flat block connected here, and the
+  same block wrapped in `"servers"` connected too. The difference is which file
+  wrote it, not whether it works — assume nothing about a form you did not test,
+  including this one.
 
 **Kilo and MiMo are not supported, by decision.** An earlier version of this
 README claimed one block covered all three clients; only OpenCode was ever

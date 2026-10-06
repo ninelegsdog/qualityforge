@@ -45,6 +45,12 @@ SCRIPTS = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 from tool_list import EXPECTED_TOOLS  # noqa: E402
 
+# CI captures stdout through a pipe, where python block-buffers every print
+# and the runner stamps one flush: the 2026-10-06 failures showed four
+# attempts "running" in a millisecond, and reading the log was impossible.
+# Line buffering makes the log a record of when things happened.
+sys.stdout.reconfigure(line_buffering=True)
+
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
 SERVER = ROOT / "dist/mcp/index.js"
 PROXY = SCRIPTS / "mcp-wire-log.mjs"

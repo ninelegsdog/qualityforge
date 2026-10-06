@@ -255,25 +255,45 @@ on purpose.
 Separate from those three, `npm run mcp:schema` extracts the
 `ServerCapabilitiesSchema` from the `opencode` binary on this machine and fails
 if this server advertises a member the client's schema does not contain. It
-needs the binary, so it runs locally for now; E3 ("a live client in CI")
-installs a pinned client, and the check joins that job. It does not replace the
+needs the binary, so the `live-client` CI job installs a pinned one and runs it
+there (`OPENCODE_BIN` overrides discovery locally). It does not replace the
 unit tests — those pin behaviour, this one checks the quotation they were
 written against.
+
+And a fourth, which is the only one that speaks to a real client:
+`npm run mcp:live` installs nothing itself but finds `opencode` (or
+`OPENCODE_BIN`), connects it from a fresh directory outside the checkout with
+no `npx`, and asserts on the captured frames rather than on the word
+"connected": the `initialize` echo, our `serverInfo` in the result and in
+`_meta`, and a `tools/list` answer carrying `resultType`, `ttlMs`,
+`cacheScope` and exactly the tools `tool_list.py` names. It reads the wire
+through `scripts/mcp-wire-log.mjs`, because a legacy-path client stays silent
+about all of that: when the `_meta` envelope was removed from the answer, the
+client still connected, and only this check went red. In CI the job pins the
+client version twice — `EXPECT_OPENCODE_VERSION` against `opencode --version`,
+and `clientInfo` in the initialize frame against the same number.
 
 What these checks still do **not** cover, so you do not believe more than they
 prove:
 
-- **No real client.** `opencode mcp list` connects, in both `auto` and pinned
-  2026-07-28 mode, but that was checked by hand. If you change anything a client
-  reads during connection — `server/discover`, capabilities, the `initialize`
-  echo — verify against the actual client, and **use a fresh directory**: the CLI
-  caches connection state per directory, so a directory that has already seen a
+- **The modern path is still not exercised.** `mcp:live` covers what the real
+  client actually does, and what it actually does is a legacy handshake:
+  `initialize` with `2025-11-25`, no `_meta` on the request, no
+  `server/discover`. This was observed with the `protocol` config key set to
+  both `"auto"` and `"2026-07-28"` — `opencode mcp list` probes legacy either
+  way, so the pinned era and `server/discover` remain unexercised by any
+  automated check. If you change anything on that path, you are on your own
+  evidence. And **use a fresh directory** when checking by hand: the CLI caches
+  connection state per directory, so a directory that has already seen a
   failure keeps reporting it after you fixed the server.
+- **A connection is not a session.** The client loads tools and stops there;
+  nothing in CI calls a tool through a real client, because that needs a model.
 - **Nothing is checked for speed or concurrency.** If you add a fourth check that
   binds a port or writes to a shared path, it will collide with the other two.
 
-After changing this directory, still connect a real client. It reads things no
-local check asserts.
+After changing this directory, run `npm run mcp:live` (it needs the `opencode`
+binary). It reads things no local check asserts — and when it fails, the kept
+wire log names which frame lost what.
 
 ## The defect contract
 
@@ -341,6 +361,7 @@ speaking protocol 2026-07-28, and a package surface worth consuming — `exports
 for the entry and the fixture subpath, `bin` for the collector and the server,
 and `npm run package:check`, which installs the tarball outside this checkout and
 runs what `package.json` promises, with two controls that must fail. Published at
-<https://github.com/ninelegsdog/qualityforge> and green on CI. Not yet done:
-publication to npm, and a check against a live agent client. See
+<https://github.com/ninelegsdog/qualityforge> and green on CI, including a
+job that connects the real OpenCode client and asserts the frames of the
+handshake. Not yet done: publication to npm. See
 [`docs/roadmap.md`](docs/roadmap.md).

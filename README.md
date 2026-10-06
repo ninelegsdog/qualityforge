@@ -36,10 +36,12 @@ to act.
 
 ## Quick start
 
-Development requires **Node.js 22 or newer**. Node 20 is past end-of-life — its
-final release was in March 2026 — so CI runs Node 22 and 24. The package's
-`engines` field stays permissive at `>=20.19.0` so consumers on an older runtime
-are not blocked.
+Development requires **Node.js 22 or newer**, and `engines` says the same:
+`>=22.0.0`. Node 20 is past end-of-life — its final release was in March 2026 —
+so CI runs Node 22 and 24, and the floor is the lower of those two lines. The
+floor used to sit permissive at `>=20.19.0` so older runtimes were not blocked;
+nothing here had ever executed against it, so the owner's decision of
+2026-10-06 narrowed it to the line that runs.
 
 `.nvmrc` pins **22** for contributors. That is not cosmetic: `tsc` dies with a
 segmentation fault under one Node 24.21.0 build, on this machine, reproducibly —
@@ -53,10 +55,11 @@ should work, and _have not been tested_. Treat them as unverified rather than
 supported. The maintainer checks under `scripts/*.py` need Python 3 and are not
 part of the shipped path; nothing a consumer runs requires them.
 
-**Node 20 is untested, not supported.** The `engines` floor stays permissive on
-purpose so an install is not blocked, but CI runs 22 and 24 only. Nothing has ever
-been executed against 20 here, so the permissive floor is a statement about install
-politeness, not about behaviour.
+**Node 20 and 21 are not claimed at all.** Nothing has ever been executed
+against them here, and `engines: >=22.0.0` now says so instead of promising
+install politeness. If the floor and the CI matrix ever part ways,
+`npm run ci:validate` fails with both numbers — a lower floor promises a
+version nobody runs, a higher one a version CI has disproved.
 
 ```bash
 git clone https://github.com/ninelegsdog/qualityforge.git

@@ -138,7 +138,8 @@ if re.search(r"pull_request_target", text):
     problems.append("pull_request_target grants secrets to untrusted code; use pull_request")
 
 # --- 7. every npm run target exists ----------------------------------------
-scripts = json.loads((ROOT / "package.json").read_text(encoding="utf-8")).get("scripts", {})
+manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+scripts = manifest.get("scripts", {})
 for line in re.findall(r"^\s*-?\s*run:\s*(.+)$", text, re.MULTILINE):
     for token in line.split():
         if token.startswith("run:"):
@@ -276,6 +277,35 @@ for job_name, job in jobs.items():
                 f"matrix key {matrix_keys}, so matrix legs would collide"
             )
 
+# --- 12. the engines floor must equal the lowest line CI runs ---------------
+# `engines` is what package.json promises consumers can run; the matrix is what
+# actually runs. A floor below the matrix promises a version nobody executes —
+# `>=20.19.0` sat there while CI ran 22 and 24 (B4, owner's decision
+# 2026-10-06). A floor above it promises compatibility CI has just disproved by
+# running a lower line. Either way the two drift apart silently, which is the
+# pattern this file exists for: an unparseable floor fails closed too.
+floor_node = str((manifest.get("engines") or {}).get("node", ""))
+floor_match = re.match(r">=\s*(\d+)", floor_node)
+matrix_lines: set[int] = set()
+for job in jobs.values():
+    value = ((job or {}).get("strategy") or {}).get("matrix") or {}
+    value = value.get("node") if isinstance(value, dict) else None
+    if isinstance(value, list):
+        matrix_lines.update(int(v) for v in value if str(v).isdigit())
+    elif isinstance(value, int):
+        matrix_lines.add(value)
+if not floor_match:
+    problems.append(f"engines.node is {floor_node!r}; expected a floor like '>=22'")
+elif not matrix_lines:
+    problems.append("engines.node exists but no numeric node matrix was found to check it against")
+elif int(floor_match.group(1)) != min(matrix_lines):
+    problems.append(
+        f"engines.node claims {floor_node!r} while CI's lowest line is {min(matrix_lines)}: "
+        "a lower floor promises a version nobody runs, a higher one a version CI has disproved"
+    )
+else:
+    print(f"  engines {floor_node} = lowest CI line ({min(matrix_lines)})")
+
 print()
 if problems:
     print(f"FAIL: {len(problems)} problem(s)")
@@ -286,5 +316,5 @@ if problems:
 print(
     "OK: permissions least-privilege, actions SHA-pinned, no persisted credentials, "
     "timeouts set, installs without lifecycle scripts, every upload has a producer, "
-    "no EOL Node"
+    "no EOL Node, engines matches the CI matrix"
 )

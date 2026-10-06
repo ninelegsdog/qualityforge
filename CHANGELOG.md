@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A table of who implements the revision, with the commands behind it.**
+  [`docs/client-support.md`](docs/client-support.md) records each client's
+  connection, `server/discover` behaviour and capabilities form, and every row
+  cites the evidence (command + date) it rests on. Observed 2026-10-06: OpenCode
+  2.0.16 connects, requests `2025-11-25` without the `_meta` envelope and never
+  sends `server/discover` — though its bundled SDK carries the method, era-gated
+  to 2026 — while Kilo and MiMo read `not tested` by decision rather than by
+  omission. `npm run docs:support` fails a claim without a citation and an
+  "untested" row without a decision, so the table cannot drift into impression.
+
 ## [0.1.0-alpha.1] — 2026-10-06
 
 ### Added

@@ -1,7 +1,7 @@
 # Roadmap
 
 Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.4.0** and is
-published; nothing here has a release tag yet, so there is nothing to pin.
+published; the first tag, `v0.1.0-alpha.1`, was cut on 2026-10-06.
 
 This file was rewritten on 2026-10-04 because it had drifted: it still listed the
 repository, the licence and the community files as unbuilt, and Phases 2 and 3 as
@@ -13,7 +13,7 @@ work that _is_ outstanding invisible.
 
 - **Evidence pipeline.** Trace on first retry, screenshot and video on failure, in
   Chromium, Firefox and WebKit. A run that fails still publishes its artifacts.
-- **`defect.v1` at 1.2.0** — schema, producer and documentation, including the
+- **`defect.v1` at 1.4.0** — schema, producer and documentation, including the
   measured table of how the three engines disagree on identical faults.
 - **Collector and quality gate.** Splits by spec × project so one test across
   three engines is three artifacts rather than three retries of one; refuses
@@ -32,6 +32,13 @@ work that _is_ outstanding invisible.
   on three browsers. Checks that cannot be written as unit tests run there too —
   three MCP checks and one that drives a real Playwright to verify two rules about
   the shape of its report.
+- **Client support table.** [`client-support.md`](client-support.md) records who
+  was observed and how: every row cites the command and date behind it, and
+  `npm run docs:support` fails a claim without an observation or silence without
+  a recorded decision. OpenCode 2.0.16, observed 2026-10-06: connects, requests
+  `2025-11-25` without the `_meta` envelope, never sends `server/discover`
+  (though its bundled SDK carries it, era-gated to 2026); Kilo and MiMo read
+  `not tested` by decision.
 
 ## Not done, and why it is not done
 
@@ -77,10 +84,6 @@ is about files rather than line numbers.
 
 ## Open, and mine to do
 
-- Record which clients implement protocol 2026-07-28, as a table rather than as a
-  connection check. Issue #6. OpenCode connects, but issue #12 found it advertises
-  the _pre_-2026 capability shape, so "it works" and "it implements the revision" are
-  different claims and only the first is established.
 - A base fixture and a worked `BasePage` example. The selector policy is written
   down and lint-guarded against `waitForTimeout()`, but there is no reference page
   object to copy.

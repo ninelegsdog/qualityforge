@@ -571,6 +571,18 @@ _Proposed:_ schema — a per-entry `sameOriginAsTarget` boolean, or a separate
 `signals.thirdParty` group; minor bump. This one depends on G1: the flag needs a
 trustworthy target origin to compare against.
 
+_Observed on the second object (GitHub, 2026-10-06), both halves._ The avatars
+probe stubs `avatars.githubusercontent.com`; the artifact carries
+`requestFailures: 40` and `consoleErrors: 40` — the per-category cap, twice —
+and `dropped: 43` as one number with no bucket and no host attached, which is
+G5's risk sentence having come true: a consumer cannot tell whether the
+application's own errors were among the casualties. And `sameOriginAsTarget`
+would have answered **"third party"** about the flood: GitHub's image CDN lives
+on `githubusercontent.com` and its scripts on `githubassets.com` — first-party
+assets, foreign eTLD+1s — while the same artifacts correctly attribute the
+target's own `404` to `origin: github.com`. The vocabulary works; what is
+missing is the comparison, and the provenance of what was dropped.
+
 #### G6 · One HTTP response is recorded twice, and the duplicate is the worse copy
 
 _What could not be expressed:_ that these two entries are the same fact. A real
@@ -717,6 +729,140 @@ delegates the page state to has no cap at all.
 _Proposed:_ schema — additive `failure.errorContextBytes` so a consumer can decide
 before reading; producer follow-up — cap the snapshot and record that it was
 capped, the way `signals.dropped` already does.
+
+### The second object · GitHub
+
+One application proves only that one application. The owner's decision of
+2026-10-06 named the second object — **GitHub** — and
+[`../tests/smoke/third-party/github.smoke.spec.ts`](../tests/smoke/third-party/github.smoke.spec.ts)
+runs the same method against an application built the modern way: Turbo
+navigation without document loads, first-party assets on three registrable
+domains, content below the fold that is never fetched, and twenty-five rows
+sharing one accessible name where quotes.toscrape had ten.
+
+The three rules carry over unchanged: it never runs by default, an unreachable
+target — or one that answers 200 without the signed-out header — aborts the
+suite for that reason, and the probes fail on purpose with `test.fail()` still
+banned. The run additionally takes `--workers=1`: one reachability probe
+against somebody else's server instead of one per worker, and no contention
+between our own workers for the target's attention.
+
+```bash
+QUALITYFORGE_THIRD_PARTY=1 npx playwright test \
+  tests/smoke/third-party/github.smoke.spec.ts --project=chromium --workers=1
+npm run defects:collect
+```
+
+The run of 2026-10-06 (chromium, one worker): four tests establishing what the
+application does passed; the four probes each failed on the assertion their
+question is written around; `defects:collect` wrote four artifacts and failed
+the gate at 50% against the 5% cap; `defects:check` passed over the result
+afterwards. Both reverse paths were run too: an unreachable override
+(`http://127.0.0.1:9`) aborted with "unreachable … so this suite did not run",
+and a reachable-but-wrong override (the bundled fixture) was refused with
+"answered 200 but is not serving the application".
+
+#### What held up on the second object
+
+- **`page.url` after a navigation with no load event.** The failure happened on
+  `https://github.com/ninelegsdog/qualityforge/issues` while the test started
+  at `.../qualityforge`, and no document load ever fired; the artifact names
+  the destination, and the `error-context.md` snapshot beside it shows the
+  issue list.
+- **`context.targetSource: "observed"`.** The configured candidate was the
+  bundled fixture, the browser was on `github.com`, and the artifact says so
+  rather than claiming an origin it knew to be wrong — the 1.3.0
+  reconciliation, unattended.
+- **Origins on every signal.** Console, HTTP and request entries name
+  `github.com`, `github.githubassets.com` and `avatars.githubusercontent.com`
+  separately, which is what makes the questions below answerable at all.
+- **Evidence on every genuine failure.** Screenshot and video on all four
+  probes — the `test.fail()` lesson, observed a second time on a second
+  application.
+- **The contract's own rules held:** `validateDefect()` accepted all four
+  artifacts unchanged, the gate failed on the rate alone, and
+  `failure.attribution` stayed absent on body failures exactly as the
+  absent-means-body rule says.
+- **G6 and G7 reproduced on the target's own bug:** GitHub's signed-out pages
+  fetch `_global-navigation/payloads.json` and get a real `404` — recorded
+  once as `httpErrors` and again as Chromium's console sentence, with
+  `statusText: ""` and `location: { line: 0, column: 0 }`, from
+  `github.com`.
+
+#### G15 · `page.title` and `page.url` name different pages after a client-side navigation
+
+_What could not be expressed:_ that the two fields disagree, and which one a
+consumer should stand behind. The navigation probe's artifact carries
+`page.url: "https://github.com/ninelegsdog/qualityforge/issues"` and
+`page.title: "GitHub - ninelegsdog/qualityforge: Evidence-first browser quality
+automation …"`. A full load of that URL serves `Issues · ninelegsdog/qualityforge
+· GitHub` — checked separately — because the frame navigation rewrote the URL
+and left `document.title` on the page the run came from. Both fields were read
+at failure time, each is faithful to its source, and nothing in the artifact
+says they describe different pages.
+
+_Risk:_ a consumer that identifies the page by title — a listing, a dedupe key,
+a summary line — files client-side navigation failures under the previous page.
+A consumer that notices the disagreement cannot tell which field the run stands
+behind, because the contract does not say.
+
+_Owner's decision pending_ (raised with the E2 report, 2026-10-06): a
+documented limitation — both fields are read at failure time and can disagree
+after a client-side navigation; `page.url` is the browser's location — or a
+schema change, with the major bump that rule 7 requires for a meaning change.
+
+#### G16 · `dropped` counts a flood without saying who flooded it
+
+_What could not be expressed:_ where the dropped entries came from — and, on
+this target, whose they were. The avatars probe (stubbing the application's
+own `avatars.githubusercontent.com`) produced `requestFailures: 40` and
+`consoleErrors: 40`, both at the per-category cap, with `dropped: 43` recorded
+as a single number across categories. One host consumed both caps, and the
+artifact cannot say whether the application's own errors were among the
+casualties — G5's risk, observed rather than argued.
+
+_Risk:_ a consumer reads `dropped: 43` as housekeeping — bounded capture doing
+its job — when it may be the line saying the real error was evicted. The
+naive fix proposed under G5 would make it worse: the flood came from the
+application's own CDN, on another registrable domain.
+
+_Owner's decision pending:_ per-category drop counts (additive, minor bump) or
+a documented limitation — capture stays bounded and `dropped` stays a total.
+
+#### G17 · A resource the page never requested produces nothing at all
+
+_What could not be expressed:_ that the element in the failed assertion was
+never fetched. The lazy-content probe waits on a screenshot caption below the
+fold: `loading="lazy"` means the browser sends no request, `complete` stays
+`false`, the assertion fails — and **nothing in the signals is about that
+image**, because nothing failed. The one `requestFailure` in that artifact is
+an unrelated abort of the page's hero video
+(`github.githubassets.com/assets/code-1_desktop-….mp4`, `net::ERR_ABORTED`) —
+a true fact about the page, sitting next to the failure and looking like an
+explanation.
+
+_Risk:_ the consumer's real question — "did it break, or did it never
+happen?" — gets one available answer (break), and the false lead beside it
+makes that answer the attractive one.
+
+_Owner's decision pending:_ the only honest option is a documented limitation —
+absence is not a signal, and the contract records what happened, not what did
+not — recorded here for confirmation alongside G15 and G16.
+
+#### What the second object did not bring
+
+The hypothesis list drawn up before the run also named iframes (in discussions
+and embeds) and shadow DOM. Six signed-out public pages were checked for
+iframes — front page, repository, issue list, login, `/about`,
+`/features/copilot` — and their raw HTML contains **zero**; GitHub's content
+sanitizer keeps them out of markdown, and the public surface carries none. That
+is a negative result, not a resolution: the shape remains untested against the
+contract, and a target that actually has one — a challenge widget, an embed
+player — is what would settle it. Shadow DOM did not appear either. From the
+same list, what did materialize: client-side navigation (G15), never-requested
+lazy content (G17), duplicate accessible names at scale (twenty-five `Open`
+icons where quotes.toscrape had ten `(about)` links — generalized), and
+multi-host first-party assets (G16).
 
 ## Versioning
 

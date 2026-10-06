@@ -100,6 +100,10 @@ is about files rather than line numbers.
   object to copy.
 - Lint guards against CSS and XPath selectors, to finish the policy the docs state.
 - More than one entry point proven against a real third-party application.
+- Take the E2 gaps to the owner and land whichever they pick: G15–G17 in
+  `defect-schema.md` are waiting as schema change (with the bump rule 7
+  requires) or documented limitation — the options are written down, the call
+  is not mine.
 
 ## Board
 
@@ -118,7 +122,6 @@ Still open, and the reason each is still open:
 
 | Issue | Why it is still open                                                                                                          |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
-| #1    | one third-party application is proven; the issue asks for more than one                                                       |
 | #6    | the record now exists (`client-support.md`, cited per row); closing it is F1's call                                           |
 | #12   | the premise was refuted against the client's own binary and the decision is recorded in `0.1.0-alpha.1`; closing is F1's call |
 

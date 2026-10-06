@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "runId": "2026-10-06T20-39-57-608Z-21412a",
+  "createdAt": "2026-10-06T20:39:57.608Z",
+  "baseUrl": "http://127.0.0.1:4311",
+  "targetSource": "report",
+  "counts": {
+    "specs": 8,
+    "passed": 4,
+    "failed": 4,
+    "timedOut": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "aborted": 0
+  },
+  "durationMs": 137325,
+  "outcomes": {
+    "github-smoke-a-failure-after-client-side-navigation-reports-the-page-reached-without-a-reload": "failed",
+    "github-smoke-an-image-the-page-never-requested-is-distinguishable-from-one-that-failed": "failed",
+    "github-smoke-a-duplicated-accessible-name-on-twenty-five-rows-is-reported-as-ambiguous": "failed",
+    "github-smoke-a-first-party-cdn-under-another-domain-is-attributed-so-a-consumer-can-act-on-it": "failed"
+  },
+  "composition": "1712df6a58f7"
+}

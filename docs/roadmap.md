@@ -136,6 +136,10 @@ Only after the above:
 
 - Accessibility checks, visual regression, performance budgets, API assertions.
 - Cross-project configuration, so one policy applies to many repositories.
+- **MCP Registry, and MCPB packaging with it** — deferred by the owner's
+  decision of 2026-10-06: a milestone reached after the first consumers exist,
+  not a step before publication. Nothing in the registry direction is built or
+  promised until then.
 - Write access, and only behind the read-only surface being stable: run a test,
   validate a fix, draft an issue — sandboxed and audit-logged, never auto-published.
 

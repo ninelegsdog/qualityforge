@@ -86,21 +86,14 @@ milestone. The pre-release stays unpublished to npm.
 
 ## Open, and waiting on the owner
 
-These change meaning, not just behaviour, so they are not mine to decide:
+These change meaning, not just behaviour, so they are not mine to decide.
 
-- **G15–G17 (the second object, GitHub): a schema change or documented
-  limitations?** Raised with the E2 run on 2026-10-06. `page.title` disagreeing
-  with `page.url` after a client-side navigation is either a meaning change
-  (major bump, rule 7) or a rule consumers are told about; `dropped` provenance
-  is additive (minor bump) or documented as a total; "a resource the page never
-  requested produces no signal" is documentation either way — absence cannot be
-  recorded without inventing a claim. The three options and their risks are
-  written down in `defect-schema.md`; the call is the owner's.
-
-Two earlier questions were answered on 2026-10-04 and are no longer the
-owner's to call: `context.baseUrl` is now reconciled against the observed page
-(1.3.0, issue #8) and `failure.attribution` is `suite | hook | unknown`, where
-the split is about files rather than line numbers.
+None are open today. Answered and no longer the owner's to call: on 2026-10-04
+`context.baseUrl` became reconciled against the observed page (1.3.0, issue
+#8) and `failure.attribution` became `suite | hook | unknown`, where the
+split is about files rather than line numbers; on 2026-10-06 the owner chose
+**documented limitations** for G15–G17 — the contract stays at 1.4.0, and each
+gap in `defect-schema.md` now states what a consumer must not assume instead.
 
 ## Open, and mine to do
 

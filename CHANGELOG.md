@@ -26,8 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provenance when one host consumes both caps, and a never-requested resource
   that produces no signal to tell apart from silence — plus G5's cap
   prediction observed for real and a negative result for the iframes
-  hypothesis on six public pages. G15–G17 go to the owner as
-  schema-bump-or-documented-limitation; quick-start's counts moved to 384/60
+  hypothesis on six public pages. G15–G17 came back from the owner as
+  **documented limitations** (2026-10-06) — the contract stays at 1.4.0,
+  and each gap states what a consumer must not assume instead;
+  quick-start's counts moved to 384/60
   and are still checked by `docs:numbers`.
 
 ### Added

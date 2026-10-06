@@ -327,15 +327,21 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Pinned client. With --version the installer resolves a versioned
-      # release URL of anomalyco/opencode rather than "latest", and the check
-      # then asserts the version twice: against `opencode --version`, and
-      # against clientInfo in the initialize frame on the wire — a pin only
-      # means something if the binary that connects is the pinned one.
-      # --no-modify-path: PATH is set below, in the place CI actually reads it.
+      # Pinned client, and the URL matters more than it looks. The v2
+      # installer (opencode.ai/v2/install) fetches a versioned package from
+      # the npm registry - @opencode/cli-linux-x64 at this version - and the
+      # check then asserts the pin twice: against `opencode --version`, and
+      # against clientInfo in the initialize frame on the wire, because a pin
+      # only means something if the binary that connects is the pinned one.
+      # The v1 installer at opencode.ai/install was the first attempt and is
+      # wrong for v2: it resolves GitHub release assets, where no v2 binary
+      # exists, and without -f it saves GitHub's 404 HTML page instead of
+      # failing - this step failed in CI with "gzip: stdin: not in gzip
+      # format", which is that HTML reaching tar. --no-modify-path: PATH is
+      # set below, in the place CI actually reads it.
       - name: Install the pinned OpenCode client
         run: |
-          curl -fsSL https://opencode.ai/install | bash -s -- --version 2.0.16 --no-modify-path
+          curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.0.16 --no-modify-path
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
 
       - name: Connect the live client and assert the wire

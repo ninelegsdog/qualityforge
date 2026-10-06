@@ -17,7 +17,10 @@ Everything here reads exit codes and parsed JSON, never a grepped line, with
 one documented exception: `opencode mcp list` exits 0 whether the connection
 succeeded or not, so its printed verdict IS the signal for that one step. That
 is checked by attempting a connection to a server that never answers (the
-status stays `pending` and the loop below turns it into a failure).
+status stays `pending` and the loop below turns it into a failure). The
+attempts are spaced by `ATTEMPT_GAP_S`, because the verdict arrives long
+before the server it spawned has finished booting — see the constant for the
+measurements.
 
 The wire is read through scripts/mcp-wire-log.mjs, a pass-through that tags
 every frame it forwards. The proxy exists because "connected" is a weaker
@@ -36,6 +39,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
@@ -48,6 +52,16 @@ SERVER_NAME = "qualityforge-mcp"
 META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
 MAX_ATTEMPTS = 4
 ATTEMPT_TIMEOUT_S = 120
+# Wall-clock between attempts. `mcp list` prints its verdict and exits in
+# roughly 150ms on a fast runner, while the server it spawned keeps booting
+# after the client is gone — the two are racing, and back-to-back attempts
+# gave the whole connection about one second of real time. On 2026-10-06 two
+# consecutive runs on main failed with every attempt `pending` and the entire
+# check lasting 1.04s, while runs where each invocation happened to take
+# longer passed on the last attempt. The gap, not more attempts, is what
+# turns a background boot into a verdict: observed locally, attempt 1 found
+# nothing, a 2-second gap, attempt 2 connected.
+ATTEMPT_GAP_S = 2.0
 
 
 def fatal(message: str) -> "int":
@@ -144,6 +158,8 @@ def main() -> int:
             problems.append(f"client reported a failed connection: {combined.strip()!r}")
             break
         print(f"  attempt {attempt}: not connected yet")
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(ATTEMPT_GAP_S)
     else:
         problems.append(
             f"never reached `connected` in {MAX_ATTEMPTS} attempts; last output: "

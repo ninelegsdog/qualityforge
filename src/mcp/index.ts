@@ -25,11 +25,15 @@
  * }
  * ```
  *
- * The `.ts` entry point and `tsx` are deliberate, and there is no compiled
- * alternative to point at: `tsconfig.json` sets `noEmit` and the project has no
- * build step, so `dist/` does not exist. An earlier version of this comment
- * named `dist/mcp/index.js`, which no install of this repository has ever
- * produced.
+ * The compiled entry is the published one: `bin["qualityforge-mcp"]` points at
+ * `dist/mcp/index.js`, `prepare` builds it, and `npm run mcp:live` — the CI
+ * check that connects a real client — spawns exactly that path, from a
+ * directory outside the project, because that is how a client starts it. The
+ * `tsx` invocation above still works for development (it is what
+ * `npm run mcp` runs), but `dist/` is no longer hypothetical: an earlier
+ * version of this comment said the project had no build step and no install
+ * had ever produced `dist/mcp/index.js`. Packaging changed that; the comment
+ * had to follow.
  *
  * Kilo and MiMo are **not supported, by decision** — they read a similar `mcp`
  * shape, but only OpenCode was ever connected, so "all three read the same

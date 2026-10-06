@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A live client in CI.** `npm run mcp:live` connects the real `opencode`
+  binary to this server from a fresh directory outside the checkout — no `npx`,
+  no project environment, the way a client actually starts it — and asserts on
+  the captured frames rather than on the word "connected": the `initialize`
+  echo, `serverInfo` in the result and in `_meta`, and a `tools/list` answer
+  carrying `resultType`, `ttlMs`, `cacheScope` and exactly the tools
+  `tool_list.py` names. The wire is read through `scripts/mcp-wire-log.mjs`, a
+  dependency-free pass-through, because a legacy-path client stays silent about
+  all of that: with the `_meta` envelope removed from the answer the client
+  still connected, and only this check went red. The `live-client` CI job pins
+  the client to 2.0.16 and asserts the pin twice — `EXPECT_OPENCODE_VERSION`
+  against `opencode --version`, and `clientInfo` in the initialize frame
+  against the same number — and `mcp:schema` joined it, as promised when that
+  check was deferred for want of a client binary. Proven red four ways: no
+  `_meta`, no `resultType`, a server dying at startup, a wrong pinned version.
+  Observed on the way and recorded rather than assumed: `opencode mcp list`
+  probes legacy (`initialize` 2025-11-25) whatever the `protocol` config key
+  says, so the pinned era and `server/discover` remain outside every automated
+  check.
+
 - **The capabilities quotation is checked against the client itself.** The
   2026-07-28 shape was settled in `0.1.0-alpha.1` (issue #12: the schema in the
   OpenCode binary still carries `listChanged`, and the one lie —

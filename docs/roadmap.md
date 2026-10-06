@@ -28,10 +28,23 @@ work that _is_ outstanding invisible.
   it: `quality_flaky_tests` separates a spec that recovered from one that never did,
   and `quality_get_trend` reports a direction over a window and answers `unknown`
   below four runs. Both verified over real stdio against a seeded two-run window.
-- **CI on six legs**: lint and typecheck, unit tests on Node 22 and 24, the suite
-  on three browsers. Checks that cannot be written as unit tests run there too —
-  three MCP checks and one that drives a real Playwright to verify two rules about
-  the shape of its report.
+- **CI on six legs, plus the live client.** Lint and typecheck, unit tests on
+  Node 22 and 24, the suite on three browsers. Checks that cannot be written as
+  unit tests run there too — three MCP checks and one that drives a real
+  Playwright to verify two rules about the shape of its report.
+- **A live client in CI.** The `live-client` job installs OpenCode pinned to
+  2.0.16 (the installer resolves a versioned release URL; `EXPECT_OPENCODE_VERSION`
+  and `clientInfo` on the wire both re-assert the number), connects it from a
+  fresh directory outside the checkout with no `npx`, and reads the frames
+  through a pass-through proxy: the `initialize` echo, `serverInfo` in the result
+  and in `_meta`, a `tools/list` carrying `resultType`/`ttlMs`/`cacheScope` and
+  exactly the tools we name. Proven red four ways: the `_meta` envelope removed
+  (the client still connected — only this check caught it), `resultType`
+  removed, a server that dies at startup, and a wrong pinned version. What it
+  does not reach: `opencode mcp list` probes legacy regardless of the `protocol`
+  config key (observed with `"auto"` and `"2026-07-28"`), so the pinned era,
+  `server/discover` and a real tool call through a client stay unexercised —
+  the latter needs a model.
 - **Client support table.** [`client-support.md`](client-support.md) records who
   was observed and how: every row cites the command and date behind it, and
   `npm run docs:support` fails a claim without an observation or silence without
@@ -63,9 +76,6 @@ provably cannot reach the registry for somebody else's code, and the floor in
 `engines` stays deliberately permissive — publishing is what will force that
 question. Issue #4 is closed, because the decision was made and executed; the
 publication it decided on is still the owner's call.
-
-**A live client in CI.** OpenCode was connected by hand, once. That is a single
-unautomated point of trust, and it is documented rather than verified.
 
 **A release.** `v0.1.0-alpha.1` is tagged and installs from the tag with
 `npm i git+…#v0.1.0-alpha.1`; a GitHub Release carries the changelog section.

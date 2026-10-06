@@ -60,8 +60,11 @@ publication it decided on is still the owner's call.
 **A live client in CI.** OpenCode was connected by hand, once. That is a single
 unautomated point of trust, and it is documented rather than verified.
 
-**A release.** No tag, no milestone issues closed against one. `0.1.0-alpha.0` in
-`package.json` is a placeholder, not a distribution.
+**A release.** `v0.1.0-alpha.1` is tagged and installs from the tag with
+`npm i git+…#v0.1.0-alpha.1`; a GitHub Release carries the changelog section.
+The three issues still open on the `v0.1.0-alpha` milestone (#1, #6, #12) stay
+open by the owner's decision of 2026-10-06: the tag marks the code, not a closed
+milestone. The pre-release stays unpublished to npm.
 
 ## Open, and waiting on the owner
 

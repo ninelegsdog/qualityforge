@@ -1,6 +1,6 @@
 {
   "name": "qualityforge",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "private": false,
   "description": "Evidence-first browser quality automation for modern web applications.",
   "license": "Apache-2.0",

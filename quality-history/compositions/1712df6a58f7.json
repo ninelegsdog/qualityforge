@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "specIds": [
+    "github-smoke-serves-the-signed-out-front-page",
+    "github-smoke-serves-a-repository-page",
+    "github-smoke-keeps-page-state-across-a-client-side-navigation",
+    "github-smoke-offers-a-login-form-with-a-username-control",
+    "github-smoke-a-failure-after-client-side-navigation-reports-the-page-reached-without-a-reload",
+    "github-smoke-an-image-the-page-never-requested-is-distinguishable-from-one-that-failed",
+    "github-smoke-a-duplicated-accessible-name-on-twenty-five-rows-is-reported-as-ambiguous",
+    "github-smoke-a-first-party-cdn-under-another-domain-is-attributed-so-a-consumer-can-act-on-it"
+  ]
+}

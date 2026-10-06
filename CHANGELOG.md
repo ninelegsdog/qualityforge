@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A second third-party application: GitHub.**
+  `tests/smoke/third-party/github.smoke.spec.ts` (the owner's E2 decision of
+  2026-10-06) runs the same method as the quotes suite against an application
+  built the modern way: four tests establish what it does — client-side
+  navigation keeps page state, the repository page, the login form, the
+  signed-out front page — and four probes fail on purpose, one question each:
+  a failure after a Turbo navigation with no load event, a lazy image the
+  browser never requested, twenty-five rows sharing the accessible name
+  "Open", and a stubbed first-party CDN on a foreign eTLD+1. The reachability
+  probe also refuses a body that answers 200 without the signed-out header,
+  both refusals were run red on purpose, and the whole file stays out of
+  `npm test` behind `QUALITYFORGE_THIRD_PARTY=1` with `--workers=1`.
+  Findings are written down as G15–G17 in `docs/defect-schema.md` — `page.title`
+  stale against `page.url` after client-side navigation, `dropped: 43` with no
+  provenance when one host consumes both caps, and a never-requested resource
+  that produces no signal to tell apart from silence — plus G5's cap
+  prediction observed for real and a negative result for the iframes
+  hypothesis on six public pages. G15–G17 go to the owner as
+  schema-bump-or-documented-limitation; quick-start's counts moved to 384/60
+  and are still checked by `docs:numbers`.
+
+### Added
+
 - **`@playwright/test` is now a peer dependency** (owner's decision
   2026-10-06): a consuming project brings its own Playwright instead of
   receiving a second copy beside it, and `peerDependenciesMeta.optional` stays

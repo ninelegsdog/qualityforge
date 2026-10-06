@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0.0",
+  "runId": "2026-10-06T20-43-18-446Z-4bc456",
+  "createdAt": "2026-10-06T20:43:18.446Z",
+  "baseUrl": "http://127.0.0.1:4311",
+  "targetSource": "report",
+  "counts": {
+    "specs": 8,
+    "passed": 0,
+    "failed": 0,
+    "timedOut": 0,
+    "skipped": 7,
+    "flaky": 0,
+    "aborted": 1
+  },
+  "durationMs": 3790,
+  "outcomes": {
+    "github-smoke-serves-the-signed-out-front-page": "aborted",
+    "github-smoke-serves-a-repository-page": "skipped",
+    "github-smoke-keeps-page-state-across-a-client-side-navigation": "skipped",
+    "github-smoke-offers-a-login-form-with-a-username-control": "skipped",
+    "github-smoke-a-failure-after-client-side-navigation-reports-the-page-reached-without-a-reload": "skipped",
+    "github-smoke-an-image-the-page-never-requested-is-distinguishable-from-one-that-failed": "skipped",
+    "github-smoke-a-duplicated-accessible-name-on-twenty-five-rows-is-reported-as-ambiguous": "skipped",
+    "github-smoke-a-first-party-cdn-under-another-domain-is-attributed-so-a-consumer-can-act-on-it": "skipped"
+  },
+  "composition": "1712df6a58f7"
+}

@@ -88,10 +88,19 @@ milestone. The pre-release stays unpublished to npm.
 
 These change meaning, not just behaviour, so they are not mine to decide:
 
-Both questions below were answered on 2026-10-04 and are no longer the owner's
-to call: `context.baseUrl` is now reconciled against the observed page (1.3.0,
-issue #8) and `failure.attribution` is `suite | hook | unknown`, where the split
-is about files rather than line numbers.
+- **G15–G17 (the second object, GitHub): a schema change or documented
+  limitations?** Raised with the E2 run on 2026-10-06. `page.title` disagreeing
+  with `page.url` after a client-side navigation is either a meaning change
+  (major bump, rule 7) or a rule consumers are told about; `dropped` provenance
+  is additive (minor bump) or documented as a total; "a resource the page never
+  requested produces no signal" is documentation either way — absence cannot be
+  recorded without inventing a claim. The three options and their risks are
+  written down in `defect-schema.md`; the call is the owner's.
+
+Two earlier questions were answered on 2026-10-04 and are no longer the
+owner's to call: `context.baseUrl` is now reconciled against the observed page
+(1.3.0, issue #8) and `failure.attribution` is `suite | hook | unknown`, where
+the split is about files rather than line numbers.
 
 ## Open, and mine to do
 
@@ -100,10 +109,6 @@ is about files rather than line numbers.
   object to copy.
 - Lint guards against CSS and XPath selectors, to finish the policy the docs state.
 - More than one entry point proven against a real third-party application.
-- Take the E2 gaps to the owner and land whichever they pick: G15–G17 in
-  `defect-schema.md` are waiting as schema change (with the bump rule 7
-  requires) or documented limitation — the options are written down, the call
-  is not mine.
 
 ## Board
 

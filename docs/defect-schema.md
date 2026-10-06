@@ -806,10 +806,12 @@ a summary line — files client-side navigation failures under the previous page
 A consumer that notices the disagreement cannot tell which field the run stands
 behind, because the contract does not say.
 
-_Owner's decision pending_ (raised with the E2 report, 2026-10-06): a
-documented limitation — both fields are read at failure time and can disagree
-after a client-side navigation; `page.url` is the browser's location — or a
-schema change, with the major bump that rule 7 requires for a meaning change.
+_Owner's decision: documented limitation_ (2026-10-06). Both fields are read
+at failure time, and after a client-side navigation they can disagree:
+`page.url` is the browser's location, `page.title` is whatever the document
+carries at that moment. A consumer that needs one answer names the page by
+`page.url`; a stale title is a property of the target's navigation, not a
+second location.
 
 #### G16 · `dropped` counts a flood without saying who flooded it
 
@@ -826,8 +828,11 @@ its job — when it may be the line saying the real error was evicted. The
 naive fix proposed under G5 would make it worse: the flood came from the
 application's own CDN, on another registrable domain.
 
-_Owner's decision pending:_ per-category drop counts (additive, minor bump) or
-a documented limitation — capture stays bounded and `dropped` stays a total.
+_Owner's decision: documented limitation_ (2026-10-06). Capture stays
+bounded, `dropped` stays one total across categories, and no provenance for
+the dropped entries is recorded — by decision rather than by omission.
+Per-bucket counts remain the obvious additive option if a consumer ever needs
+them; nothing was added now.
 
 #### G17 · A resource the page never requested produces nothing at all
 
@@ -845,9 +850,9 @@ _Risk:_ the consumer's real question — "did it break, or did it never
 happen?" — gets one available answer (break), and the false lead beside it
 makes that answer the attractive one.
 
-_Owner's decision pending:_ the only honest option is a documented limitation —
-absence is not a signal, and the contract records what happened, not what did
-not — recorded here for confirmation alongside G15 and G16.
+_Owner's decision: documented limitation_ (2026-10-06). Absence is not a
+signal: the contract records what happened, not what did not, and a resource
+the page never requested produces nothing to write down.
 
 #### What the second object did not bring
 

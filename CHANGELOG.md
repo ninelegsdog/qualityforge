@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`@playwright/test` is now a peer dependency** (owner's decision
+  2026-10-06): a consuming project brings its own Playwright instead of
+  receiving a second copy beside it, and `peerDependenciesMeta.optional` stays
+  unset — npm 7+ installs the peer automatically, because the fixture cannot
+  run without it. The range is `^1.63.0`; `1.63.0` is what CI pins and verifies.
+  `npm run package:check` grew two claims proven red before this was written:
+  the installed package must declare the peer at `^1.63.0`, and npm must have
+  actually installed it for the consumer — declare the peer and stop having it
+  installed, and the check names which of the two broke.
+
+### Added
+
 - **A live client in CI.** `npm run mcp:live` connects the real `opencode`
   binary to this server from a fresh directory outside the checkout — no `npx`,
   no project environment, the way a client actually starts it — and asserts on

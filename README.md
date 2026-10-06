@@ -211,6 +211,15 @@ npx --no-install qualityforge [flags]                          # the collector
 npx --no-install qualityforge-mcp [--root <dir>] [--history <dir>]
 ```
 
+`@playwright/test` is a **peer**: a consuming project brings its own, and npm 7+
+installs it automatically when it is missing — which is why
+`peerDependenciesMeta.optional` stays unset, the owner's decision of
+2026-10-06: the fixture cannot run without it, so an install that skipped it
+would fail later and less clearly. The declared range is `^1.63.0`; the number
+CI verifies is `1.63.0`, pinned exactly in `devDependencies`, and
+`npm run package:check` fails if the installed package stops declaring the peer
+or npm stops installing it for the consumer.
+
 `--no-install` is deliberate: without it a missing local install falls through
 to the npm registry, and a name nobody has published yet is a name somebody
 else can take. The `qualityforge/dist/…` path is refused now — the internal

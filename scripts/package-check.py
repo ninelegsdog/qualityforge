@@ -235,6 +235,21 @@ def main() -> int:
     missing = [relative for relative in promised if not (package_root / relative).exists()]
     check(not missing, f"every path exports and bin name exists after install; missing: {missing}")
 
+    # The peer is a promise of the same kind as exports and bin: the fixture
+    # cannot run without @playwright/test, and the owner's decision (2026-10-06)
+    # was to declare it as a peer — without peerDependenciesMeta.optional, so
+    # npm 7+ installs it for every consumer. Declaring the peer and npm actually
+    # installing it are two claims, and either can stop being true silently.
+    peer = (manifest.get("peerDependencies") or {}).get("@playwright/test")
+    check(
+        peer == "^1.63.0",
+        f"the installed package declares @playwright/test as a peer at ^1.63.0 (found: {peer})",
+    )
+    check(
+        (consumer / "node_modules" / "@playwright" / "test").exists(),
+        "npm installed the peer for the consumer (npm 7+ installs peers, and none was optional)",
+    )
+
     print("\nimports from the consumer's directory")
     write(consumer / "probe-entry.mjs", PROBE_ENTRY)
     code, out, err = run(["node", "probe-entry.mjs"], consumer, 60)

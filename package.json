@@ -79,6 +79,9 @@
     "mcp": "tsx src/mcp/index.ts",
     "mcp:check:spawn": "python3 scripts/mcp-spawn-check.py ."
   },
+  "peerDependencies": {
+    "@playwright/test": "^1.63.0"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.63.0",

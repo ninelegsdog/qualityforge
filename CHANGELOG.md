@@ -53,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   omission. `npm run docs:support` fails a claim without a citation and an
   "untested" row without a decision, so the table cannot drift into impression.
 
+### Changed
+
+- **`engines` narrowed from `>=20.19.0` to `>=22.0.0`** (B4, owner's decision
+  2026-10-06: support what is verified). The floor had claimed Node 20 while CI
+  ran 22 and 24, and Node 20 reached end-of-life in March 2026 — the permissive
+  floor was a statement about install politeness that nothing here ever
+  executed. It now equals the lower of the two CI lines, `@types/node` moves 20
+  → 22 with it, and rule 12 of `scripts/validate-ci.py` fails if the floor and
+  the matrix ever part ways — proven both ways: `>=20` fails as a promise nobody
+  runs, `>=24` as a promise CI has disproved, `>=22` passes with
+  `engines >=22.0.0 = lowest CI line (22)`.
+
 ## [0.1.0-alpha.1] — 2026-10-06
 
 ### Added

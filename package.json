@@ -31,7 +31,7 @@
     "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.0.0"
   },
   "repository": {
     "type": "git",
@@ -82,7 +82,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.63.0",
-    "@types/node": "^20.19.43",
+    "@types/node": "^22.20.5",
     "eslint": "^10.12.0",
     "prettier": "^3.9.9",
     "tsx": "^4.23.15",

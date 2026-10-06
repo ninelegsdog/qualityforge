@@ -18,12 +18,12 @@ it is going. Where a decision is not yet final, it says so.
 
 ## Runtime baseline
 
-| Item       | Choice                               | Why                                                                                                                                                                             |
-| ---------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node       | 22 and 24 in CI, `engines >=20.19.0` | Node 20 is past end-of-life (final release March 2026). Playwright 1.63 requires `>=20`. The permissive floor keeps consumers on an older runtime unblocked.                    |
-| TypeScript | 5.9.x                                | TypeScript 7 exists, but `typescript-eslint` 8.71 declares `typescript >=4.8.4 <6.1.0`. Adopting 7.x would cost type-aware linting, including the `no-floating-promises` guard. |
-| ESLint     | 10.x                                 | 9.x is flagged unsupported by npm. `typescript-eslint` 8.71 supports `^10.0.0`.                                                                                                 |
-| Playwright | pinned exactly to 1.63.0             | A browser-automation pin should not float; the browser build is version-coupled.                                                                                                |
+| Item       | Choice                              | Why                                                                                                                                                                             |
+| ---------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node       | 22 and 24 in CI, `engines >=22.0.0` | Node 20 is past end-of-life (final release March 2026). The floor is the lower of the two CI lines, and `scripts/validate-ci.py` fails if floor and matrix ever disagree.       |
+| TypeScript | 5.9.x                               | TypeScript 7 exists, but `typescript-eslint` 8.71 declares `typescript >=4.8.4 <6.1.0`. Adopting 7.x would cost type-aware linting, including the `no-floating-promises` guard. |
+| ESLint     | 10.x                                | 9.x is flagged unsupported by npm. `typescript-eslint` 8.71 supports `^10.0.0`.                                                                                                 |
+| Playwright | pinned exactly to 1.63.0            | A browser-automation pin should not float; the browser build is version-coupled.                                                                                                |
 
 ## Layers
 

@@ -68,6 +68,12 @@ jobs:
       - name: Check documented numbers against the suite
         run: npm run docs:numbers
 
+      # Issue #6: the client-support table is a record of observations, so the
+      # rule it must not break is citation — a claim without a command and date
+      # behind it, or an "untested" cell with no recorded decision, goes red.
+      - name: Check the client-support table cites observations
+        run: npm run docs:support
+
       # The only check that leaves this checkout: pack, install into a throwaway
       # project, and run what package.json promises there. Nothing else reads
       # `exports` or `bin` — the suite runs `src/` through tsx and the packlist

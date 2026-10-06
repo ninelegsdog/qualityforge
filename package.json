@@ -68,6 +68,7 @@
     "ci:validate": "python3 scripts/validate-ci.py .",
     "docs:check": "python3 scripts/check-links.py .",
     "docs:numbers": "python3 scripts/doc-numbers-check.py .",
+    "docs:support": "python3 scripts/client-support-check.py .",
     "board:check": "python3 scripts/board-check.py .",
     "package:check": "python3 scripts/package-check.py .",
     "mcp:check": "python3 scripts/mcp-session-check.py .",

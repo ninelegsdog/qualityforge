@@ -33,8 +33,9 @@ work that _is_ outstanding invisible.
   unit tests run there too — three MCP checks and one that drives a real
   Playwright to verify two rules about the shape of its report.
 - **A live client in CI.** The `live-client` job installs OpenCode pinned to
-  2.0.16 (the installer resolves a versioned release URL; `EXPECT_OPENCODE_VERSION`
-  and `clientInfo` on the wire both re-assert the number), connects it from a
+  2.0.16 (the v2 installer fetches a versioned npm package;
+  `EXPECT_OPENCODE_VERSION` and `clientInfo` on the wire both re-assert the
+  number), connects it from a
   fresh directory outside the checkout with no `npx`, and reads the frames
   through a pass-through proxy: the `initialize` echo, `serverInfo` in the result
   and in `_meta`, a `tools/list` carrying `resultType`/`ttlMs`/`cacheScope` and

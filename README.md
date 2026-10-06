@@ -400,12 +400,13 @@ npm run defects:collect     # build defect artifacts from the last run
 npm run defects:check       # prove two report-shape rules on a real Playwright run
 npm run mcp                 # start the read-only MCP server on stdio
 npm run mcp:check:all       # drive the server over real stdio and check it
+npm run mcp:schema          # cross-check capabilities against the client's binary
 npm run verify              # lint + typecheck + build + format check (CI runs this first)
 ```
 
-`mcp:check*`, `defects:check`, `docs:numbers`, `docs:support` and `ci:validate`
-need Python 3. They are separate scripts because `verify` must stay runnable with
-only Node installed.
+`mcp:check*`, `mcp:schema`, `defects:check`, `docs:numbers`, `docs:support` and
+`ci:validate` need Python 3. They are separate scripts because `verify` must stay
+runnable with only Node installed.
 
 `defects:check` is the one check here that could not be written as a unit test,
 because two of its rules are claims about what Playwright writes and both were

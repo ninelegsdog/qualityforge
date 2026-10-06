@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The capabilities quotation is checked against the client itself.** The
+  2026-07-28 shape was settled in `0.1.0-alpha.1` (issue #12: the schema in the
+  OpenCode binary still carries `listChanged`, and the one lie —
+  `resources.subscribe` — was removed), and the unit tests pin our emission
+  against that schema quoted into the test file. A quotation proves the copy:
+  `npm run mcp:schema` extracts `ServerCapabilitiesSchema` from the `opencode`
+  binary on the machine and fails if this server advertises a member or nested
+  key the client's schema does not contain, naming the offending member and the
+  schema it came from. It runs locally until E3 installs a client in CI;
+  `OPENCODE_BIN` makes even the extraction's own failure path testable.
+  Proven red three ways: a binary without the schema, an out-of-schema member,
+  and — the case the schema cannot catch, because `subscribe` is valid in it —
+  the old advertisement, caught by `mcp:check` naming it.
+
 - **A table of who implements the revision, with the commands behind it.**
   [`docs/client-support.md`](docs/client-support.md) records each client's
   connection, `server/discover` behaviour and capabilities form, and every row

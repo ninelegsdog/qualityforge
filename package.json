@@ -72,6 +72,7 @@
     "board:check": "python3 scripts/board-check.py .",
     "package:check": "python3 scripts/package-check.py .",
     "mcp:check": "python3 scripts/mcp-session-check.py .",
+    "mcp:schema": "python3 scripts/capabilities-schema-check.py .",
     "mcp:check:tools": "python3 scripts/mcp-tools-check.py .",
     "mcp:check:all": "python3 scripts/mcp-check-all.py .",
     "mcp": "tsx src/mcp/index.ts",

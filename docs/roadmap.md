@@ -105,12 +105,11 @@ to describe. It needs a full clone, so it is not in CI, where
 
 Still open, and the reason each is still open:
 
-| Issue | Why it is open                                                          |
-| ----- | ----------------------------------------------------------------------- |
-| #1    | one third-party application is proven; the issue asks for more than one |
-| #4    | the distribution decision, which is the owner's                         |
-| #6    | which clients implement 2026-07-28 is unanswered; see above             |
-| #12   | we advertise the pre-2026 capability shape on the wire                  |
+| Issue | Why it is still open                                                                                                          |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------- |
+| #1    | one third-party application is proven; the issue asks for more than one                                                       |
+| #6    | the record now exists (`client-support.md`, cited per row); closing it is F1's call                                           |
+| #12   | the premise was refuted against the client's own binary and the decision is recorded in `0.1.0-alpha.1`; closing is F1's call |
 
 ## Later
 

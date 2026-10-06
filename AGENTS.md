@@ -252,6 +252,14 @@ really does hold evidence is still honoured. A server that ignored its working
 directory entirely would pass the first half alone, so the control case is there
 on purpose.
 
+Separate from those three, `npm run mcp:schema` extracts the
+`ServerCapabilitiesSchema` from the `opencode` binary on this machine and fails
+if this server advertises a member the client's schema does not contain. It
+needs the binary, so it runs locally for now; E3 ("a live client in CI")
+installs a pinned client, and the check joins that job. It does not replace the
+unit tests — those pin behaviour, this one checks the quotation they were
+written against.
+
 What these checks still do **not** cover, so you do not believe more than they
 prove:
 

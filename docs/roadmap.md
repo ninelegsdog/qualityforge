@@ -116,12 +116,11 @@ here: they were correct for an hour, which is the whole problem this section exi
 to describe. It needs a full clone, so it is not in CI, where
 `actions/checkout` fetches depth 1 and every closed issue would read as uncited.
 
-Still open, and the reason each is still open:
-
-| Issue | Why it is still open                                                                                                          |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------- |
-| #6    | the record now exists (`client-support.md`, cited per row); closing it is F1's call                                           |
-| #12   | the premise was refuted against the client's own binary and the decision is recorded in `0.1.0-alpha.1`; closing is F1's call |
+Nothing on the board is open. `#6` and `#12` were closed by F1 on 2026-10-06
+with their references (`#13` and `#14`), `#1` went with E2 (`PR #23`), and the
+milestone `v0.1.0-alpha` — twelve issues, all twelve closed — is closed with
+them. The two closing comments cite the pull request and the observations
+behind it rather than asserting the work happened.
 
 ## Later
 

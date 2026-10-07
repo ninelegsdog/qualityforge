@@ -16,9 +16,9 @@ import { SERVER_VERSION } from "../../../src/mcp/protocol.js";
  * run, which is the only evidence a new check can offer.
  */
 test("SERVER_VERSION says what package.json says", () => {
-  const pkg = JSON.parse(
-    readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
-  ) as { version: string };
+  const pkg = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
+    version: string;
+  };
 
   expect(
     SERVER_VERSION,

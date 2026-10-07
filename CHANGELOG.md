@@ -98,6 +98,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs, `>=24` as a promise CI has disproved, `>=22` passes with
   `engines >=22.0.0 = lowest CI line (22)`.
 
+### Fixed
+
+- **The live client check now waits for the connection instead of racing it.**
+  `opencode mcp list` prints its verdict and exits in about 150ms on a fast
+  runner, while the server it spawned keeps booting after the client is gone —
+  so four back-to-back attempts gave the connection roughly one second of wall
+  clock, and two consecutive runs on `main` failed with every attempt
+  `pending` and the whole check lasting 1.04s (2026-10-06). Attempts are
+  spaced by `ATTEMPT_GAP_S = 2.0` now, with the measurements next to the
+  constant: a server that never answers still goes red on `pending`, a server
+  that dies at startup still goes red on `failed`, and the live run still
+  asserts the frames. The check's stdout is line-buffered so the log says when
+  each attempt happened.
+
 ## [0.1.0-alpha.1] — 2026-10-06
 
 ### Added

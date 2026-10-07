@@ -1,7 +1,8 @@
 # Roadmap
 
 Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.4.0** and is
-published; the first tag, `v0.1.0-alpha.1`, was cut on 2026-10-06.
+published; tags `v0.1.0-alpha.1` (2026-10-06) and `v0.1.0-alpha.2`
+(2026-10-07).
 
 This file was rewritten on 2026-10-04 because it had drifted: it still listed the
 repository, the licence and the community files as unbuilt, and Phases 2 and 3 as
@@ -75,14 +76,16 @@ Still not done, and why this stays open: nothing published to npm. Until it is,
 the package installs only from git, `npx --no-install` is the only form that
 provably cannot reach the registry for somebody else's code, and the floor in
 `engines` stays deliberately permissive — publishing is what will force that
-question. Issue #4 is closed, because the decision was made and executed; the
-publication it decided on is still the owner's call.
+question. The owner's decisions are all in and recorded: publish to npm after
+E2 and `peerDependencies` (both executed), the name `qualityforge`, and
+`0.1.0-alpha.2` as the first published version. What remains is the step
+itself, behind a `prepublishOnly` gate that runs the release battery.
 
-**A release.** `v0.1.0-alpha.1` is tagged and installs from the tag with
-`npm i git+…#v0.1.0-alpha.1`; a GitHub Release carries the changelog section.
-The three issues still open on the `v0.1.0-alpha` milestone (#1, #6, #12) stay
-open by the owner's decision of 2026-10-06: the tag marks the code, not a closed
-milestone. The pre-release stays unpublished to npm.
+**A release.** `v0.1.0-alpha.2` is tagged and installs from the tag with
+`npm i git+…#v0.1.0-alpha.2`; a GitHub Release carries the changelog section.
+The `v0.1.0-alpha` milestone is closed — all twelve issues, #1 with E2 and
+#6/#12 with F1, the tag marking the code either way. The pre-release stays
+unpublished to npm until the publishing step runs.
 
 ## Open, and waiting on the owner
 

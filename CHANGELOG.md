@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] — 2026-10-07
+
 ### Added
 
 - **A second third-party application: GitHub.**
@@ -566,6 +568,7 @@ Initial foundation. Early alpha, not yet published to a registry.
 - No `artifacts/defects/` schema or MCP server yet.
 - CI runs Chromium only. Firefox and WebKit are planned.
 
-[Unreleased]: https://github.com/ninelegsdog/qualityforge/compare/v0.1.0-alpha.1...HEAD
+[Unreleased]: https://github.com/ninelegsdog/qualityforge/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/ninelegsdog/qualityforge/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/ninelegsdog/qualityforge/releases/tag/v0.1.0-alpha.1
 [0.1.0-alpha.0]: https://github.com/ninelegsdog/qualityforge/commit/cb7dbce7ac3226d7073ca9bf5b58571f80a76295

@@ -45,7 +45,7 @@ clone is green with no configuration and no third-party network access.
 
 | Count                                       | Number |
 | ------------------------------------------- | ------ |
-| Specs, all four projects                    | 384    |
+| Specs, all four projects                    | 385    |
 | Skipped without any configuration           | 60     |
 | — of those, `evidence-pipeline.spec.ts`     | 6      |
 | — of those, `quotes-toscrape.smoke.spec.ts` | 30     |

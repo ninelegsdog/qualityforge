@@ -22,6 +22,11 @@ on the word "third-party" and counted a test in `signal-capture.smoke.spec.ts`
 whose title happens to contain that word - which put the total at 33 per engine
 instead of 10, and would have shipped a check that disagreed with the suite for a
 reason that had nothing to do with either.
+
+The negative half: a suite count is refused outside quick-start. README,
+CONTRIBUTING, architecture and AGENTS are not read by this script, so a number
+living there would drift the way the quick-start's prose did. The one document
+this script checks is the acceptable home for a count; the others are told so.
 """
 
 import collections
@@ -152,6 +157,25 @@ def main() -> int:
             f"quick-start says {remaining.group(1)} remaining runs, but {total} collected "
             f"minus {skip_match.group(1)} skipped is {total - int(skip_match.group(1))}"
         )
+
+    # Suite counts belong in quick-start, the file this script reads. The other
+    # documents that could carry one — README, CONTRIBUTING, architecture,
+    # AGENTS — are not read here, so a count there would drift with nothing to
+    # catch it. Removal is only permanent if a number cannot come back, so the
+    # shapes a suite count takes are refused in those four files outright. A
+    # sentence that legitimately needs a quantity says it in words, not digits.
+    forbidden = re.compile(r"\b\d+\s+(specs?|tests?|passed|skipped)\b", re.IGNORECASE)
+    for rel in ("README.md", "CONTRIBUTING.md", "docs/architecture.md", "AGENTS.md"):
+        doc = ROOT / rel
+        if not doc.exists():
+            problems.append(f"{rel} is missing — a count cannot be checked in a renamed file")
+            continue
+        for lineno, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+            if forbidden.search(line):
+                problems.append(
+                    f"{rel}:{lineno} states a suite count ({line.strip()!r}); counts are "
+                    "checked only in quick-start — keep them there"
+                )
 
     # The Russian quick-start states the same number in prose, and until now
     # nothing read it: it still promised 139 specs while the suite collected

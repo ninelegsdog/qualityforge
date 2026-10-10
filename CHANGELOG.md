@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The repository presents itself as it is. The README is a front page — pitch,
+  badges, a table of contents and user-facing sections — and the stale
+  "not on npm yet" claim was fixed, since the package has been published
+  (PR #37). Issue forms and a pull-request template ask for the evidence this
+  project acts on: what was run, what was expected, how "done" would be able to
+  fail.
+- Repository process is enforced, not assumed: `main` requires the seven CI
+  checks to pass before merging, merging is squash-only with the branch deleted,
+  and line endings are pinned LF by `.gitattributes` (PR #37 and repository
+  settings).
+- `docs/architecture.md` describes the repository as it exists — one published
+  package, all five evidence-flow steps present, the legacy MCP handshake
+  documented — rather than a Day-2 snapshot with boxes marked "[planned]".
+
 ## [0.1.0-alpha.2] — 2026-10-07
 
 ### Added

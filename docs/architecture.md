@@ -1,7 +1,9 @@
 # Architecture
 
-Status: early alpha. This document describes what exists today and the direction
-it is going. Where a decision is not yet final, it says so.
+Status: early alpha, published. `qualityforge@0.1.0-alpha.2` has been on npm
+since 2026-10-10, and the defect contract is `defect.v1` at 1.4.0. This
+document describes what exists today and the direction it is going. Where a
+decision is not yet final, it says so.
 
 ## Principles
 
@@ -28,52 +30,77 @@ it is going. Where a decision is not yet final, it says so.
 ## Layers
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Consumers                                                   │
-│  OpenCode · Kilo · MiMo · any MCP client · humans            │
-└───────────────┬─────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│  Consumers                                                    │
+│  OpenCode · any MCP client · humans                           │
+└───────────────┬───────────────────────────────────────────────┘
                 │ MCP (stdio, read-only)
-┌───────────────▼─────────────────────────────────────────────┐
-│  @qualityforge/mcp        [planned]                           │
-│  normalizes evidence, serves tools/resources/prompts         │
-└───────────────┬─────────────────────────────────────────────┘
+┌───────────────▼───────────────────────────────────────────────┐
+│  src/mcp/                                                     │
+│  normalizes evidence, serves tools/resources/prompts          │
+└───────────────┬───────────────────────────────────────────────┘
                 │ reads files
-┌───────────────▼─────────────────────────────────────────────┐
-│  Artifact store            [planned]                         │
-│  artifacts/defects/<ID>.v1.json · traces · screenshots · video│
-└───────────────┬─────────────────────────────────────────────┘
+┌───────────────▼───────────────────────────────────────────────┐
+│  Artifact store                                              │
+│  artifacts/defects/<run>/ · quality-summary.v1.json · *.v1.json│
+└───────────────┬───────────────────────────────────────────────┘
                 │ written by
-┌───────────────▼─────────────────────────────────────────────┐
-│  @qualityforge/core         [planned]                        │
-│  schema definitions, validation, collectors                 │
-└───────────────┬─────────────────────────────────────────────┘
+┌───────────────▼───────────────────────────────────────────────┐
+│  src/defect/ and src/quality/                                 │
+│  collector, quality gate, signal capture, redaction           │
+└───────────────┬───────────────────────────────────────────────┘
                 │ produced by
-┌───────────────▼─────────────────────────────────────────────┐
-│  @playwright/test 1.63.0                [exists]             │
-│  runner · reporters · trace/screenshot/video                 │
-└───────────────┬─────────────────────────────────────────────┘
+┌───────────────▼───────────────────────────────────────────────┐
+│  @playwright/test 1.63.0                                      │
+│  runner · reporters · trace/screenshot/video                  │
+└───────────────┬───────────────────────────────────────────────┘
                 │ drives
-┌───────────────▼─────────────────────────────────────────────┐
-│  Application under test            [external]                │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────▼───────────────────────────────────────────────┐
+│  Application under test            [external]                 │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-## What exists today (Day 2)
+Everything above the runner is **one package**, `qualityforge`, and the boxes
+between the runner and the consumers are modules, not packages. A monorepo split
+is planned, not yet created (issue #4); it stays a single package until the MCP
+server genuinely needs its own version line. The `[planned]` markers earlier
+versions of this diagram carried were wrong in the other direction — the boxes
+they marked have existed for a while; what has not happened is the split.
 
-```
-playwright.config.ts      runner config, evidence policy, fixture webServer
-                          globalSetup wired to tests/setup/global-setup.ts
-scripts/serve.mjs         zero-dependency server: clean URLs, /api/items, /boom
-fixtures/                 the demo app: overview, docs, contact form, JS, CSS
-tests/smoke/              13 active tests + 2 opt-in deliberate failures
-tests/setup/              global setup: validates BASE_URL, fails loudly
-src/index.ts              package entry point
-.github/workflows/ci.yml  lint + typecheck + format + test, artifacts on failure
-docs/selectors-and-testid.md  locator policy
-```
+Kilo and MiMo are absent from the consumers box because they are out of scope
+**by decision**, not by omission — read [`client-support.md`](client-support.md)
+and the roadmap for the recorded reasons.
 
-`src/index.ts` is intentionally thin. It exists so the package has a real entry
-point; the schema and collector modules land here in later steps.
+## What exists today
+
+Everything the project set out to build is in place and shipped as the one
+package above:
+
+- **The package surface.** `exports` maps `.` to the typed entry and
+  `./fixtures/quality-context.js` to the fixture a consuming project imports;
+  `bin` publishes the collector (`qualityforge`) and the MCP server
+  (`qualityforge-mcp`). The deep `dist/…` path is refused, because internal
+  layout was never the contract.
+- **The collector and the quality gate.** Reads the JSON report of the last run
+  and writes one normalized, validated artifact per failure under
+  `artifacts/defects/<run>/`, plus a per-run summary. It splits by spec ×
+  project — a test failing on three engines is three artifacts, not three
+  retries of one — refuses duplicate ids, and treats an aborted suite as one
+  outage rather than a defect per test. Its exit code is the gate: `0` the
+  thresholds hold, `1` they are violated, `2` collection could not run.
+- **The MCP server.** Protocol 2026-07-28, read-only by construction, with
+  server-side path confinement: five tools, resources, and a `triage_failure`
+  prompt. Verified against OpenCode v2.0.16 over real stdio.
+- **Run history.** An optional `history` block keeps one compact entry per run
+  in a committed directory, and two MCP tools read it — the details and the
+  contract are in [`roadmap.md`](roadmap.md).
+- **CI.** Seven jobs: lint and typecheck, unit tests on Node 22 and 24, the
+  suite on three browsers, and a live-client job that installs a pinned OpenCode
+  and asserts the frames that cross the wire. Several checks cannot be unit
+  tests, because they depend on the shape of a real producer's output — those
+  live under `scripts/` and are described in [`../AGENTS.md`](../AGENTS.md).
+- **Published.** On npm since 2026-10-10, installable from the tag, with a
+  template repository wired to it — the details are under "Distribution" below.
 
 ## The demo app
 
@@ -95,9 +122,6 @@ Two properties are enforced structurally:
 - The server logs handler failures instead of swallowing them, because a fixture
   that hides errors turns a broken run into a confusing one.
 
-The entity list is fetched asynchronously on purpose: it forces the tests to use
-auto-retrying assertions rather than a sleep.
-
 ## Layout
 
 ```
@@ -114,21 +138,14 @@ src/
 scripts/                      checks that need a real producer, not a mock
 tests/{unit,smoke}/           unit specs, and browser specs against the demo app
 artifacts/defects/<run>/      quality-summary.v1.json and <ID>.v1.json
+quality-history/              committed run history, one compact entry per run
 ```
-
-An earlier version of this section was titled "Planned layout" and showed a
-`packages/core` + `packages/mcp` monorepo. That structure was never decided —
-it appeared here before the distribution question was ever asked, which made an
-unmade decision look settled. Issue #4 is still open, and the shape above is what
-exists rather than what is intended.
-
-A monorepo split is planned, not yet created. It stays a single package until
-the MCP server genuinely needs its own version line.
 
 ## What the fixture adds
 
-Browser tests import `test` and `expect` from `tests/fixtures.ts` rather than
-from `@playwright/test`. That single change is the whole integration:
+Browser tests import `test` and `expect` from `tests/fixtures.ts` (a consuming
+project imports `qualityforge/fixtures/quality-context.js`) rather than from
+`@playwright/test`. That single change is the whole integration:
 
 ```
 src/quality/signals.ts       listeners for console, pageerror, requestfailed, response
@@ -150,9 +167,6 @@ Two properties are enforced structurally:
   recording how many were cut. An artifact is read by a language model, and one
   unbounded stack dump crowds out everything else in the context window.
 
-The workflow has a static validator, `scripts/validate-ci.py`, because Actions
-cannot run without a remote. See `npm run ci:validate`.
-
 ## Evidence flow
 
 1. A test fails.
@@ -160,29 +174,49 @@ cannot run without a remote. See `npm run ci:validate`.
 3. Playwright also writes `error-context.md` next to them: a markdown summary
    containing the test name, the file and line, the error, and the expected
    versus received values.
-4. A collector reads those plus the JSON report and writes a normalized defect
-   artifact.
+4. The collector reads those plus the JSON report and writes one normalized,
+   validated defect artifact per failure.
 5. The MCP server exposes read-only tools over those artifacts.
 
-Steps 4 and 5 do not exist yet. They are the substance of the project.
-
-Step 4 exists now. `src/mcp/` serves those artifacts over stdio, read-only, with
-path confinement enforced server-side. Its only job is to hand an agent the facts
-and refuse everything else.
+All five steps exist. Step 4 doubles as the quality gate — its exit code is the
+thing CI and a consuming project read, and a violation of the thresholds must
+actually change CI's conclusion. Step 5 is `src/mcp/`: read-only, path
+confinement enforced server-side, its only job to hand an agent the facts and
+refuse everything else.
 
 Step 3 is worth noting: `error-context.md` is already phrased as an instruction
 to an assistant. It has been observed to contain lines like "Explain why, be
 concise, respect Playwright best practices", followed by the structured facts.
-The raw material for agent triage exists today, for free, and any defect
-schema should be built around extending it rather than duplicating it.
+The raw material for agent triage exists today, for free, and the defect schema
+is built around extending it rather than duplicating it.
+
+The whole path is asserted, not assumed. `QUALITYFORGE_EVIDENCE_CHECK=1` runs
+the evidence-pipeline spec, which fails on purpose and must leave real artifacts
+in `test-results/`. Claims that depend on the shape of a real producer's output
+— the report the collector reads, the frames a client sends — are checked by
+scripts that run the real producer, never by a hand-written fixture:
+`npm run defects:check`, `npm run mcp:check:all` and `npm run mcp:live` are the
+pattern. The rules behind that pattern are in
+[`../AGENTS.md`](../AGENTS.md#the-rule-nothing-is-done-until-it-has-run-in-the-real-environment).
+
+The workflow has a static validator, `scripts/validate-ci.py`, because Actions
+cannot run without a remote. See `npm run ci:validate`.
 
 ## MCP design constraints
 
 These are not preferences; they follow from the protocol version in use.
 
-- **Protocol 2026-07-28 is stateless.** No server-side sessions, and no
-  `initialize` handshake. Protocol version and client capabilities travel in
-  `_meta` on every request. The server must implement `server/discover`.
+- **Protocol 2026-07-28 is stateless for its era.** No server-side sessions;
+  protocol version and client capabilities travel in `_meta` on every request;
+  the server implements `server/discover`.
+- **The legacy handshake is still accepted.** A client that never sends
+  `initialize` must still get `tools/list`, so the server answers the 2025-11-25
+  handshake too. That is the path the real client takes: OpenCode probes legacy
+  regardless of its `protocol` config key, so the pinned era and
+  `server/discover` remain unexercised by any automated check — that boundary is
+  stated explicitly in [`../AGENTS.md`](../AGENTS.md#the-mcp-server). The
+  official SDK is not used because its 1.32.0 does not implement the 2026
+  revision.
 - **Logging goes to stderr, never stdout.** stdout carries the JSON-RPC frames.
   A stray `console.log` corrupts the stream.
 - **`resultType` is required** on every result.
@@ -191,7 +225,25 @@ These are not preferences; they follow from the protocol version in use.
 - **stdio transport is the right choice** for a local read-only server, and the
   security guidance explicitly prefers it: it limits access to the client.
 - **The server confines its own file access.** Client-side path allowlists are a
-  convenience, not a security boundary. `artifactsRoot` is enforced server-side.
+  convenience, not a security boundary. `artifactsRoot` is enforced server-side,
+  including against `..` and symlinks.
+
+## Distribution
+
+- **npm.** `qualityforge@0.1.0-alpha.2`, published 2026-10-10. `@playwright/test`
+  is a peer dependency (a consuming project brings its own), pinned exactly to
+  1.63.0 in `devDependencies`, and the declared range is `^1.63.0`.
+  `npm run package:check` packs the tarball, installs it into a directory
+  outside this checkout, and runs what `package.json` promises there — with
+  controls that are required to fail, so the check's own green means something.
+- **From the tag.** `npm i git+…#v0.1.0-alpha.2`; the `prepare` script builds
+  `dist/` before the tarball is packed, and a `files` whitelist decides what
+  travels.
+- **The runner form is always `npx --no-install`.** It provably cannot reach
+  the registry for somebody else's code.
+- **The template.** [`ninelegsdog/qualityforge-template`](https://github.com/ninelegsdog/qualityforge-template)
+  installs this package, runs green from a fresh clone, and carries the MCP
+  block already written.
 
 ## Deliberate non-goals
 

@@ -58,6 +58,9 @@ If you change the workflow or the artifact paths, run it.
 
 - One concern per pull request.
 - Explain **why**, not just what. The diff already shows what.
+- Use the pull-request template; it asks for the verification that makes a
+  change reviewable, including what you broke on purpose to confirm a new check
+  can fail.
 - If behaviour changes, update `CHANGELOG.md` under `[Unreleased]`.
 - If evidence fields change, that is a schema version bump — see `AGENTS.md`.
 - Conventional Commits for the commit subject: `feat:`, `fix:`, `docs:`,
@@ -85,8 +88,11 @@ Fine, and encouraged — this is an AI-native project. Two expectations:
 
 ## Reporting bugs
 
-Open an issue with: what you ran, what you expected, what happened, and the
-trace or report if you have one. A failing test is the ideal bug report.
+Use the bug-report issue form: it asks for the four things this project acts
+on — what you ran, what you expected, what happened, and the trace or report if
+you have one. A failing test is the ideal bug report. For a suggested change,
+use the feature-request form; it asks how "done" would be verified, because a
+change that cannot be observed failing is not finished.
 
 ## Security
 

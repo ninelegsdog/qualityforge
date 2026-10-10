@@ -1,0 +1,39 @@
+name: Feature request
+description: A suggested change to QualityForge. Be ready to name the problem it solves and how you would prove it works.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is early alpha and its roadmap is deliberately short.
+        A request that names the problem, the proposed change, and the evidence
+        that "done" means is one that can be weighed. See docs/roadmap.md for
+        what is explicitly out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is missing or broken, and for whom? A concrete scenario beats a general wish.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposed change
+      description: What would you add or change? Keep it to a scope that can be reviewed.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: How "done" would be verified
+      description: What would have to be observed for the change to count as working? This project does not take a green build as evidence by itself — name the failure you would break on purpose.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: "I have read docs/roadmap.md and this does not repeat an explicitly out-of-scope item"
+          required: true

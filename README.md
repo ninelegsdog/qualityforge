@@ -381,6 +381,8 @@ against the real producers, never against a hand-written fixture.
 - [`docs/client-support.md`](docs/client-support.md) — who was connected to the
   MCP server, and what was observed
 - [`docs/roadmap.md`](docs/roadmap.md) — where this is going, and where it is not
+- [`docs/parallel-work.md`](docs/parallel-work.md) — how several agents work in
+  this repository without colliding
 - [`AGENTS.md`](AGENTS.md) — rules for coding agents working in this repo
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 

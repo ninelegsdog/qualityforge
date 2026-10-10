@@ -1,0 +1,53 @@
+name: Bug report
+description: Something behaves differently from what the documentation promises.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A bug report that answers the four questions
+        below is one that can be acted on. A failing test is the ideal bug
+        report — if you can reduce the problem to a reproducer, do.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which qualityforge version or commit did you run?
+      placeholder: 0.1.0-alpha.2, or a commit sha
+    validations:
+      required: true
+  - type: textarea
+    id: ran
+    attributes:
+      label: What did you run?
+      description: The exact command, the environment (Node version, OS, browser), and how the suite was configured.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What did the documentation or the contract lead you to expect?
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened instead?
+      description: The actual output. Exit codes matter.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Trace, report, artifact, error-context.md — anything that shows the failure. Links welcome.
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Is this a security issue?
+      description: Do **not** file security problems here. See SECURITY.md for the private path.
+      options:
+        - label: "I confirm this is not a security issue (if it is, I will use SECURITY.md instead)"
+          required: false

@@ -154,11 +154,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run defects:collect
 
-      - name: Check MCP session and tool confinement
+      # Session and tools both start the server from the project root through
+      # `npx`, which is what nothing else does. The spawn check starts it from a
+      # foreign directory with no `npx` — the arrangement that actually broke
+      # the artifacts root once — and it was the only MCP check running in no
+      # CI job at all, which was an omission rather than a decision.
+      - name: Check MCP session, tool confinement and client spawn
         if: ${{ !cancelled() }}
         run: |
           python3 scripts/mcp-session-check.py .
           python3 scripts/mcp-tools-check.py .
+          python3 scripts/mcp-spawn-check.py .
 
       - name: Upload defect artifacts
         if: ${{ !cancelled() }}

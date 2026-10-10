@@ -1,0 +1,15 @@
+# Line endings. This repository is authored on Linux and stays LF-only; the
+# attributes below make the boundary explicit instead of relying on the
+# platform default.
+* text=auto
+
+# Explicitly LF, with conversion normalized on checkout.
+*.md text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.sh text eol=lf

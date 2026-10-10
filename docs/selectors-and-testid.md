@@ -45,8 +45,12 @@ page.getByRole("listitem").nth(0);
 page.locator("text=Submit");
 ```
 
-The project lints out `page.waitForTimeout()` and `test.only()` already. CSS
-selectors and XPath are not yet banned by lint, but they are against policy.
+The project lints out `page.waitForTimeout()` and `test.only()` already, and —
+since 2026-10-10 — CSS selectors, XPath and the `text=` shorthand in a
+`locator()` first argument. The guard is static: an argument built from a
+variable or a template literal is not caught, and positional `.nth()` remains
+policy-only, because banning it would have to cover `.first()` and `.last()`
+as well.
 
 ## The `data-testid` contract
 

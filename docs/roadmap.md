@@ -103,11 +103,19 @@ gap in `defect-schema.md` now states what a consumer must not assume instead.
 
 ## Open, and mine to do
 
-- A base fixture and a worked `BasePage` example. The selector policy is written
-  down and lint-guarded against `waitForTimeout()`, but there is no reference page
-  object to copy.
-- Lint guards against CSS and XPath selectors, to finish the policy the docs state.
 - More than one entry point proven against a real third-party application.
+
+Now done, on 2026-10-10: the selector policy gained its lint guard (PR #32 —
+CSS, XPath and the `text=` shorthand in a literal `locator()` argument fail
+`npm run lint`), and a worked `BasePage` exists to copy —
+`tests/smoke/pages/base-page.ts`, with `OverviewPage` and `ContactPage`
+extending a shared base and using none but the policy's selectors, driven on
+all three browser legs by `tests/smoke/base-page.smoke.spec.ts`. The base
+fixture behind it was already product code (`quality-context`, imported as
+`../fixtures.js`); what was missing was the reference. It runs for the same
+reason every other claim here runs: break a locator in it, and exactly the
+test that reads it goes red. Its twelve per-project tests moved the
+quick-start's counts to 397.
 
 ## Board
 

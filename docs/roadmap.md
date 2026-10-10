@@ -88,7 +88,11 @@ for somebody else's code.
 `npm i git+…#v0.1.0-alpha.2`, or from npm with `npm i qualityforge@0.1.0-alpha.2`;
 a GitHub Release carries the changelog section. The `v0.1.0-alpha` milestone
 is closed — all twelve issues, #1 with E2 and #6/#12 with F1, the tag marking
-the code either way.
+the code either way. The next release is the first stable one, tracked by the
+`v0.1.0` milestone (created 2026-10-10), whose description carries the criteria
+it must meet — so "when is it no longer alpha?" is answerable rather than felt.
+The prerelease also carries the `next` dist-tag; `latest` cannot be removed by
+npm and keeps pointing at the alpha until then (see `docs/architecture.md`).
 
 ## Open, and waiting on the owner
 
@@ -130,19 +134,29 @@ here: they were correct for an hour, which is the whole problem this section exi
 to describe. It needs a full clone, so it is not in CI, where
 `actions/checkout` fetches depth 1 and every closed issue would read as uncited.
 
-Nothing on the board is open. `#6` and `#12` were closed by F1 on 2026-10-07,
-on the owner's decision of 2026-10-06, with their references (`#13` and
-`#14`); `#1` went with E2 (`PR #23`), and the milestone `v0.1.0-alpha` —
-twelve issues, all twelve closed — is closed with them. The two closing
-comments cite the pull request and the observations behind it rather than
-asserting the work happened.
+Nothing on the defect board is open. `#6` and `#12` were closed by F1 on
+2026-10-07, on the owner's decision of 2026-10-06, with their references
+(`#13` and `#14`); `#1` went with E2 (`PR #23`), and the milestone
+`v0.1.0-alpha` — twelve issues, all twelve closed — is closed with them. The
+two closing comments cite the pull request and the observations behind it
+rather than asserting the work happened. The issues opened since are a
+different kind: `#40`–`#44` are the **Later** items below, filed so they can be
+picked up, not defects this repository found in itself.
 
 ## Later
 
-Only after the above:
+Only after the above. Each item is filed as an issue so it can be picked up and
+reviewed rather than living only in this file:
 
-- Accessibility checks, visual regression, performance budgets, API assertions.
-- Cross-project configuration, so one policy applies to many repositories.
+- Accessibility checks
+  ([#40](https://github.com/ninelegsdog/qualityforge/issues/40)), visual
+  regression
+  ([#41](https://github.com/ninelegsdog/qualityforge/issues/41)), performance
+  budgets
+  ([#42](https://github.com/ninelegsdog/qualityforge/issues/42)), API
+  assertions ([#43](https://github.com/ninelegsdog/qualityforge/issues/43)).
+- Cross-project configuration, so one policy applies to many repositories
+  ([#44](https://github.com/ninelegsdog/qualityforge/issues/44)).
 - **MCP Registry, and MCPB packaging with it** — deferred by the owner's
   decision of 2026-10-06: a milestone reached after the first consumers exist,
   not a step before publication. Nothing in the registry direction is built or

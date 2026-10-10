@@ -5,3 +5,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    ignore:
+      # The runner is pinned exactly and version-coupled to the browser build;
+      # bumping it is a deliberate integrator decision, not automation's.
+      - dependency-name: "@playwright/test"

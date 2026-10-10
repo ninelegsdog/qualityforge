@@ -185,6 +185,11 @@ not run at all.
 npm i qualityforge@0.1.0-alpha.2
 ```
 
+The prerelease is also tagged `next`; npm forbids removing `latest`, so both
+tag names point at the alpha until the first stable v0.1.0. Pin the version you
+want rather than trusting a tag name — a bare `npm i qualityforge` looks
+released and is not.
+
 A consuming project imports the fixture from the build — Playwright refuses to
 transpile TypeScript under `node_modules`, so the fixture is shipped as a
 subpath in `exports`:

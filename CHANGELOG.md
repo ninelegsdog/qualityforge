@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/architecture.md` describes the repository as it exists — one published
   package, all five evidence-flow steps present, the legacy MCP handshake
   documented — rather than a Day-2 snapshot with boxes marked "[planned]".
+- Dependency hygiene and package metadata: Dependabot now watches npm
+  dependencies as well as GitHub Actions (weekly; the Playwright runner stays
+  out of its reach by the pin policy), and `package.json` carries `homepage`
+  and `bugs`.
+- Dist-tag honesty: the prerelease is tagged `next`. `latest` cannot be removed
+  (registry constraint), so both tags point at the alpha until v0.1.0, and the
+  README says to pin the version rather than trust a tag name.
 
 ## [0.1.0-alpha.2] — 2026-10-07
 

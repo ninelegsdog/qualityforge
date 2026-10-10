@@ -33,6 +33,10 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "homepage": "https://github.com/ninelegsdog/qualityforge",
+  "bugs": {
+    "url": "https://github.com/ninelegsdog/qualityforge/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ninelegsdog/qualityforge.git"

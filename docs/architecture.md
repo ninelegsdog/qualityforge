@@ -236,6 +236,10 @@ These are not preferences; they follow from the protocol version in use.
   `npm run package:check` packs the tarball, installs it into a directory
   outside this checkout, and runs what `package.json` promises there — with
   controls that are required to fail, so the check's own green means something.
+- **Dist-tags.** The prerelease is tagged `next` as well as `latest`. npm
+  forbids removing the `latest` tag, so it keeps pointing at the alpha until
+  the first stable v0.1.0; install by pinned version rather than trusting tag
+  names.
 - **From the tag.** `npm i git+…#v0.1.0-alpha.2`; the `prepare` script builds
   `dist/` before the tarball is packed, and a `files` whitelist decides what
   travels.

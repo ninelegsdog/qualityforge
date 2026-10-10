@@ -19,7 +19,7 @@ otherwise.
 
 In scope:
 
-- the MCP server, once it exists, including its file access;
+- the MCP server and the file access it exposes;
 - the evidence artifact format and anything that writes it;
 - the CI workflow and its permissions;
 - dependency compromise affecting this project.
@@ -43,9 +43,9 @@ security change and needs review.
    configured artifacts root. `..` traversal, absolute paths and symlinks that
    escape the root are rejected. Client-side path allowlists are treated as a
    convenience, never as the boundary.
-3. **The first release runs over stdio.** Per the MCP security guidance, stdio
-   limits access to the client that spawned the server. HTTP transports are not
-   in scope for the MVP.
+3. **Released builds run over stdio.** Per the MCP security guidance, stdio
+   limits access to the client that spawned the server. HTTP transports are
+   not in scope; adding one would be a security change under this policy.
 4. **Secrets never enter evidence.** Redaction is applied to textual reports and
    artifacts before they are written.
 5. **CI runs with least privilege.** No secrets are exposed to test jobs beyond
@@ -55,5 +55,7 @@ security change and needs review.
 
 ## Supported versions
 
-The project is pre-release. Security fixes land on the `main` branch. No
-long-term-support branches exist yet.
+**There are no supported versions.** The package is pre-release: the most
+recent published build is `qualityforge@0.1.0-alpha.2`, tagged
+`v0.1.0-alpha.2`. Security fixes land on the `main` branch and are cut into
+patch releases from there. No long-term-support branches exist yet.

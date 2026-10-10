@@ -139,6 +139,20 @@ def main() -> int:
             f"to {matched_total}"
         )
 
+    # The "remaining N run" sentence is prose, and prose drift is the reason
+    # this script exists: it promised "139 specs" and "expect two skips" and
+    # nobody noticed. The sentence once read 324, where 385 - 60 is 325, and
+    # nothing read it. A sentence this script claims to stand behind is only
+    # trustworthy when the script checks this one too.
+    remaining = re.search(r"The remaining\s+(\d+)\s+run\.", text)
+    if remaining is None:
+        problems.append("quick-start has no `The remaining N run.` sentence to verify")
+    elif skip_match is not None and int(remaining.group(1)) != total - int(skip_match.group(1)):
+        problems.append(
+            f"quick-start says {remaining.group(1)} remaining runs, but {total} collected "
+            f"minus {skip_match.group(1)} skipped is {total - int(skip_match.group(1))}"
+        )
+
     # The Russian quick-start states the same number in prose, and until now
     # nothing read it: it still promised 139 specs while the suite collected
     # 353. A second document that says a number this script checks is only

@@ -55,7 +55,8 @@ Those skips are deliberate and all of them are described below: the evidence
 pipeline fails on purpose, and the third-party suite needs an application this
 repository did not build. The remaining 337 run.
 
-Every number in that table is checked against the suite by
+Every number in that table — and the `The remaining N run.` sentence above
+it — is checked against the suite by
 `npm run docs:numbers`, which counts what Playwright actually collects rather
 than trusting this file. An earlier version of this paragraph said "139 specs"
 and "expect two skips" — both were true when the matrix was one browser and the

@@ -1,8 +1,8 @@
 # Roadmap
 
-Status: **early alpha, pre-release.** Contract `defect.v1` is at **1.4.0** and is
-published; tags `v0.1.0-alpha.1` (2026-10-06) and `v0.1.0-alpha.2`
-(2026-10-07).
+Status: **early alpha, pre-release, published.** `qualityforge@0.1.0-alpha.2`
+went to npm on 2026-10-10. Contract `defect.v1` is at **1.4.0**; tags
+`v0.1.0-alpha.1` (2026-10-06) and `v0.1.0-alpha.2` (2026-10-07).
 
 This file was rewritten on 2026-10-04 because it had drifted: it still listed the
 repository, the licence and the community files as unbuilt, and Phases 2 and 3 as
@@ -72,20 +72,23 @@ never the contract. `npm run package:check` packs the tarball, installs it into 
 directory outside this checkout and runs what it promises there — with two
 controls that are required to fail, so the check's own green means something.
 
-Still not done, and why this stays open: nothing published to npm. Until it is,
-the package installs only from git, `npx --no-install` is the only form that
-provably cannot reach the registry for somebody else's code, and the floor in
-`engines` stays deliberately permissive — publishing is what will force that
-question. The owner's decisions are all in and recorded: publish to npm after
-E2 and `peerDependencies` (both executed), the name `qualityforge`, and
-`0.1.0-alpha.2` as the first published version. What remains is the step
-itself, behind a `prepublishOnly` gate that runs the release battery.
+Now done, on 2026-10-10: published to npm as `qualityforge@0.1.0-alpha.2`.
+The `prepublishOnly` gate ran verify, the suite, the three docs checks and
+`package:check` in the same invocation before the tarball left, and the wire
+version is bound to the package version by a test that was red on its first
+run — the frames of the published server carry the same number as the
+tarball. The probe from the registry installed `qualityforge@0.1.0-alpha.2`
+into a fresh directory, resolved `import('qualityforge')` on the `exports`
+map, and ran the collector's `--help`. The `engines` floor that publishing
+was meant to force was settled earlier by B4 at `>=22`; and
+`npx --no-install` remains the form that provably cannot reach the registry
+for somebody else's code.
 
 **A release.** `v0.1.0-alpha.2` is tagged and installs from the tag with
-`npm i git+…#v0.1.0-alpha.2`; a GitHub Release carries the changelog section.
-The `v0.1.0-alpha` milestone is closed — all twelve issues, #1 with E2 and
-#6/#12 with F1, the tag marking the code either way. The pre-release stays
-unpublished to npm until the publishing step runs.
+`npm i git+…#v0.1.0-alpha.2`, or from npm with `npm i qualityforge@0.1.0-alpha.2`;
+a GitHub Release carries the changelog section. The `v0.1.0-alpha` milestone
+is closed — all twelve issues, #1 with E2 and #6/#12 with F1, the tag marking
+the code either way.
 
 ## Open, and waiting on the owner
 

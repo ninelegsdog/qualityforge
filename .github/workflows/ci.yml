@@ -41,6 +41,9 @@ jobs:
       # --ignore-scripts: dependency lifecycle scripts are arbitrary code
       # execution on the runner. Nothing this project needs runs at install
       # time; Playwright browsers are installed by its CLI below.
+      - name: Repository contract
+        run: python3 scripts/check-repo-contract.py . scripts/repo-contract.json
+
       - run: npm ci --ignore-scripts
 
       - name: Lint

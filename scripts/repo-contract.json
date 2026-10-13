@@ -203,8 +203,7 @@
       ],
       "exemptions": {
         "Dockerfile": "No runtime.",
-        "docker-compose.yml": "No service.",
-        ".github/workflows": "A documentation repository has nothing to test. Its correctness is editorial, and CI cannot judge editorial quality - a badge claiming otherwise would be a lie."
+        "docker-compose.yml": "No service."
       }
     }
   },

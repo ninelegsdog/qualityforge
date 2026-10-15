@@ -84,6 +84,16 @@ was meant to force was settled earlier by B4 at `>=22`; and
 `npx --no-install` remains the form that provably cannot reach the registry
 for somebody else's code.
 
+Now decided, on 2026-10-15: **the repository-contract gate does not travel to
+the template.** The gate that landed on 2026-10-13 (`scripts/check-repo-contract.py`,
+`.editorconfig`, `CODEOWNERS`, a pull-request template) checks how a repository
+presents itself — released surface, badges, policy — and a template repository
+produces repositories at the moment they are cloned, before any of that exists.
+Running the gate there would redden a fresh clone in the one state it promises
+to be green in, which is the promise the template is for. The divergence is a
+decision, not an omission; what keeps it honest is that the template is run from
+a real fresh clone, and it stays green there.
+
 **A release.** `v0.1.0-alpha.2` is tagged and installs from the tag with
 `npm i git+…#v0.1.0-alpha.2`, or from npm with `npm i qualityforge@0.1.0-alpha.2`;
 a GitHub Release carries the changelog section. The `v0.1.0-alpha` milestone

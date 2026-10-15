@@ -247,7 +247,10 @@ These are not preferences; they follow from the protocol version in use.
   the registry for somebody else's code.
 - **The template.** [`ninelegsdog/qualityforge-template`](https://github.com/ninelegsdog/qualityforge-template)
   installs this package, runs green from a fresh clone, and carries the MCP
-  block already written.
+  block already written. It deliberately does **not** carry this repository's
+  contract gate: that gate checks how a repository presents itself, and the
+  template produces repositories at clone time, before any of that exists
+  (owner's decision, 2026-10-15 — see `docs/roadmap.md`).
 
 ## Deliberate non-goals
 

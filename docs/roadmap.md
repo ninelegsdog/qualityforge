@@ -136,6 +136,20 @@ gap in `defect-schema.md` now states what a consumer must not assume instead.
 
 - More than one entry point proven against a real third-party application.
 
+**Re-decided by the owner, on 2026-10-15: it stays open, and it does not
+block the release.** Measured rather than guessed while closing the `v0.1.0`
+milestone: both third-party suites import `../../fixtures.js` and nothing
+else, so exactly **one** entry point — the fixture — is proven against a
+real third-party application. The CLI is proven by
+`tests/unit/help-text.test.ts` and the registry probe; MCP by the dispatch
+tests and `mcp:live` against the real OpenCode client; the library import
+by `package:check`. None of those three runs against a third-party
+application, so the item is not closed and no test was stretched to make it
+read as closed. The milestone's own text already called it "deliberately
+not a blocker by default"; the owner chose not to promote it, so it follows
+the release like the **Later** items do, and closing the milestone records
+that decision instead of claiming the work.
+
 Now done, on 2026-10-10: the selector policy gained its lint guard (PR #32 —
 CSS, XPath and the `text=` shorthand in a literal `locator()` argument fail
 `npm run lint`), and a worked `BasePage` exists to copy —

@@ -99,15 +99,44 @@ directory outside the checkout, resolved `import('qualityforge')` and the
 binaries: `qualityforge --help` exited 0, and `qualityforge-mcp --help`
 wrote 0 bytes to stdout, so the protocol channel stayed clean.
 
-Now decided, on 2026-10-15: **the repository-contract gate does not travel to
-the template.** The gate that landed on 2026-10-13 (`scripts/check-repo-contract.py`,
-`.editorconfig`, `CODEOWNERS`, a pull-request template) checks how a repository
-presents itself — released surface, badges, policy — and a template repository
-produces repositories at the moment they are cloned, before any of that exists.
-Running the gate there would redden a fresh clone in the one state it promises
-to be green in, which is the promise the template is for. The divergence is a
-decision, not an omission; what keeps it honest is that the template is run from
-a real fresh clone, and it stays green there.
+Decided, and then measured, on 2026-10-15: **the repository-contract gate does
+not travel to the template.** The gate checks how a repository presents itself
+— released surface, badges, policy — and a template produces repositories at the
+moment they are cloned, under a name the shared contract has never heard of.
+
+The first statement of this decision was wrong for two days and is corrected
+here rather than left standing. It claimed the gate was absent from the
+template. It was not: it had arrived there on 2026-10-13 in the same three pull
+requests that brought it here (#5–#7 in the template, #51–#53 here), and the
+files were byte-identical. The decision was taken against a note saying the
+template still stood at 2026-10-06, which stopped being true on the 13th.
+
+Measured on a real fresh clone before anything was changed:
+
+| Clone of the template                       | The gate                                                   |
+| ------------------------------------------- | ---------------------------------------------------------- |
+| directory named after the repository        | exit 0 — `contract satisfied (37 assertions)`              |
+| directory named anything else               | exit 1 — `repository '<name>' has no type in the contract` |
+| a new project, its own name, its own remote | exit 1 — the same failure                                  |
+
+The gate takes the repository's identity from the directory name
+(`repo = root.name` in `scripts/check-repo-contract.py`), never from the git
+remote or `package.json`. The second and third rows are one failure, and the
+second is not a corner case: renaming the clone is what a template is for.
+CI never saw it, because `actions/checkout` clones into a directory named after
+the repository — a gate that cannot go red in the only place it would matter is
+not a gate. Resolving the name from the remote was tried and does not help: it
+turns the second row green and leaves a new project red, because no lookup can
+put an unregistered name into the contract.
+
+So the gate was removed from the template (PR #9 there, 2026-10-16), and a
+fresh clone named `my-new-bot` now runs `npm ci`, `npm test` and
+`npm run collect` — exit 0, gate passed. The governance layer stays, because it
+is what a generated project needs whatever it is called: `README.md`, `LICENSE`,
+`CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`,
+`AGENTS.md`, `.editorconfig`, `.gitattributes`, `CODEOWNERS`, and the issue and
+pull-request templates. A project takes the gate on when it joins the shared
+contract as an entry of its own, at which point the gate reads its real name.
 
 **A release.** `v0.1.0` is tagged and installs from the tag with
 `npm i git+…#v0.1.0`, or from npm with `npm i qualityforge@0.1.0`; a GitHub

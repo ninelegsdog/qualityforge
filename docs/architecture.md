@@ -251,8 +251,13 @@ These are not preferences; they follow from the protocol version in use.
   installs this package, runs green from a fresh clone, and carries the MCP
   block already written. It deliberately does **not** carry this repository's
   contract gate: that gate checks how a repository presents itself, and the
-  template produces repositories at clone time, before any of that exists
-  (owner's decision, 2026-10-15 — see `docs/roadmap.md`).
+  template produces repositories at clone time, under a name the shared
+  contract has never heard of — measured, not argued: the gate takes the
+  repository's identity from the directory name, so a fresh clone renamed to
+  a new project fails it, while CI never sees that because `actions/checkout`
+  clones into a directory named after the repository. The governance documents
+  stay in the template; only the checker left (owner's decision, 2026-10-15 —
+  see `docs/roadmap.md`).
 
 ## Deliberate non-goals
 

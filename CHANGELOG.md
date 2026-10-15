@@ -7,45 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing a consumer imports has changed since `0.1.0-alpha.2`. `src/`, the
+`defect.v1` contract at `1.4.0`, the `exports` map, `bin`, `files`, `engines`
+and the `^1.63.0` Playwright peer are identical to the tag — checked against
+`git diff v0.1.0-alpha.2..HEAD`, not assumed. Everything below is therefore of
+one of two kinds, and the two are kept apart: what a consumer reads, and what
+this repository now enforces on itself.
+
 ### Added
 
-- The repository presents itself as it is. The README became a front page — pitch,
-  badges, a table of contents and user-facing sections — and issue forms plus a
-  pull-request template now ask for the evidence this project acts on: what was
-  run, what was expected, and how "done" would be able to fail.
-- Governance layer brought to the family standard: `CONTRIBUTING.md`,
+- **A worked reference to copy** (PR #33). `docs/selectors-and-testid.md` has
+  named the page-object pattern as the reference consumers should follow, and
+  nothing demonstrated it — the suite called selectors inline, so a consumer
+  copied from a vacuum. `tests/smoke/pages/base-page.ts` now reads only the
+  policy's selectors (role, label, text, and the two `data-testid` the app
+  actually uses) and takes its page from the fixture, so the file a consumer
+  copies shows the real composition. It runs on all three browser legs like
+  every claim that is not a unit fact, and the reverse probe ran here: renaming
+  `Send` to `Sende` fails exactly the tests that click it on every leg with the
+  click timing out, and the tree was restored. Its twelve tests moved
+  quick-start's counts from 385 to 397.
+- **The selector policy is enforced, not stated** (PR #32). Five
+  `no-restricted-syntax` rules ban XPath prefixes, class and id selectors,
+  attribute selectors, combinators, whitespace-separated descendants and
+  `text=` on a literal first argument of `locator()`. Reverse probe: a scratch
+  spec carrying all six banned forms fails `lint` with eight errors naming each,
+  and the same file written with `getByRole`/`getByLabel`/`getByText`/
+  `getByTestId` passes. Variable and template arguments are not statically
+  reachable and stay a documented gap; positional `.nth()` stays policy-only.
+- **A repository-contract gate, and proof it can fail** (PRs #51, #52, #53).
+  `scripts/check-repo-contract.py` checks this repository against the shared
+  contract, `scripts/check-repo-contract_test.py` proves that checker goes red,
+  and the gate runs in CI rather than by hand. A gate that has never failed is
+  an assumption, not a gate.
+- **`docs:security`, and a `SECURITY.md` that describes what exists** (PR #34).
+  The policy answered the questions it exists for in wording that outlived the
+  code — "once it exists" for a server that exists and is published, "for the
+  MVP" for a first release that shipped. The scope and commitment now name the
+  published reality, and the check asserts each of the five claims — read-only,
+  server-side path boundary, stdio scope, redaction, no supported versions — by
+  the exact bold marker it is written as, in CI and in `prepublishOnly`.
+  Reverse probe: removing the read-only marker reddens it with the claim named.
+- **Governance brought to the family standard**: `CONTRIBUTING.md`,
   `SECURITY.md`, `CODE_OF_CONDUCT.md`, `AGENTS.md`, `.editorconfig`,
-  `.gitattributes` and `CODEOWNERS`.
-- `scripts/check-repo-contract.py` checks this repository against the shared
-  contract, and `scripts/check-repo-contract_test.py` proves that checker can
-  fail. A gate that has never gone red is an assumption, not a gate.
-- Long-form documentation that already existed but was not linked is now linked from the front page: `docs/architecture.md`, `docs/client-support.md`, `docs/defect-schema.md`, `docs/parallel-work.md`, `docs/quick-start.md`, `docs/quick-start.ru.md`, `docs/roadmap.md`, `docs/selectors-and-testid.md`.
+  `.gitattributes` and `CODEOWNERS`, plus issue forms and a pull-request
+  template asking for the evidence this project acts on — what was run, what was
+  expected, and how "done" would be able to fail.
+- Long-form documentation that existed but was unreachable is now linked from
+  the front page: `docs/architecture.md`, `docs/client-support.md`,
+  `docs/defect-schema.md`, `docs/parallel-work.md`, `docs/quick-start.md`,
+  `docs/quick-start.ru.md`, `docs/roadmap.md`, `docs/selectors-and-testid.md`.
 
 ### Changed
 
-- The repository presents itself as it is. The README is a front page — pitch,
-  badges, a table of contents and user-facing sections — and the stale
-  "not on npm yet" claim was fixed, since the package has been published
-  (PR #37). Issue forms and a pull-request template ask for the evidence this
-  project acts on: what was run, what was expected, how "done" would be able to
-  fail.
-- Repository process is enforced, not assumed: `main` requires the seven CI
-  checks to pass before merging, merging is squash-only with the branch deleted,
-  and line endings are pinned LF by `.gitattributes` (PR #37 and repository
-  settings).
-- `docs/architecture.md` describes the repository as it exists — one published
-  package, all five evidence-flow steps present, the legacy MCP handshake
-  documented — rather than a Day-2 snapshot with boxes marked "[planned]".
-- Dependency hygiene and package metadata: Dependabot now watches npm
-  dependencies as well as GitHub Actions (weekly; the Playwright runner stays
-  out of its reach by the pin policy), and `package.json` carries `homepage`
-  and `bugs`.
-- Dist-tag honesty: the prerelease is tagged `next`. `latest` cannot be removed
-  (registry constraint), so both tags point at the alpha until v0.1.0, and the
-  README says to pin the version rather than trust a tag name.
-
-- Line endings are pinned to LF by `.gitattributes`, so a CRLF contributor no
-  longer turns every touched line into a diff.
+- **The README is a front page** (PR #37): pitch, badges, a table of contents
+  and user-facing sections, and the stale "not on npm yet" claim is gone now
+  that the package is published.
+- **Documentation drift is checked where it happens** (PRs #35, #36).
+  `docs:numbers` parses the `The remaining N run.` sentence and compares it with
+  collected minus skipped — it had said 324 while 385 − 60 is 325, and nothing
+  read it, one paragraph below the check's own origin story. Four files that
+  must stay count-free (README, CONTRIBUTING, architecture, AGENTS) now refuse
+  the shapes a spec count takes there, so removal survives: appending a count
+  to the README fails naming the line.
+- **Process is enforced, not assumed** (PR #37 and repository settings): `main`
+  requires all seven CI checks, merging is squash-only with the branch deleted,
+  and `.gitattributes` pins LF so a CRLF contributor no longer turns every
+  touched line into a diff.
+- **Dependency hygiene and package metadata** (PRs #39, #57). Dependabot watches
+  npm as well as GitHub Actions (weekly; the Playwright runner stays out of its
+  reach by the pin policy), `package.json` carries `homepage` and `bugs`, and
+  `typescript@>=7` and `@types/node@>=23` are ignored with the reason beside
+  each: the first cannot pass `npm ci` because `typescript-eslint` declares a
+  peer of `>=4.8.4 <6.1.0`, the second describes modules the `node >=22` floor
+  does not have. Left to automation, the weekly run would reopen both and spend
+  two of five PR slots on bumps that cannot land.
+- **Dist-tag honesty** (PR #39): the prerelease carries `next`, `latest` cannot
+  be removed by npm and still points at the alpha until v0.1.0, and the README
+  says to pin the version rather than trust a tag name.
+- **The documentation describes the repository as it exists** (PRs #38, #46).
+  `docs/architecture.md` records one published package, all five evidence-flow
+  steps present and the legacy MCP handshake documented, rather than a Day-2
+  snapshot with boxes marked "[planned]"; the roadmap's Later items point at
+  issues #40–#44 instead of living only in the file, and "a release" names the
+  `v0.1.0` milestone whose description carries the criteria.
+- **The template's divergence is recorded as a decision** (PR #58).
+  `qualityforge-template` carries no part of the contract layer, because the
+  gate checks how a repository presents itself and a template produces
+  repositories at clone time, before any of that exists. Written down because an
+  unexplained divergence reads as an oversight and gets "fixed" by whoever
+  notices it first.
+- **`mcp:check:spawn` runs in CI** (PR #31). It starts the server from a
+  foreign directory with no `npx` — the arrangement that broke the artifacts
+  root once — and was the only MCP check with no job at all, while the other two
+  started the server from the project root, which is what nothing else does.
+  Its absence was an omission, and the comment on the step now says so.
 
 ### Fixed
 
@@ -57,7 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the code, the signal and the stderr. Found in the red CI job of 2026-10-13:
   the test failed its first attempt inside `npx`, passed on the retry against a
   warm cache, and the quality gate reddened the build over a flaky test — as
-  designed, and over a message that named the wrong cause.
+  designed, and over a message that named the wrong cause. Quick-start's counts
+  moved with the fix, to 399/60/339.
 - `README-testing.md` was unreachable from the README in every bot of the family
   except one. A document nobody can reach is a document nobody reads; it is linked
   from the front page now.

@@ -68,6 +68,74 @@ test.describe("redactText", () => {
     expect(out).not.toContain("dBjftJeZ4CVPmB92K27uhbUJU1p1r");
   });
 
+  test.describe("vendor tokens carrying no key beside them", () => {
+    // Measured over 29 706 lines of this repository and the working notes:
+    // 0 false positives in the corpus, 0 of 11 decoys taken. The formats
+    // below are the ones that survived that probe, and the decoys are the ones
+    // that would have failed it.
+    const GITHUB_PAT = `ghp_${"A".repeat(36)}`;
+    const GITHUB_OAUTH = `gho_${"B".repeat(36)}`;
+    const OPENAI = `sk-${"c".repeat(24)}`;
+    const AWS = `AKIA${"D".repeat(16)}`;
+
+    test("a GitHub token is redacted wherever it sits", () => {
+      const contexts = [
+        `Authorization: ${GITHUB_PAT}`,
+        `token ${GITHUB_PAT}`,
+        `Received: "${GITHUB_PAT}"`,
+        `Expected: "ok", Received: "${GITHUB_PAT}" — toHaveText failed`,
+        `selector: #${GITHUB_PAT}`,
+      ];
+
+      for (const context of contexts) {
+        expect(redactText(context), context).not.toContain(GITHUB_PAT);
+      }
+    });
+
+    test("the GitHub family is covered, not only personal access tokens", () => {
+      for (const token of [GITHUB_PAT, GITHUB_OAUTH, `ghs_${"E".repeat(36)}`]) {
+        expect(redactText(`seen ${token}`), token).not.toContain(token);
+      }
+    });
+
+    test("an OpenAI key and an AWS access key id are redacted", () => {
+      expect(redactText(`model rejected ${OPENAI}`)).not.toContain(OPENAI);
+      expect(redactText(`credential ${AWS} expired`)).not.toContain(AWS);
+    });
+
+    test("what only looks like a secret survives", () => {
+      // Two of these are why the broader `sk-` pattern was rejected: it takes
+      // both, and losing a slug and a class name is not a price worth paying.
+      //
+      // Note what is *not* in the list: the selector carrying `access_token=`.
+      // The probe measured the new patterns in isolation; this list is
+      // `redactText` end to end, and that string is legitimately redacted by the
+      // key-based rule that has been there since PR #61. Listing it here would
+      // have asserted that correct behaviour is a false positive.
+      const decoys = [
+        "ключ ghp_ слишком короткий, чтобы быть патентом",
+        "slug sk-антикварий-очень-длинное-имя-ветки-в-репозитории",
+        "base64: aGVsbG8gd29ybGQgdGhpcyBpcyBhIHRlc3Qgc3RyaW5n",
+        "sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "uuid: 550e8400-e29b-41d4-a716-446655440000",
+        "selector: a[href$='/very/long/path/segment/that/is/not/a/secret']",
+        "version 4.14.0 and commit 2071cc5b3f1a2c",
+        "AKIAEXAMPLE в документации как пример",
+        "заголовок sk-ant-api03 в примере конфигурации",
+        "class .sk-Utility-typography-wrapper-with-long-name",
+        "подпись в base64: sk9Xh2Yl0mN1pQ7rS4tU6vW8yZ0aB3cD5eF1gH2jK4lM6nP8q",
+      ];
+
+      for (const decoy of decoys) {
+        expect(redactText(decoy), decoy).not.toContain(REDACTED);
+      }
+
+      // And the string the new rule must not be blamed for, stated so the
+      // separation between the two mechanisms stays visible.
+      expect(redactText("a[href$='/reset?access_token=ghp_short']")).toContain(REDACTED);
+    });
+  });
+
   test("redacts URLs embedded in free text", () => {
     const out = redactText("request to https://example.com/callback?code=secret123 failed");
 

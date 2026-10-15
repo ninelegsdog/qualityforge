@@ -7,14 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] — 2026-10-15
+
+The first stable release.
+
 The `defect.v1` contract at `1.4.0`, the `exports` map, `bin`, `files`,
-`engines`, the `^1.63.0` Playwright peer and the package `version` are
-identical to the tag — checked field by field against `git diff
-v0.1.0-alpha.2`, not assumed. One thing a consumer reads does differ: signal
-redaction now honours the declared key list, which changes what an artifact
-contains but no import, signature or schema. Everything below is therefore of
-one of two kinds, and the two are kept apart: what a consumer reads, and what
-this repository now enforces on itself.
+`engines` and the `^1.63.0` Playwright peer are identical to
+`0.1.0-alpha.2` — checked field by field against `git diff
+v0.1.0-alpha.2`, not assumed. Only two things a consumer sees differ: the
+`version`, from `0.1.0-alpha.2` to `0.1.0`, and signal redaction, which
+now honours the declared key list — that changes what an artifact
+contains, but no import, signature or schema. Everything below is
+therefore of one of two kinds, and the two are kept apart: what a consumer
+reads, and what this repository now enforces on itself.
 
 ### Added
 
@@ -702,7 +709,8 @@ Initial foundation. Early alpha, not yet published to a registry.
 - No `artifacts/defects/` schema or MCP server yet.
 - CI runs Chromium only. Firefox and WebKit are planned.
 
-[Unreleased]: https://github.com/ninelegsdog/qualityforge/compare/v0.1.0-alpha.2...HEAD
+[Unreleased]: https://github.com/ninelegsdog/qualityforge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ninelegsdog/qualityforge/releases/tag/v0.1.0
 [0.1.0-alpha.2]: https://github.com/ninelegsdog/qualityforge/releases/tag/v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/ninelegsdog/qualityforge/releases/tag/v0.1.0-alpha.1
 [0.1.0-alpha.0]: https://github.com/ninelegsdog/qualityforge/commit/cb7dbce7ac3226d7073ca9bf5b58571f80a76295

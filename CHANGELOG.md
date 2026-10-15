@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing a consumer imports has changed since `0.1.0-alpha.2`. `src/`, the
-`defect.v1` contract at `1.4.0`, the `exports` map, `bin`, `files`, `engines`
-and the `^1.63.0` Playwright peer are identical to the tag — checked against
-`git diff v0.1.0-alpha.2..HEAD`, not assumed. Everything below is therefore of
+The `defect.v1` contract at `1.4.0`, the `exports` map, `bin`, `files`,
+`engines`, the `^1.63.0` Playwright peer and the package `version` are
+identical to the tag — checked field by field against `git diff
+v0.1.0-alpha.2`, not assumed. One thing a consumer reads does differ: signal
+redaction now honours the declared key list, which changes what an artifact
+contains but no import, signature or schema. Everything below is therefore of
 one of two kinds, and the two are kept apart: what a consumer reads, and what
 this repository now enforces on itself.
 
@@ -105,6 +107,26 @@ this repository now enforces on itself.
 
 ### Fixed
 
+- **Signal redaction now honours the declared key list.** `redactText` carried
+  its own nine-word pattern under a comment promising `SENSITIVE_KEYS`, and the
+  two lists drifted until eight declared keys — `auth, code, csrf, key, pwd,
+session, sig, signature` — passed through captured text untouched. The
+  pattern is now built from `SENSITIVE_KEYS` itself, so a second list cannot
+  drift again, and it covers three literal shapes the old one missed: a JSON
+  key with its closing quote (`{"token":"ghp_…"}` reached the artifact whole,
+  and that is the most ordinary object-printing shape there is), a
+  single-quoted value (`token: 'ghp_…'`), and an underscore continuation
+  (`session_id=`). The right-hand side got stricter to pay for the permissive
+  prefix that catches `accessToken=` and `clientSecret=`: `keyboard=`,
+  `sessionStorage=` and `tokenizer=` are left alone, where `tokenizer=` used
+  to be redacted too. The cost is measured, not asserted — across the 583
+  captured strings in `artifacts/defects/` the new pattern makes **zero**
+  extra redactions, and a positive control confirms that comparison can
+  report a nonzero count at all. It does fail closed on a word ending in a
+  key: `exit_code=1` and `status_code=404` are redacted, and that trade is
+  pinned by a test so that changing it is a decision rather than an omission.
+  Seven unit tests guard the change, and with the fix reverted six of them go
+  red. Counts in quick-start moved with it, to 406 specs and 346 running.
 - The collector-path tests classified every `execFile` rejection as exit 1 —
   the collector's own number for a failed gate — so a collector that never ran
   reported a failed gate instead of the reason it did not run. The interpreter

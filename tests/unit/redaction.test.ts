@@ -95,6 +95,71 @@ test.describe("redactAssignments", () => {
     expect(out).toContain("b=2");
     expect(out).not.toContain("hunter2");
   });
+
+  test("redacts the keys the pattern used to skip", () => {
+    // These eight are declared in SENSITIVE_KEYS and were still passed
+    // through untouched: the free-text pattern carried its own nine-word list
+    // under a comment promising the declared one, and the lists drifted.
+    for (const key of ["auth", "code", "csrf", "key", "pwd", "session", "sig", "signature"]) {
+      expect(redactAssignments(`${key}=SECRETVALUE123`), key).toBe(`${key}=${REDACTED}`);
+      expect(redactAssignments(`${key}: SECRETVALUE123`), key).toBe(`${key}: ${REDACTED}`);
+    }
+  });
+
+  test("redacts an object printed as JSON, where a quote sits before the colon", () => {
+    // console.log of an object is the most ordinary shape there is, and the
+    // closing quote of the key used to defeat the pattern entirely.
+    expect(redactAssignments('{"session":"abc123"}')).toBe(`{"session":"${REDACTED}"}`);
+    expect(redactAssignments('{"password": "hunter2"}')).toBe(`{"password": "${REDACTED}"}`);
+  });
+
+  test("redacts a single-quoted value", () => {
+    expect(redactAssignments("token: 'ghp_Zx8sTR0'")).toBe(`token: '${REDACTED}'`);
+    expect(redactAssignments("session='abc123'")).toBe(`session='${REDACTED}'`);
+  });
+
+  test("redacts a plural or an underscore continuation after the key", () => {
+    expect(redactAssignments("tokens=abc")).toBe(`tokens=${REDACTED}`);
+    expect(redactAssignments("session_id=abc")).toBe(`session_id=${REDACTED}`);
+    expect(redactAssignments("csrf_token=abc")).toBe(`csrf_token=${REDACTED}`);
+  });
+
+  test("redacts a camelCase or concatenated compound name", () => {
+    // The spellings a JS log actually uses. Catching them is why the prefix
+    // is permissive rather than a word boundary.
+    expect(redactAssignments("accessToken=ghp_Zx8sTR0")).toBe(`accessToken=${REDACTED}`);
+    expect(redactAssignments("clientSecret=ghp_Zx8sTR0")).toBe(`clientSecret=${REDACTED}`);
+    expect(redactAssignments("mysecret=ghp_Zx8sTR0")).toBe(`mysecret=${REDACTED}`);
+  });
+
+  test("leaves words that merely contain a key alone", () => {
+    // The strict right-hand side is what pays for the permissive prefix.
+    const untouched = [
+      "sessionStorage=x",
+      "keyboard=x",
+      "tokenizer=1",
+      "author=John",
+      "design=grid",
+      "status=404",
+      "expect(locator).toHaveText(expected) failed",
+      "Locator: getByRole('button')",
+      "Received: 0",
+    ];
+
+    for (const text of untouched) {
+      expect(redactAssignments(text), text).toBe(text);
+    }
+  });
+
+  test("fails closed on a word ending in a key", () => {
+    // Accepted, not accidental. Redacting `exit_code=1` costs a diagnostic
+    // number; missing a real credential costs far more, and on the captured
+    // corpus the extra redactions came to zero. Pinned here so that dropping
+    // it is a visible decision rather than an unnoticed one.
+    for (const text of ["exit_code=1", "status_code=404", "monkey=x", "encode=5"]) {
+      expect(redactAssignments(text), text).toBe(`${text.split("=")[0]}=${REDACTED}`);
+    }
+  });
 });
 
 test.describe("redactHeaders", () => {

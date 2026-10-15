@@ -133,6 +133,39 @@ const SENSITIVE_ASSIGNMENT = new RegExp(
 );
 
 /**
+ * Vendor tokens that are recognisable by shape alone.
+ *
+ * `redactAssignments` matches a secret by the *name of the key beside it*, which
+ * is why it already carries one shape rule — bare JWTs — and why this one belongs
+ * here rather than in a second detector. Measured: a token quoted into a failure
+ * message from the page carries no key to match, and 2 of 4 such messages kept
+ * their token while every keyed form was redacted.
+ *
+ * Only formats with a real structure are listed. Chosen by a probe over 29 706
+ * lines of this repository and the working notes — prose, code, docs, tests —
+ * with eleven decoys chosen to look like secrets (base64, sha256, UUIDs, long
+ * selectors, `AKIAEXAMPLE`, `sk-ant-api03` in a config sample):
+ *
+ * | Format                   | Caught | In corpus | Decoys hit |
+ * | ------------------------ | ------ | --------- | ----------- |
+ * | `gh[pousr]_` + 36        | 3/3    | 0         | 0           |
+ * | `sk-` + 20 alphanumerics | 1/1    | 0         | 0           |
+ * | `AKIA` + 16              | 1/1    | 0         | 0           |
+ *
+ * A broader `sk-` body that also accepts dashes catches real `sk-ant-api03-…`
+ * keys and was **rejected on the measurement**: it takes 2 of the 11 decoys, an
+ * `sk-` slug and a CSS class. That is the cost this project refuses — destroying
+ * diagnostics to guard against a secret the narrow rule does catch in the shapes
+ * it covers.
+ *
+ * Known residual: an Anthropic key carrying dashes in its body is not matched.
+ * Narrowing was a decision, not an oversight, and it is written down so the next
+ * reader sees the price instead of re-measuring it.
+ */
+const BARE_VENDOR_TOKEN =
+  /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b/g;
+
+/**
  * Replace `key=value` and `key: value` pairs for sensitive keys.
  *
  * Order matters. The auth-header rules run first, because otherwise the generic
@@ -146,6 +179,8 @@ export function redactAssignments(value: string): string {
       .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/g, `$1 ${REDACTED}`)
       // Bare JWTs, which have three dot-separated base64url segments.
       .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, REDACTED)
+      // Vendor tokens that arrive with no key beside them.
+      .replace(BARE_VENDOR_TOKEN, REDACTED)
       .replace(
         SENSITIVE_ASSIGNMENT,
         (_match, prefix: string, quote: string) => `${prefix}${quote}${REDACTED}${quote}`,

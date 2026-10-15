@@ -13,7 +13,7 @@ body:
     attributes:
       label: Version
       description: Which qualityforge version or commit did you run?
-      placeholder: 0.1.0-alpha.2, or a commit sha
+      placeholder: 0.1.0, or a commit sha
     validations:
       required: true
   - type: textarea

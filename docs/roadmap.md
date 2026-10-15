@@ -1,8 +1,10 @@
 # Roadmap
 
-Status: **early alpha, pre-release, published.** `qualityforge@0.1.0-alpha.2`
-went to npm on 2026-10-10. Contract `defect.v1` is at **1.4.0**; tags
-`v0.1.0-alpha.1` (2026-10-06) and `v0.1.0-alpha.2` (2026-10-07).
+Status: **stable, published.** `qualityforge@0.1.0` went to npm on 2026-10-15
+as the first stable release; `latest` points at it and `next` still holds
+`0.1.0-alpha.2` (2026-10-10). Contract `defect.v1` is at **1.4.0**; tags
+`v0.1.0-alpha.1` (2026-10-06), `v0.1.0-alpha.2` (2026-10-07) and `v0.1.0`
+(2026-10-15).
 
 This file was rewritten on 2026-10-04 because it had drifted: it still listed the
 repository, the licence and the community files as unbuilt, and Phases 2 and 3 as
@@ -84,6 +86,19 @@ was meant to force was settled earlier by B4 at `>=22`; and
 `npx --no-install` remains the form that provably cannot reach the registry
 for somebody else's code.
 
+Now done, on 2026-10-15: published to npm as `qualityforge@0.1.0`, the first
+stable release. The same `prepublishOnly` gate ran in full before the tarball
+left; `npm run mcp:live` connected the real OpenCode client from a fresh
+directory on the releaser's machine (`initialize` 2025-11-25,
+`_meta[serverInfo]`, five tools with `resultType`/`ttlMs`/`cacheScope`); and
+`latest` was verified in the registry rather than trusted — it lagged behind
+the `versions` entry for a moment, and `npm dist-tag add` then reported the
+tag was already set. The probe installed `qualityforge@0.1.0` into a fresh
+directory outside the checkout, resolved `import('qualityforge')` and the
+`fixtures/quality-context.js` subpath on the `exports` map, and ran both
+binaries: `qualityforge --help` exited 0, and `qualityforge-mcp --help`
+wrote 0 bytes to stdout, so the protocol channel stayed clean.
+
 Now decided, on 2026-10-15: **the repository-contract gate does not travel to
 the template.** The gate that landed on 2026-10-13 (`scripts/check-repo-contract.py`,
 `.editorconfig`, `CODEOWNERS`, a pull-request template) checks how a repository
@@ -94,15 +109,17 @@ to be green in, which is the promise the template is for. The divergence is a
 decision, not an omission; what keeps it honest is that the template is run from
 a real fresh clone, and it stays green there.
 
-**A release.** `v0.1.0-alpha.2` is tagged and installs from the tag with
-`npm i git+…#v0.1.0-alpha.2`, or from npm with `npm i qualityforge@0.1.0-alpha.2`;
-a GitHub Release carries the changelog section. The `v0.1.0-alpha` milestone
-is closed — all twelve issues, #1 with E2 and #6/#12 with F1, the tag marking
-the code either way. The next release is the first stable one, tracked by the
-`v0.1.0` milestone (created 2026-10-10), whose description carries the criteria
-it must meet — so "when is it no longer alpha?" is answerable rather than felt.
-The prerelease also carries the `next` dist-tag; `latest` cannot be removed by
-npm and keeps pointing at the alpha until then (see `docs/architecture.md`).
+**A release.** `v0.1.0` is tagged and installs from the tag with
+`npm i git+…#v0.1.0`, or from npm with `npm i qualityforge@0.1.0`; a GitHub
+Release carries the changelog section and `latest` points at it. It is the
+first stable one, and it followed two prereleases — `v0.1.0-alpha.1`
+(2026-10-06) and `v0.1.0-alpha.2` (2026-10-07), whose `v0.1.0-alpha`
+milestone closed all twelve issues, #1 with E2 and #6/#12 with F1, the tag
+marking the code either way. The `v0.1.0` milestone (created 2026-10-10)
+carried the criteria this release had to meet — so "when is it no longer
+alpha?" was answerable rather than felt. The prerelease keeps the `next`
+dist-tag; npm forbids removing `latest`, which now names the stable version
+(see `docs/architecture.md`).
 
 ## Open, and waiting on the owner
 

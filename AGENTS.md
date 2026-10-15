@@ -363,5 +363,6 @@ and `npm run package:check`, which installs the tarball outside this checkout an
 runs what `package.json` promises, with two controls that must fail. Published at
 <https://github.com/ninelegsdog/qualityforge> and green on CI, including a
 job that connects the real OpenCode client and asserts the frames of the
-handshake. Published to npm as `qualityforge@0.1.0-alpha.2` on 2026-10-10. See
+handshake. Published to npm as `qualityforge@0.1.0` on 2026-10-15 (the first
+stable release; `0.1.0-alpha.2` followed the same gate on 2026-10-10). See
 [`docs/roadmap.md`](docs/roadmap.md).

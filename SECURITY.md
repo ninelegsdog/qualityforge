@@ -55,7 +55,9 @@ security change and needs review.
 
 ## Supported versions
 
-**There are no supported versions.** The package is pre-release: the most
-recent published build is `qualityforge@0.1.0-alpha.2`, tagged
-`v0.1.0-alpha.2`. Security fixes land on the `main` branch and are cut into
-patch releases from there. No long-term-support branches exist yet.
+**There are no supported versions.** The most recent published build is
+`qualityforge@0.1.0`, tagged `v0.1.0`, and stability is not the same as
+support: no version is maintained in place, so no long-term-support
+branches exist. Security fixes land on the `main` branch and are cut into
+patch releases from there. Report against the current release; anything
+older receives no backport.

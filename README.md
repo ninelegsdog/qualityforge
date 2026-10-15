@@ -14,9 +14,10 @@ hands all of it to an AI assistant without granting it the ability to act.
 [![MCP protocol 2026-07-28](https://img.shields.io/badge/MCP%20protocol-2026--07--28-000000.svg)](#the-mcp-server)
 [![License](https://img.shields.io/github/license/ninelegsdog/qualityforge.svg)](LICENSE)
 
-> **Status — early alpha, published.** `qualityforge@0.1.0-alpha.2` is on npm
-> since 2026-10-10, and the defect contract is `defect.v1` at 1.4.0. Expect
-> breaking changes until 1.x.
+> **Status — stable, published.** `qualityforge@0.1.0` is on npm since
+> 2026-10-15, and the defect contract is `defect.v1` at 1.4.0. This is the
+> first stable release; the `0.x` line still allows breaking changes in a
+> minor, so pin the version you install.
 
 ## Contents
 
@@ -182,13 +183,13 @@ not run at all.
 ### Installing the package
 
 ```bash
-npm i qualityforge@0.1.0-alpha.2
+npm i qualityforge@0.1.0
 ```
 
-The prerelease is also tagged `next`; npm forbids removing `latest`, so both
-tag names point at the alpha until the first stable v0.1.0. Pin the version you
-want rather than trusting a tag name — a bare `npm i qualityforge` looks
-released and is not.
+`latest` points at this release. Pin the version you want rather than trusting
+a tag name anyway: npm forbids removing `latest`, so a tag can only ever move
+forward, and a bare `npm i qualityforge` takes whatever it points at rather
+than what you tested against.
 
 A consuming project imports the fixture from the build — Playwright refuses to
 transpile TypeScript under `node_modules`, so the fixture is shipped as a

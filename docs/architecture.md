@@ -1,7 +1,7 @@
 # Architecture
 
-Status: early alpha, published. `qualityforge@0.1.0-alpha.2` has been on npm
-since 2026-10-10, and the defect contract is `defect.v1` at 1.4.0. This
+Status: stable, published. `qualityforge@0.1.0` has been on npm since
+2026-10-15, and the defect contract is `defect.v1` at 1.4.0. This
 document describes what exists today and the direction it is going. Where a
 decision is not yet final, it says so.
 
@@ -230,17 +230,19 @@ These are not preferences; they follow from the protocol version in use.
 
 ## Distribution
 
-- **npm.** `qualityforge@0.1.0-alpha.2`, published 2026-10-10. `@playwright/test`
+- **npm.** `qualityforge@0.1.0`, published 2026-10-15, and `latest` points at
+  it; `0.1.0-alpha.2` (2026-10-10) is still under the `next` tag.
+  `@playwright/test`
   is a peer dependency (a consuming project brings its own), pinned exactly to
   1.63.0 in `devDependencies`, and the declared range is `^1.63.0`.
   `npm run package:check` packs the tarball, installs it into a directory
   outside this checkout, and runs what `package.json` promises there — with
   controls that are required to fail, so the check's own green means something.
-- **Dist-tags.** The prerelease is tagged `next` as well as `latest`. npm
-  forbids removing the `latest` tag, so it keeps pointing at the alpha until
-  the first stable v0.1.0; install by pinned version rather than trusting tag
-  names.
-- **From the tag.** `npm i git+…#v0.1.0-alpha.2`; the `prepare` script builds
+- **Dist-tags.** `latest` points at `0.1.0`; `0.1.0-alpha.2` sits under `next`.
+  npm forbids removing a tag, so the alpha's `latest` was not revoked but moved
+  on publish to the stable version — install by pinned version rather than
+  trusting tag names.
+- **From the tag.** `npm i git+…#v0.1.0`; the `prepare` script builds
   `dist/` before the tarball is packed, and a `files` whitelist decides what
   travels.
 - **The runner form is always `npx --no-install`.** It provably cannot reach

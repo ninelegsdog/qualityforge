@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The repository presents itself as it is. The README became a front page — pitch,
+  badges, a table of contents and user-facing sections — and issue forms plus a
+  pull-request template now ask for the evidence this project acts on: what was
+  run, what was expected, and how "done" would be able to fail.
+- Governance layer brought to the family standard: `CONTRIBUTING.md`,
+  `SECURITY.md`, `CODE_OF_CONDUCT.md`, `AGENTS.md`, `.editorconfig`,
+  `.gitattributes` and `CODEOWNERS`.
+- `scripts/check-repo-contract.py` checks this repository against the shared
+  contract, and `scripts/check-repo-contract_test.py` proves that checker can
+  fail. A gate that has never gone red is an assumption, not a gate.
+- Long-form documentation that already existed but was not linked is now linked from the front page: `docs/architecture.md`, `docs/client-support.md`, `docs/defect-schema.md`, `docs/parallel-work.md`, `docs/quick-start.md`, `docs/quick-start.ru.md`, `docs/roadmap.md`, `docs/selectors-and-testid.md`.
+
 ### Changed
 
 - The repository presents itself as it is. The README is a front page — pitch,
@@ -29,6 +43,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dist-tag honesty: the prerelease is tagged `next`. `latest` cannot be removed
   (registry constraint), so both tags point at the alpha until v0.1.0, and the
   README says to pin the version rather than trust a tag name.
+
+- Line endings are pinned to LF by `.gitattributes`, so a CRLF contributor no
+  longer turns every touched line into a diff.
+
+### Fixed
+
+- The collector-path tests classified every `execFile` rejection as exit 1 —
+  the collector's own number for a failed gate — so a collector that never ran
+  reported a failed gate instead of the reason it did not run. The interpreter
+  is now the pinned local `tsx` instead of whatever `npx` fetches from the
+  registry into a temporary directory, and an unrecognised rejection fails with
+  the code, the signal and the stderr. Found in the red CI job of 2026-10-13:
+  the test failed its first attempt inside `npx`, passed on the retry against a
+  warm cache, and the quality gate reddened the build over a flaky test — as
+  designed, and over a message that named the wrong cause.
+- `README-testing.md` was unreachable from the README in every bot of the family
+  except one. A document nobody can reach is a document nobody reads; it is linked
+  from the front page now.
 
 ## [0.1.0-alpha.2] — 2026-10-07
 

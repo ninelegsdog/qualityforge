@@ -15,3 +15,21 @@ updates:
       # The runner is pinned exactly and version-coupled to the browser build;
       # bumping it is a deliberate integrator decision, not automation's.
       - dependency-name: "@playwright/test"
+      # typescript-eslint declares peer typescript ">=4.8.4 <6.1.0" — checked on
+      # 8.71.2, the newest published line. TypeScript 7 is outside that range, so
+      # the bump dies at `npm ci` with ERESOLVE before a typecheck ever runs, and
+      # no amount of re-running CI changes a peer declaration. Automation cannot
+      # act on it; reopening it weekly only buries the four bumps that can. Closed
+      # with the ERESOLVE log in #49 — re-open by hand when upstream widens the
+      # range.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
+      # This package supports node >=22, and CI runs exactly 22 and 24. @types/node
+      # 26 describes Node 26 and declares modules the floor does not have —
+      # `node:quic` is @since v23.8.0 and throws ERR_UNKNOWN_BUILTIN_MODULE on
+      # 22.23. Typecheck would then accept what the oldest supported runtime
+      # cannot run, which is the typechecker's job inverted. Closed with that
+      # example in #55 — re-open by hand if `engines` and the CI matrix are raised
+      # together with the types.
+      - dependency-name: "@types/node"
+        versions: [">=23.0.0"]

@@ -49,6 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The collector-path tests classified every `execFile` rejection as exit 1 —
+  the collector's own number for a failed gate — so a collector that never ran
+  reported a failed gate instead of the reason it did not run. The interpreter
+  is now the pinned local `tsx` instead of whatever `npx` fetches from the
+  registry into a temporary directory, and an unrecognised rejection fails with
+  the code, the signal and the stderr. Found in the red CI job of 2026-10-13:
+  the test failed its first attempt inside `npx`, passed on the retry against a
+  warm cache, and the quality gate reddened the build over a flaky test — as
+  designed, and over a message that named the wrong cause.
 - `README-testing.md` was unreachable from the README in every bot of the family
   except one. A document nobody can reach is a document nobody reads; it is linked
   from the front page now.

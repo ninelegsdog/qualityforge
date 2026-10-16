@@ -22,5 +22,26 @@
     "directory": "quality-history",
     "keep": 200
   },
+  "api": {
+    "expectations": [
+      {
+        "name": "items-are-json",
+        "method": "GET",
+        "path": "/api/items",
+        "status": 200,
+        "contentType": "application/json",
+        "responseRequires": ["[0].id", "[0].name"]
+      },
+      {
+        "name": "contact-is-posted-and-accepted",
+        "method": "POST",
+        "path": "/api/contact",
+        "requestRequires": ["email", "message"],
+        "status": 200,
+        "contentType": "application/json",
+        "responseRequires": ["received", "fields[0]"]
+      }
+    ]
+  },
   "tags": ["demo", "smoke"]
 }

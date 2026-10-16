@@ -11,6 +11,8 @@
  * the runtime mirror of it.
  */
 
+import { KEBAB_ID } from "../id-pattern.js";
+
 /**
  * 1.1.0 added the optional `signals` block. Per the versioning rule in
  * docs/defect-schema.md, an additive optional field is a minor bump: the file
@@ -278,7 +280,6 @@ export interface DefectV1 {
 }
 
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
-const DEFECT_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SCHEMA_VERSION = /^\d+\.\d+\.\d+$/;
 
 /** Result of {@link validateDefect}. */
@@ -308,9 +309,9 @@ export function validateDefect(value: unknown): ValidationResult {
   if (typeof value.schemaVersion !== "string" || !SCHEMA_VERSION.test(value.schemaVersion)) {
     problems.push(`schemaVersion must be a semver string, got ${String(value.schemaVersion)}`);
   }
-  if (typeof value.id !== "string" || !DEFECT_ID.test(value.id)) {
+  if (typeof value.id !== "string" || !KEBAB_ID.test(value.id)) {
     problems.push(
-      `id must be lowercase kebab-case (pattern ${DEFECT_ID.source}), got ${JSON.stringify(value.id)}`,
+      `id must be lowercase kebab-case (pattern ${KEBAB_ID.source}), got ${JSON.stringify(value.id)}`,
     );
   }
   if (typeof value.runId !== "string" || value.runId.length === 0) {

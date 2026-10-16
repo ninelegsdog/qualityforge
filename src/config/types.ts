@@ -65,6 +65,56 @@ export interface HistoryConfig {
   keep: number;
 }
 
+/** HTTP methods an expectation may name. */
+export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as const;
+
+export type HttpMethod = (typeof HTTP_METHODS)[number];
+
+/**
+ * One declared API contract: an exchange the application under test must make.
+ *
+ * The owner's decision of 2026-10-16 was declarative expectations in
+ * `config/project.json` rather than a helper inside a test, so a project's
+ * contracts are checked as a whole and an expectation cannot die with the test
+ * that happened to carry it.
+ *
+ * There is no `optional`. An expectation with no captured exchange is a
+ * violation, not an absence — the fail-closed rule the owner set, and the reason
+ * a config entry here can never quietly stop applying.
+ */
+export interface ApiExpectation {
+  /** Lowercase kebab-case id, carried into the artifact and into messages. */
+  name: string;
+  /** The HTTP method of the exchange. */
+  method: HttpMethod;
+  /**
+   * Path the exchange must hit, beginning with `/`.
+   *
+   * A query string is not part of a contract: redaction drops query strings
+   * wholesale, so a matcher that required one would be asserting against a value
+   * this project deliberately does not keep.
+   */
+  path: string;
+  /** Field paths that must be present in the request body. */
+  requestRequires?: string[];
+  /** Status the response must carry. */
+  status?: number;
+  /** Media type the response must carry, compared without parameters. */
+  contentType?: string;
+  /** Field paths that must be present in the response body. */
+  responseRequires?: string[];
+}
+
+/**
+ * API contracts, checked against traffic the page actually produced.
+ *
+ * Optional, like `history`: a project that declares none has not opted in, and a
+ * missing key is not a mistake worth an error.
+ */
+export interface ApiConfig {
+  expectations?: ApiExpectation[];
+}
+
 export interface ProjectConfig {
   schemaVersion: typeof CONFIG_SCHEMA_VERSION;
   /** Short human-readable project name. */
@@ -78,6 +128,8 @@ export interface ProjectConfig {
   defects: DefectConfig;
   /** Run history across runs. Omitted means history is off. */
   history?: HistoryConfig;
+  /** Declared API contracts. Omitted means the dimension is off. */
+  api?: ApiConfig;
   /** Labels copied onto every produced defect artifact. */
   tags: string[];
 }

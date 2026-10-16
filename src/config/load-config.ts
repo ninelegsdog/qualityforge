@@ -14,7 +14,9 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { CONFIG_SCHEMA_VERSION, type ProjectConfig } from "./types.js";
+import { KEBAB_ID } from "../id-pattern.js";
+import { checkFieldPath } from "./field-path.js";
+import { CONFIG_SCHEMA_VERSION, HTTP_METHODS, type ProjectConfig } from "./types.js";
 
 const TRACE_VALUES = ["on", "off", "on-first-retry", "retain-on-failure"] as const;
 const SCREENSHOT_VALUES = ["on", "off", "only-on-failure"] as const;
@@ -99,6 +101,116 @@ function describe(value: unknown): string {
   // No bare String(object): that yields "[object Object]", which tells the
   // reader nothing about what was actually configured.
   return `a ${typeof value}`;
+}
+
+/**
+ * Validate the declared API contracts.
+ *
+ * Two rules here are about preventing a configuration that *cannot fail*:
+ *
+ * - **An expectation must assert something.** A record with a method and a path
+ *   but no `status`, no `contentType` and no required field would be satisfied by
+ *   any exchange at all, so it would read as a contract while checking nothing.
+ * - **Names must be unique.** They become artifact ids, and the collector
+ *   already refuses two defects sharing one rather than writing both.
+ */
+function checkExpectations(list: unknown[], problems: string[]): void {
+  const seen = new Set<string>();
+
+  list.forEach((entry, at) => {
+    const where = `api.expectations[${at}]`;
+    if (!isRecord(entry)) {
+      problems.push(`${where} must be an object, got ${describe(entry)}`);
+      return;
+    }
+
+    requireString(entry.name, `${where}.name`, problems);
+    if (typeof entry.name === "string") {
+      if (!KEBAB_ID.test(entry.name)) {
+        problems.push(
+          `${where}.name must be lowercase kebab-case (pattern ${KEBAB_ID.source}), ` +
+            `got ${JSON.stringify(entry.name)}`,
+        );
+      } else if (seen.has(entry.name)) {
+        problems.push(
+          `${where}.name is ${JSON.stringify(entry.name)}, already used by an earlier expectation`,
+        );
+      } else {
+        seen.add(entry.name);
+      }
+    }
+
+    requireOneOf(entry.method, `${where}.method`, HTTP_METHODS, problems);
+
+    requireString(entry.path, `${where}.path`, problems);
+    if (typeof entry.path === "string") {
+      if (!entry.path.startsWith("/")) {
+        problems.push(`${where}.path must begin with "/", got ${JSON.stringify(entry.path)}`);
+      } else if (entry.path.includes("?") || entry.path.includes("#")) {
+        problems.push(
+          `${where}.path must not carry a query string or fragment, ` +
+            `got ${JSON.stringify(entry.path)}`,
+        );
+      } else if (entry.path.includes("..")) {
+        problems.push(`${where}.path must not contain "..", got ${JSON.stringify(entry.path)}`);
+      }
+    }
+
+    if (entry.status !== undefined) {
+      requireNumberInRange(entry.status, `${where}.status`, 100, 599, problems);
+      if (typeof entry.status === "number" && !Number.isInteger(entry.status)) {
+        problems.push(`${where}.status must be a whole number, got ${entry.status}`);
+      }
+    }
+
+    if (entry.contentType !== undefined) {
+      requireString(entry.contentType, `${where}.contentType`, problems);
+      if (typeof entry.contentType === "string" && entry.contentType.includes(";")) {
+        problems.push(
+          `${where}.contentType must be a media type without parameters — ` +
+            `"application/json; charset=utf-8" is what a response carries, the contract names ` +
+            `"application/json" — got ${JSON.stringify(entry.contentType)}`,
+        );
+      }
+    }
+
+    for (const key of ["requestRequires", "responseRequires"] as const) {
+      if (entry[key] === undefined) {
+        continue;
+      }
+      if (!Array.isArray(entry[key])) {
+        problems.push(
+          `${where}.${key} must be an array of field paths, got ${describe(entry[key])}`,
+        );
+        continue;
+      }
+      (entry[key] as unknown[]).forEach((field, position) => {
+        if (typeof field !== "string") {
+          problems.push(`${where}.${key}[${position}] must be a string, got ${describe(field)}`);
+          return;
+        }
+        const problem = checkFieldPath(field, `${where}.${key}[${position}]`);
+        if (problem !== null) {
+          problems.push(problem);
+        }
+      });
+    }
+
+    // A record that asserts nothing is a contract that cannot fail: any exchange
+    // at that path satisfies it, so it would sit in the configuration looking like
+    // coverage while checking nothing.
+    const assertsSomething =
+      entry.status !== undefined ||
+      entry.contentType !== undefined ||
+      Array.isArray(entry.requestRequires) ||
+      Array.isArray(entry.responseRequires);
+    if (!assertsSomething) {
+      problems.push(
+        `${where} asserts nothing: no status, no contentType and no required field, so any ` +
+          `exchange at that path would satisfy it`,
+      );
+    }
+  });
 }
 
 /** Validate a parsed JSON value as a ProjectConfig. Throws ConfigError on any problem. */
@@ -190,6 +302,21 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
       // would then hold a number nobody chose.
       if (typeof raw.history.keep === "number" && !Number.isInteger(raw.history.keep)) {
         problems.push(`history.keep must be a whole number, got ${raw.history.keep}`);
+      }
+    }
+  }
+
+  // Optional, and validated when present rather than required, for the same
+  // reason as `history`.
+  if (raw.api !== undefined) {
+    if (!isRecord(raw.api)) {
+      problems.push("api must be an object");
+    } else if (raw.api.expectations !== undefined) {
+      const list = raw.api.expectations;
+      if (!Array.isArray(list)) {
+        problems.push(`api.expectations must be an array, got ${describe(list)}`);
+      } else {
+        checkExpectations(list, problems);
       }
     }
   }

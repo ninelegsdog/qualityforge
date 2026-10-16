@@ -41,12 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   secrets by the name of the key next to them, which cannot work for a token
   Playwright quotes out of the page into `Received:` — measured, the token
   survived in 4 of 4 real failure messages and 4 of 4 stacks. Formats with a real
-  structure are matched as well, chosen by a probe over 29 706 lines of this
-  repository with eleven decoys built to look like secrets: the GitHub token
+  structure are matched as well, chosen by a probe over the repository and the
+  working notes with eleven decoys built to look like secrets: the GitHub token
   family, OpenAI keys, AWS access key ids. A broader `sk-` pattern was rejected
-  because it took an `sk-` slug and a CSS class out of working text. The known
-  residual — an Anthropic key with dashes in its body — is written into the
-  source rather than left to be rediscovered.
+  because it took an `sk-` slug and a CSS class out of working text. Formats earn
+  their place by measurement rather than by the fame of the vendor, and the
+  trigger for adding one is written into the source rather than left to be
+  rediscovered.
 
 - **`failure.message`, `failure.stack` and an audit's `target` are redacted.**
   `snippet` deliberately is **not**: it is the test's own source, it carried the

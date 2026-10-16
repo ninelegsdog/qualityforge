@@ -141,10 +141,11 @@ const SENSITIVE_ASSIGNMENT = new RegExp(
  * message from the page carries no key to match, and 2 of 4 such messages kept
  * their token while every keyed form was redacted.
  *
- * Only formats with a real structure are listed. Chosen by a probe over 29 706
- * lines of this repository and the working notes — prose, code, docs, tests —
- * with eleven decoys chosen to look like secrets (base64, sha256, UUIDs, long
- * selectors, `AKIAEXAMPLE`, `sk-ant-api03` in a config sample):
+ * Only formats with a real structure are listed, and each one earns its place by
+ * measurement rather than by the fame of its vendor. Chosen by a probe over
+ * 31 867 lines of this repository and the working notes — prose, code, docs,
+ * tests — with eleven decoys chosen to look like secrets (base64, sha256, UUIDs,
+ * long selectors, `AKIAEXAMPLE`, `sk-ant-api03` in a config sample):
  *
  * | Format                   | Caught | In corpus | Decoys hit |
  * | ------------------------ | ------ | --------- | ----------- |
@@ -158,9 +159,27 @@ const SENSITIVE_ASSIGNMENT = new RegExp(
  * diagnostics to guard against a secret the narrow rule does catch in the shapes
  * it covers.
  *
- * Known residual: an Anthropic key carrying dashes in its body is not matched.
- * Narrowing was a decision, not an oversight, and it is written down so the next
- * reader sees the price instead of re-measuring it.
+ * **A format is added when the measurement justifies it, not when its vendor is
+ * famous.** The GitHub family is here on observed evidence: a probe found that
+ * token arriving in `node.html` in 10 nodes of 10 and in `failure.message` in 4
+ * messages of 4. The other two are shapes that recognise themselves and cost
+ * nothing to recognise — zero findings in the corpus, zero of the decoys.
+ *
+ * **What is deliberately not here, and how to change that.** The catalogue of
+ * secret formats is unbounded, and a rule nobody has evidence for is a guess that
+ * also destroys text. This project uses no vendor's keys of its own; the formats
+ * above are there because a probe found them reaching evidence, not because
+ * anyone here calls those APIs. The trigger is concrete: if a bare token of a new
+ * shape turns up in an artifact or in someone's failure, that *is* the evidence,
+ * and the rule gets written then with its own false-positive probe, as above.
+ * Until then the narrow rule stands.
+ *
+ * One shape was measured and left uncovered: a completely naked `sk-ant-…` with
+ * no key name, no auth header and no JSON around it. It is named rather than
+ * listed as an open gap because its named, `Bearer`-prefixed and quoted forms
+ * are already covered above — a match by key name does not care how the body is
+ * spelled — and a vendor prefix rule for it would guard a case this project has
+ * never observed at the cost of a list to maintain.
  */
 const BARE_VENDOR_TOKEN =
   /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b/g;

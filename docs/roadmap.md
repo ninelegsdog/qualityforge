@@ -22,9 +22,22 @@ work that _is_ outstanding invisible.
   three engines is three artifacts rather than three retries of one; refuses
   duplicate ids; records the page and the application under test; treats an
   aborted suite as one outage instead of a defect per test.
+- **Accessibility audit.** `qualityforge-a11y` runs `axe-core` against a URL and
+  writes a contract of its own, `a11y-audit.v1` — deliberately not fields on
+  `defect.v1`, decided on 2026-10-15: a page's accessibility verdict and one
+  test's failure are different claims with different owners. Ten nodes per rule
+  with a `totalNodes` counter beside it, so a capped artifact cannot be read as
+  a complete one. Two of the seven MCP tools read the audits back. Ten tests
+  exercise the command in the default suite, chromium only and only where
+  chromium is installed — the command launches its own browser, so the project
+  it runs inside is irrelevant to it. **They stay in the default run by the
+  owner's decision of 2026-10-16**: issue #40 conditioned exclusion on a browser
+  round-trip per page, and there is none, since each test builds the page it
+  audits. Measured at 20 seconds of a 46-second chromium leg.
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
-  confinement. Five tools, resources, a `triage_failure` prompt. Verified against
-  OpenCode v2.0.16; Kilo and MiMo are out of scope by decision.
+  confinement. Seven tools — five over defects and run history, two over
+  accessibility audits — plus resources and a `triage_failure` prompt. Verified
+  against OpenCode v2.0.16; Kilo and MiMo are out of scope by decision.
 - **Run history.** An optional `history` block keeps one compact file per run in a
   committed directory, plus a per-suite composition shared between runs, so "is this
   a regression or has it always been this way?" has an answer. Two MCP tools read
@@ -259,9 +272,7 @@ picked up, not defects this repository found in itself.
 Only after the above. Each item is filed as an issue so it can be picked up and
 reviewed rather than living only in this file:
 
-- Accessibility checks
-  ([#40](https://github.com/ninelegsdog/qualityforge/issues/40)), visual
-  regression
+- Visual regression
   ([#41](https://github.com/ninelegsdog/qualityforge/issues/41)), performance
   budgets
   ([#42](https://github.com/ninelegsdog/qualityforge/issues/42)), API

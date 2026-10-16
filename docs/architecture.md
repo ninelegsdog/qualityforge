@@ -89,7 +89,7 @@ package above:
   outage rather than a defect per test. Its exit code is the gate: `0` the
   thresholds hold, `1` they are violated, `2` collection could not run.
 - **The MCP server.** Protocol 2026-07-28, read-only by construction, with
-  server-side path confinement: five tools, resources, and a `triage_failure`
+  server-side path confinement: seven tools, resources, and a `triage_failure`
   prompt. Verified against OpenCode v2.0.16 over real stdio.
 - **Run history.** An optional `history` block keeps one compact entry per run
   in a committed directory, and two MCP tools read it — the details and the

@@ -5,6 +5,9 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { expect, test } from "../fixtures.js";
+import { chromium } from "@playwright/test";
+
+const CHROMIUM_PRESENT = existsSync(chromium.executablePath());
 
 /**
  * The audit command, run as a command, with a real browser.
@@ -53,27 +56,31 @@ async function audit(args: string[]): Promise<{ code: number; stdout: string; st
   }
 }
 
+/**
+ * Chromium only, and only where chromium exists.
+ *
+ * The audit command launches chromium itself, so the browser project it runs
+ * inside is irrelevant to it: CI's firefox and webkit jobs install only their
+ * own engine, every audit there exited 2 with "Executable doesn't exist", and
+ * both jobs went red. On a machine with all browsers installed the file would
+ * otherwise run three times over to produce the same answer three times.
+ *
+ * Asking `beforeEach` for the project name is what Playwright refused — the
+ * first hook argument must use object destructuring — so the check lives in the
+ * body, where `test.info()` is available.
+ */
+function chromiumOnly(): void {
+  test.skip(
+    test.info().project.name !== "chromium",
+    "the audit command runs on chromium, not on this engine",
+  );
+  test.skip(!CHROMIUM_PRESENT, "chromium is not installed on this machine");
+}
+
 test.describe("a11y:audit, with a real browser", () => {
   let work: string;
 
-  test.beforeEach((_fixtures, testInfo) => {
-    /**
-     * Chromium only, and deliberately.
-     *
-     * The command under test launches chromium itself, so the browser project it
-     * runs inside is irrelevant to it. Running this file in the firefox and
-     * webkit jobs therefore bought nothing and cost a failure in each: those
-     * runners install only their own engine, so every audit exited 2 with
-     * "Executable doesn't exist" — which CI reported, correctly, as a broken
-     * test.
-     *
-     * One engine proves the command. Repeating it three times would only prove
-     * that the command is slow.
-     */
-    test.skip(
-      testInfo.project.name !== "chromium",
-      "the audit command launches chromium; the other browser jobs install only their own engine",
-    );
+  test.beforeEach(() => {
     work = mkdtempSync(path.join(os.tmpdir(), "qf-a11y-run-"));
   });
 
@@ -82,6 +89,7 @@ test.describe("a11y:audit, with a real browser", () => {
   });
 
   test("finds violations and exits 1, so it can be a CI gate", async () => {
+    chromiumOnly();
     const out = path.join(work, "out");
     const result = await audit([
       "--url",
@@ -114,6 +122,7 @@ test.describe("a11y:audit, with a real browser", () => {
   });
 
   test("reports a clean page as clean, with exit 0", async () => {
+    chromiumOnly();
     const result = await audit([
       "--url",
       page(work, "clean.html", CLEAN_PAGE),
@@ -129,6 +138,7 @@ test.describe("a11y:audit, with a real browser", () => {
   });
 
   test("a page it cannot reach is a failure, never a clean result", async () => {
+    chromiumOnly();
     // Port 1 refuses instantly. Exit 2 must stay distinct from 0.
     const result = await audit(["--url", "http://127.0.0.1:1/", "--out", path.join(work, "out")]);
 
@@ -137,6 +147,7 @@ test.describe("a11y:audit, with a real browser", () => {
   });
 
   test("creates the output directory it was told to use", async () => {
+    chromiumOnly();
     const out = path.join(work, "deep", "nested", "out");
 
     const result = await audit(["--url", page(work, "clean.html", CLEAN_PAGE), "--out", out]);

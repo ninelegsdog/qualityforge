@@ -50,6 +50,7 @@ import {
   type HistoryEntry,
   type HistoryOutcome,
 } from "./history.js";
+import { redactAssignments } from "../quality/redact.js";
 import { trendReport, windowVerdicts } from "./flakiness.js";
 
 /**
@@ -1212,7 +1213,20 @@ export async function collectDefects(options: CollectOptions): Promise<{
     }));
 
     const error = firstError(lastAttempt);
-    const message = stripAnsi(error.message ?? "");
+    /**
+     * Redacted, not only stripped.
+     *
+     * `error.message` is the one field that quotes the page: Playwright writes
+     * `Expected:` / `Received:` into it, so a token that reached the DOM comes
+     * back with it. Measured on real failures against the fixtures app, the
+     * token survived in 4 of 4 messages.
+     *
+     * `redactAssignments` rather than `redactText`: truncation is a separate
+     * decision with its own budget, and this field is a diagnosis rather than a
+     * captured signal. The full pipeline would silently cap a long message at
+     * 2 000 characters as a side effect of a security fix.
+     */
+    const message = redactAssignments(stripAnsi(error.message ?? ""));
 
     pending.push({
       spec,
@@ -1394,8 +1408,21 @@ export async function collectDefects(options: CollectOptions): Promise<{
       failure: {
         message,
         ...(location === undefined ? {} : { location }),
+        /**
+         * `snippet` is deliberately **not** redacted. It is the code frame —
+         * the test's own source — and measured over real failures it carried the
+         * token in 0 of 4. Redacting it bought nothing and cost something:
+         * `` `${p>session=${t}</p>` `` was rewritten to `` `${p>session=[redacted])` ``,
+         * corrupting the line a reader came to see. Rule 3 applies: preserve
+         * what is not secret.
+         */
         ...(error.snippet === undefined ? {} : { snippet: stripAnsi(error.snippet) }),
-        ...(error.stack === undefined ? {} : { stack: stripAnsi(error.stack) }),
+        /**
+         * Redacted for a reason of its own: Playwright starts the stack with the
+         * error message, so the token in `message` is here a second time — 4 of 4
+         * on the same measurement.
+         */
+        ...(error.stack === undefined ? {} : { stack: redactAssignments(stripAnsi(error.stack)) }),
         ...(errorContextRef === undefined ? {} : { errorContextRef }),
         ...(errorContextBytes === undefined ? {} : { errorContextBytes }),
         ...(attribution === undefined ? {} : { attribution }),

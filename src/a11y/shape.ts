@@ -21,6 +21,7 @@
  */
 
 import { elementShape } from "./html.js";
+import { redactAssignments } from "../quality/redact.js";
 import type { A11yAudit, A11yNode, A11yViolation } from "./types.js";
 import { A11Y_AUDIT_SCHEMA_VERSION } from "./types.js";
 
@@ -73,8 +74,27 @@ function normaliseImpact(value: string | null | undefined): Impact {
 
 function shapeNode(node: RawAxeNode): A11yNode {
   return {
+    /**
+     * `target` keeps its structure and loses only what is shaped like a secret.
+     *
+     * The decision was to store `target` at all — without it, 48 nodes of one
+     * rule are indistinguishable and "where" is half the message. So its value
+     * is not dropped the way `html`'s is: a selector like `#password` is the
+     * most useful thing in the artifact.
+     *
+     * Measured before: the redactor covered 2 of the 6 forms axe builds, and the
+     * misses were exactly the ones carrying a token — an id selector, an id with
+     * a prefix, an attribute value, an attribute-value tail. The shape rule from
+     * PR #68 closed those; this is where it is applied.
+     *
+     * `redactAssignments` rather than `redactText`, because a selector is not a
+     * URL: the URL rule would cut at the `?` of `[href$='/reset?access_token=…']`
+     * and truncate the very selector we are trying to keep.
+     */
     target: Array.isArray(node.target)
-      ? node.target.filter((t): t is string => typeof t === "string")
+      ? node.target
+          .filter((selector): selector is string => typeof selector === "string")
+          .map((selector) => redactAssignments(selector))
       : [],
     html: elementShape(node.html ?? ""),
     failureSummary: node.failureSummary ?? "",

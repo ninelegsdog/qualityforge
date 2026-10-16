@@ -176,6 +176,13 @@ errors above 400 — is collected live by the bundled fixture, because “elemen
 not found” is a symptom while “the page threw a TypeError” is the cause. See
 [`docs/defect-schema.md`](docs/defect-schema.md) for the full contract.
 
+Accessibility is a second, separate measurement rather than a field on that
+artifact: `npm run a11y:audit` runs `axe-core` against a page and writes
+`a11y-audit.v1` — capped at ten nodes per rule with the discarded count stated,
+`html` reduced to structure because it carries page content, and `target` kept
+because without it the nodes are indistinguishable. See
+[`docs/a11y-schema.md`](docs/a11y-schema.md).
+
 `npm run defects:collect` doubles as a CI quality gate: it exits `0` when the
 gate passes, `1` when thresholds are violated, and `2` when collection could
 not run at all.
@@ -384,6 +391,7 @@ against the real producers, never against a hand-written fixture.
   fresh clone to an agent reading a real failure
 - [`docs/architecture.md`](docs/architecture.md) — how the pieces fit together
 - [`docs/defect-schema.md`](docs/defect-schema.md) — the `defect.v1` contract
+- [`docs/a11y-schema.md`](docs/a11y-schema.md) — the `a11y-audit.v1` contract
 - [`docs/selectors-and-testid.md`](docs/selectors-and-testid.md) — locator policy
 - [`docs/client-support.md`](docs/client-support.md) — who was connected to the
   MCP server, and what was observed

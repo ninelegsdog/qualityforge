@@ -77,6 +77,7 @@ const MUST_SHIP = [
   "src/cli/collect-defects.ts",
   "src/mcp/index.ts",
   "schemas/defect.v1.schema.json",
+  "schemas/a11y-audit.v1.schema.json",
 ];
 
 /**

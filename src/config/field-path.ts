@@ -15,7 +15,16 @@
  * Deliberately absent too: path templates like `/users/{id}`. An expectation
  * matches one concrete exchange, and a matcher that interpolated a segment would
  * be able to pass on a request the application never meant to make.
+ *
+ * `checkFieldPath` decides whether a declared path is well formed;
+ * `parseFieldPath` turns a well-formed one into steps. They are kept apart
+ * because only the second is needed to walk a body, and a capture layer that
+ * validated while walking would have to re-check a configuration the loader had
+ * already refused to let through.
  */
+
+/** One step of a field path. */
+export type FieldPathStep = { kind: "key"; key: string } | { kind: "index"; index: number };
 
 /** A key: a letter or underscore, then letters, digits, `_` or `-`. */
 const KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/;
@@ -100,4 +109,45 @@ export function checkFieldPath(value: string, at: string): string | null {
   }
 
   return steps === 0 ? `${at} must not be empty` : null;
+}
+
+/**
+ * Turn a declared field path into steps.
+ *
+ * Only call this on a path {@link checkFieldPath} has accepted. An unparsable
+ * path is a programming error rather than a configuration one, and throwing says
+ * so instead of silently walking the wrong thing.
+ *
+ * @param path A path that passed `checkFieldPath`.
+ */
+export function parseFieldPath(path: string): FieldPathStep[] {
+  const steps: FieldPathStep[] = [];
+  let index = 0;
+
+  while (index < path.length) {
+    // Land on separators rather than stepping over them. An earlier draft set
+    // `index = end + 1` after a key, which jumped *past* the "[" of a following
+    // index and read `data.items[1].id` as the key "1]" — a path that validated
+    // and then matched nothing.
+    if (path[index] === ".") {
+      index += 1;
+      continue;
+    }
+
+    if (path[index] === "[") {
+      const close = path.indexOf("]", index);
+      steps.push({ kind: "index", index: Number(path.slice(index + 1, close)) });
+      index = close + 1;
+      continue;
+    }
+
+    let end = index;
+    while (end < path.length && path[end] !== "." && path[end] !== "[") {
+      end += 1;
+    }
+    steps.push({ kind: "key", key: path.slice(index, end) });
+    index = end;
+  }
+
+  return steps;
 }

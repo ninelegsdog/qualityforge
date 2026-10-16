@@ -1,13 +1,49 @@
 import { test as base, expect } from "@playwright/test";
+import { ApiObserver } from "../api/observe.js";
+import { loadConfig } from "../config/load-config.js";
+import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import { capturePageContext, shouldAttachContext } from "../defect/page-context.js";
 import { SignalCollector } from "../quality/signals.js";
 
 /** Attachment name the defect collector looks for. */
 export const ATTACHMENT_NAME = "quality-context";
 
+/**
+ * Attachment name the API audit collector looks for.
+ *
+ * Separate from `quality-context` because it is attached on a different rule,
+ * and the difference is the whole point: `quality-context` rides on failures, so
+ * a run where every test passed attaches nothing. An API contract that broke
+ * without breaking a test is precisely the case this dimension exists to catch,
+ * so its evidence cannot live on a failure-only attachment.
+ */
+export const API_ATTACHMENT_NAME = "quality-api";
+
 export interface QualityFixtures {
   /** Captured console, page-error and network signals for this test. */
   signals: SignalCollector;
+  /** Observed exchanges against the project's declared API contracts. */
+  api: ApiObserver;
+}
+
+/**
+ * The project's configuration, read once per worker.
+ *
+ * A rejected promise stays rejected, which is the behaviour wanted: an invalid
+ * `config/project.json` then fails every test with the loader's own message
+ * rather than letting a suite report green while observing nothing.
+ */
+let pendingConfig: Promise<ProjectConfig> | undefined;
+
+function projectConfig(): Promise<ProjectConfig> {
+  pendingConfig ??= loadConfig(process.cwd());
+  return pendingConfig;
+}
+
+/** The declared contracts, or none. Absence means the dimension is off. */
+async function declaredExpectations(): Promise<ApiExpectation[]> {
+  const config = await projectConfig();
+  return config.api?.expectations ?? [];
 }
 
 /**
@@ -57,6 +93,35 @@ export const test = base.extend<QualityFixtures>({
           null,
           2,
         )}\n`,
+        contentType: "application/json",
+      });
+    },
+    { auto: true },
+  ],
+
+  api: [
+    async ({ page }, use, testInfo) => {
+      const expectations = await declaredExpectations();
+      const config = await projectConfig();
+      const observer = new ApiObserver(page, expectations, config.baseUrl);
+
+      // No declared contracts means no listeners: an `auto` fixture must not cost
+      // anything on a project that has not opted in.
+      if (expectations.length > 0) {
+        observer.attach();
+      }
+
+      await use(observer);
+
+      if (expectations.length === 0) {
+        return;
+      }
+
+      // Attached whatever the outcome, and including expectations that matched
+      // nothing. An expectation with no exchange is the fail-closed case the
+      // owner decided on, and it can only be ruled on from a payload that says so.
+      await testInfo.attach(API_ATTACHMENT_NAME, {
+        body: `${JSON.stringify(observer.toPayload(), null, 2)}\n`,
         contentType: "application/json",
       });
     },

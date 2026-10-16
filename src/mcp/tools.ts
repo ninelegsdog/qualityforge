@@ -227,6 +227,75 @@ export const TOOLS: ToolDefinition[] = [
       openWorldHint: false,
     },
   },
+  {
+    name: "quality_list_audits",
+    title: "List accessibility audits",
+    description:
+      "List the accessibility audits this project has written, newest first, with " +
+      "how many violations and undecided rules each found and how many rules were " +
+      "truncated. Use it to see whether anyone has audited accessibility at all, " +
+      "and whether the newest audit is clean. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "How many audits to return (1–100, default 20)." },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        total: { type: "number" },
+        audits: { type: "array" },
+      },
+      required: ["total", "audits"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "quality_get_audit",
+    title: "Read one accessibility audit",
+    description:
+      "Read one accessibility audit in full: the rules that failed, the elements " +
+      "each matched, and for every rule how many nodes were kept against how many " +
+      "the rule really produced. Read totalNodes, not nodes.length alone — the " +
+      "difference is the truncation you cannot otherwise see. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        auditPath: {
+          type: "string",
+          description: "Run-relative audit path, as listed by quality_list_audits.",
+        },
+      },
+      required: ["auditPath"],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string" },
+        createdAt: { type: "string" },
+        counts: { type: "object" },
+        violations: { type: "array" },
+        incomplete: { type: "array" },
+      },
+      required: ["runId", "createdAt", "counts", "violations", "incomplete"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 export interface ToolCallResult {
@@ -282,6 +351,10 @@ export async function callTool(
       return flakyTests(store, args);
     case "quality_get_trend":
       return getTrend(store);
+    case "quality_list_audits":
+      return listAudits(store, args);
+    case "quality_get_audit":
+      return getAudit(store, args);
     default:
       return {
         content: text(
@@ -718,5 +791,106 @@ async function getTrend(store: ArtifactStore): Promise<ToolCallResult> {
         `${report.distinctFailing}.\n${lines.join("\n")}`,
     ),
     structuredContent: report as unknown as Record<string, unknown>,
+  };
+}
+
+/**
+ * Accessibility audits.
+ *
+ * Two tools rather than one, for the same reason defects have two: a model
+ * asking "what failed" should not receive five full audits to answer it, and a
+ * model asking about one rule needs the whole artifact.
+ *
+ * The empty answer is a first-class result. A project that has never run
+ * `npm run a11y:audit` is told so in words that name the command, because
+ * "no audits" and "no violations" are different claims and only one of them is
+ * good news.
+ */
+async function listAudits(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const limitRaw = args.limit;
+  const limit = typeof limitRaw === "number" ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+
+  const audits = await store.listAudits();
+  const selected = audits.slice(0, limit);
+
+  if (audits.length === 0) {
+    return {
+      content: text(
+        "No accessibility audits found. Run `npm run a11y:audit` — this says nothing " +
+          "about whether the project is accessible, only that nobody has looked.",
+      ),
+      structuredContent: { total: 0, audits: [] },
+    };
+  }
+
+  return {
+    content: text(
+      [
+        `${audits.length} accessibility audit(s)` +
+          (audits.length > selected.length ? `, showing ${selected.length}` : ""),
+        ...selected.map((audit) => {
+          const truncated = audit.truncatedRules ?? 0;
+          return (
+            `- ${audit.runId}: ${audit.violations ?? 0} violation(s), ` +
+            `${audit.incomplete ?? 0} undecided` +
+            (truncated > 0 ? `, ${truncated} rule(s) truncated` : "")
+          );
+        }),
+        "",
+        `Next: call quality_get_audit with an auditPath to read one in full.`,
+      ].join("\n"),
+    ),
+    structuredContent: { total: audits.length, audits: selected },
+  };
+}
+
+async function getAudit(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult & { isError?: boolean }> {
+  const auditPath = args.auditPath;
+  if (typeof auditPath !== "string" || auditPath === "") {
+    return {
+      content: text("auditPath is required; list the audits first with quality_list_audits."),
+      isError: true,
+    };
+  }
+
+  const audit = await store.readAudit(auditPath);
+  const runId = auditPath.split("/")[0] ?? auditPath;
+
+  return {
+    content: text(
+      [
+        `accessibility audit ${runId} · ${audit.url} · axe-core ${audit.engine.version}`,
+        `${audit.counts.violations} violation(s), ${audit.counts.incomplete} undecided, ` +
+          `${audit.counts.nodes} node(s) kept`,
+        ...[...audit.violations, ...audit.incomplete].map((rule) => {
+          const level = rule.impact === null ? "impact unknown" : rule.impact;
+          return (
+            `- ${rule.id} [${level}]: ${rule.nodes.length} of ${rule.totalNodes} node(s)` +
+            (rule.truncated ? " — truncated" : "") +
+            (rule.nodes.length === 0
+              ? ""
+              : "\n    " +
+                rule.nodes
+                  .slice(0, 3)
+                  .map((node) => `${node.html} (${node.target.join(" ")})`)
+                  .join("\n    ") +
+                (rule.nodes.length > 3 ? `\n    … ${rule.nodes.length - 3} more` : ""))
+          );
+        }),
+      ].join("\n"),
+    ),
+    structuredContent: {
+      runId,
+      createdAt: audit.createdAt,
+      counts: audit.counts,
+      violations: audit.violations,
+      incomplete: audit.incomplete,
+    } as unknown as Record<string, unknown>,
   };
 }

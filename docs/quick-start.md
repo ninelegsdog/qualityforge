@@ -45,7 +45,7 @@ clone is green with no configuration and no third-party network access.
 
 | Count                                       | Number |
 | ------------------------------------------- | ------ |
-| Specs, all four projects                    | 468    |
+| Specs, all four projects                    | 477    |
 | Skipped without any configuration           | 60     |
 | — of those, `evidence-pipeline.spec.ts`     | 6      |
 | — of those, `quotes-toscrape.smoke.spec.ts` | 30     |
@@ -53,7 +53,7 @@ clone is green with no configuration and no third-party network access.
 
 Those skips are deliberate and all of them are described below: the evidence
 pipeline fails on purpose, and the third-party suite needs an application this
-repository did not build. The remaining 408 run.
+repository did not build. The remaining 417 run.
 
 Every number in that table — and the `The remaining N run.` sentence above
 it — is checked against the suite by
@@ -209,13 +209,15 @@ Add `--root <dir>` to serve artifacts from somewhere other than the default
 `artifacts/defects`, and `--history <dir>` to serve run history from somewhere
 other than `quality-history`.
 
-| Tool                     | What it answers                                                         |
-| ------------------------ | ----------------------------------------------------------------------- |
-| `quality_get_latest_run` | Pass and fail counts, duration, gate, and what history says of this run |
-| `quality_list_failures`  | Compact records: id, status, test location, flakiness                   |
-| `quality_get_defect`     | One defect in full, including console, network and page-error signals   |
-| `quality_flaky_tests`    | Which specs failed across runs: flaky, failing, new, or gone            |
-| `quality_get_trend`      | Pass rate per run, direction, duration, distinct failing specs          |
+| Tool                     | What it answers                                                          |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `quality_get_latest_run` | Pass and fail counts, duration, gate, and what history says of this run  |
+| `quality_list_failures`  | Compact records: id, status, test location, flakiness                    |
+| `quality_get_defect`     | One defect in full, including console, network and page-error signals    |
+| `quality_flaky_tests`    | Which specs failed across runs: flaky, failing, new, or gone             |
+| `quality_get_trend`      | Pass rate per run, direction, duration, distinct failing specs           |
+| `quality_list_audits`    | Accessibility audits on record, newest first, and whether they are clean |
+| `quality_get_audit`      | One audit in full, with every rule's kept-against-real node count        |
 
 There is a prompt too, `triage_failure`, which asks for facts before
 hypotheses.

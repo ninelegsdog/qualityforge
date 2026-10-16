@@ -258,13 +258,15 @@ A project that installed the package needs no path at all:
 run it more than once before you believe it — the status is a sample of a
 connection still forming, not a verdict.
 
-| Tool                     | What it answers                                                       |
-| ------------------------ | --------------------------------------------------------------------- |
-| `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed       |
-| `quality_list_failures`  | Compact records: id, status, test location, flakiness                 |
-| `quality_get_defect`     | One defect in full, including console, network and page-error signals |
-| `quality_flaky_tests`    | Which specs failed across runs: flaky, failing, new, or gone          |
-| `quality_get_trend`      | Pass rate per run, direction, duration, distinct failing specs        |
+| Tool                     | What it answers                                                          |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed          |
+| `quality_list_failures`  | Compact records: id, status, test location, flakiness                    |
+| `quality_get_defect`     | One defect in full, including console, network and page-error signals    |
+| `quality_flaky_tests`    | Which specs failed across runs: flaky, failing, new, or gone             |
+| `quality_get_trend`      | Pass rate per run, direction, duration, distinct failing specs           |
+| `quality_list_audits`    | Accessibility audits on record, newest first, and whether they are clean |
+| `quality_get_audit`      | One audit in full, with every rule's kept-against-real node count        |
 
 Plus resources for the latest run summary and any defect, and a
 `triage_failure` prompt that asks for facts before hypotheses.

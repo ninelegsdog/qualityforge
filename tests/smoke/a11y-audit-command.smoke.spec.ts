@@ -56,7 +56,24 @@ async function audit(args: string[]): Promise<{ code: number; stdout: string; st
 test.describe("a11y:audit, with a real browser", () => {
   let work: string;
 
-  test.beforeEach(() => {
+  test.beforeEach(({}, testInfo) => {
+    /**
+     * Chromium only, and deliberately.
+     *
+     * The command under test launches chromium itself, so the browser project it
+     * runs inside is irrelevant to it. Running this file in the firefox and
+     * webkit jobs therefore bought nothing and cost a failure in each: those
+     * runners install only their own engine, so every audit exited 2 with
+     * "Executable doesn't exist" — which CI reported, correctly, as a broken
+     * test.
+     *
+     * One engine proves the command. Repeating it three times would only prove
+     * that the command is slow.
+     */
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "the audit command launches chromium; the other browser jobs install only their own engine",
+    );
     work = mkdtempSync(path.join(os.tmpdir(), "qf-a11y-run-"));
   });
 

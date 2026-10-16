@@ -71,6 +71,13 @@ jobs:
       - name: Check documented numbers against the suite
         run: npm run docs:numbers
 
+      # Prose, checked against `scripts/tool_list.py`. The tool count was stated
+      # in three documents and was wrong in all three for days; the cost is a
+      # git file list and a regex, and it prints what it exempted so a dated
+      # release record cannot become a silent hole.
+      - name: Check documented tool counts against the source of truth
+        run: npm run docs:tools
+
       # Issue #6: the client-support table is a record of observations, so the
       # rule it must not break is citation — a claim without a command and date
       # behind it, or an "untested" cell with no recorded decision, goes red.

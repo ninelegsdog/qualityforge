@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { checkFieldPath } from "../../src/config/field-path.js";
+import { checkFieldPath, parseFieldPath } from "../../src/config/field-path.js";
 
 /**
  * The field-path grammar, checked one accepted and one rejected shape at a time.
@@ -56,6 +56,32 @@ test.describe("field paths", () => {
       expect(problem).toContain(fragment);
     });
   }
+
+  test("parses every accepted shape into the steps it promised", () => {
+    // A path that validates and then matches nothing is the worst failure a
+    // grammar can have: the configuration was accepted, the capture read the body,
+    // and nothing was found. An earlier draft stepped over the "[" of a
+    // following index and read `data.items[1].id` as the key "1]".
+    expect(parseFieldPath("[0].id")).toEqual([
+      { kind: "index", index: 0 },
+      { kind: "key", key: "id" },
+    ]);
+    expect(parseFieldPath("data.items[1].id")).toEqual([
+      { kind: "key", key: "data" },
+      { kind: "key", key: "items" },
+      { kind: "index", index: 1 },
+      { kind: "key", key: "id" },
+    ]);
+    expect(parseFieldPath("a[0][1]")).toEqual([
+      { kind: "key", key: "a" },
+      { kind: "index", index: 0 },
+      { kind: "index", index: 1 },
+    ]);
+  });
+
+  test("parses an index that stands alone", () => {
+    expect(parseFieldPath("[0]")).toEqual([{ kind: "index", index: 0 }]);
+  });
 
   test("names where the path was written, so the message is actionable", () => {
     expect(checkFieldPath("a..b", AT)).toContain(AT);

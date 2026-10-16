@@ -56,7 +56,7 @@ async function audit(args: string[]): Promise<{ code: number; stdout: string; st
 test.describe("a11y:audit, with a real browser", () => {
   let work: string;
 
-  test.beforeEach(({}, testInfo) => {
+  test.beforeEach((_fixtures, testInfo) => {
     /**
      * Chromium only, and deliberately.
      *

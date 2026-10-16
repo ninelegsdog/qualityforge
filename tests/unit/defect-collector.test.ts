@@ -45,6 +45,10 @@ function reportWith(
     status: string;
     retry?: number;
     attachments?: TestAttachment[];
+    /** Overrides for the failure text; the defaults are what the real reporter writes. */
+    message?: string;
+    snippet?: string;
+    stack?: string;
   }[],
 ): string {
   return JSON.stringify({
@@ -73,8 +77,10 @@ function reportWith(
                   startTime: "2026-10-03T00:00:00.000Z",
                   attachments: r.attachments ?? [],
                   error: {
-                    message: `Error: expect(locator).${RED}toHaveText${RESET} failed\n\nExpected: "a"\nReceived: "b"`,
-                    snippet: "> 11 |   await expect(x).toHaveText('a');",
+                    message:
+                      r.message ??
+                      `Error: expect(locator).${RED}toHaveText${RESET} failed\n\nExpected: "a"\nReceived: "b"`,
+                    snippet: r.snippet ?? "> 11 |   await expect(x).toHaveText('a');",
                     // Absolute, exactly as the real reporter writes it, and
                     // rooted at the sandbox so relativisation has to do work.
                     location: {
@@ -82,7 +88,7 @@ function reportWith(
                       line: 11,
                       column: 3,
                     },
-                    stack: `${RED}Error: boom${RESET}`,
+                    stack: r.stack ?? `${RED}Error: boom${RESET}`,
                   },
                 })),
               },
@@ -528,6 +534,48 @@ test.describe("collectDefects", () => {
     expect(written.defects).toHaveLength(1);
     // One failure out of one spec is a 100% failure rate, above the threshold.
     expect(written.gate.passed).toBe(false);
+  });
+
+  test("redacts a token the page quoted into the message, and leaves the snippet alone", async () => {
+    const TOKEN = `ghp_${"Zx8sTR0secretTOKENvalueABCDEFghijKLpqrs".slice(0, 36)}`;
+    const SNIPPET = "> 11 |   await expect(x).toHaveText('a');";
+    const root = await scaffold((sandbox) => ({
+      "artifacts/json/playwright-results.json": reportWith(sandbox, [
+        {
+          status: "failed",
+          message:
+            `Error: expect(locator).toHaveText failed\n\nExpected: "ok"\n` + `Received: "${TOKEN}"`,
+          snippet: SNIPPET,
+          // Playwright starts the stack with the message, so the token is here twice.
+          stack: `Error: expect(locator).toHaveText failed\nReceived: "${TOKEN}"\n    at run (/app/tests/x.ts:1:1)`,
+        },
+      ]),
+    }));
+
+    const { defects } = await collectDefects({
+      projectRoot: root,
+      testDir: "tests",
+      outputDir: "artifacts/defects",
+      reportPath: "artifacts/json/playwright-results.json",
+      referenceErrorContext: true,
+      thresholds: THRESHOLDS,
+    });
+
+    const failure = defects[0]?.failure;
+
+    // Measured on real failures before the fix: the token survived in 4 of 4.
+    expect(failure?.message).not.toContain(TOKEN);
+    expect(failure?.stack).not.toContain(TOKEN);
+    // The diagnosis around it is still readable — redaction is not deletion.
+    expect(failure?.message).toContain("toHaveText");
+    expect(failure?.message).toContain("[redacted]");
+    /**
+     * `snippet` is left exactly as the reporter wrote it, and that is a decision
+     * rather than an oversight: it is the test's own source, measured at 0 of 4
+     * for the token, and redacting it corrupted a template literal in an earlier
+     * measurement. Rule 3 — preserve what is not secret.
+     */
+    expect(failure?.snippet).toBe(SNIPPET);
   });
 
   test("resolves the test file relative to testDir and strips ANSI from the message", async () => {

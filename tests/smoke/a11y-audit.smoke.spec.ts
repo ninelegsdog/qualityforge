@@ -43,7 +43,19 @@ interface Browser {
 const require = createRequire(import.meta.url);
 const AXE_PATH = require.resolve("axe-core/axe.min.js");
 
-const TOKEN = "ghp_Zx8sTR0secretTOKENvalue";
+/**
+ * A token in the shape a real one has.
+ *
+ * The length is the point, and getting it wrong is instructive. This used to be
+ * `ghp_Zx8sTR0secretTOKENvalue` — 23 characters after the prefix — and the
+ * canary below stayed red after the editor was fixed, which read like a failed
+ * fix. It was not: a GitHub personal access token is `ghp_` plus 36, and the
+ * probe deliberately kept that boundary narrow because a wider one took an
+ * `sk-` slug and a CSS class out of working text. A token that does not match
+ * the format the editor claims to catch tests nothing — it asks the editor to
+ * guess, and asserts that a guess happened.
+ */
+const TOKEN = `ghp_${"Zx8sTR0secretTOKENvalueABCDEFghijKLpqrs".slice(0, 36)}`;
 
 /** Nine positions a real page carried a token in, measured one run per position. */
 async function injectTokenAndDefects(page: Page): Promise<void> {
@@ -102,22 +114,21 @@ test.describe("a11y shaping against the real axe-core", () => {
   });
 
   test("the whole artifact is clean, not only its html", async ({ page }) => {
-    // Expected to fail today, and writing it is the point.
-    //
-    // Decision 4 is implemented: `html` keeps structure and loses values and
-    // text, and the test above proves that against the real engine. Decision 3
-    // is not: `target` is stored, and the redactor covers only two of the six
-    // selector forms axe builds, so a token in an element `id` reaches `target`
-    // intact. Measured, not assumed — 2 of 6 forms covered — and the editor fix
-    // is separate work by decision.
-    //
-    // So this test states the goal and currently fails at exactly that gap.
-    // The day the editor is taught the selector forms it will pass, and
-    // Playwright will report an expected failure that passed unexpectedly,
-    // which is the signal to update the decisions note rather than to relax
-    // anything here.
-    test.fail(true, "target carries the token until decision 3's editor fix lands");
-
+    /**
+     * This test was written as an expected failure, and the day it passed
+     * unexpectedly was the signal that decision 3 had landed — which is what it
+     * was for. It was red on the `target` gap: the redactor covered 2 of the 6
+     * selector forms axe builds, so a token in an element `id` arrived intact.
+     *
+     * What closed it was not a change to this test. PR #68 taught
+     * `redactAssignments` the shape of a vendor token, and this change applies
+     * that rule to `target`. Both halves of the gap — `html` by decision 4,
+     * `target` by decision 3 — are now closed, so the assertion below covers the
+     * whole artifact rather than one field of it.
+     *
+     * If it ever goes red again, the failure is in the editor rather than in the
+     * shaper: `elementShape` and the cap have their own tests above.
+     */
     await page.goto("/");
     await injectTokenAndDefects(page);
     const audit = shapeAudit(await runAxe(page));

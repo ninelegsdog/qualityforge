@@ -246,6 +246,18 @@ jobs:
       #    unproven, not established - but a leg that runs one engine cannot hit
       #    it, and the unit project that this would otherwise drop is run by the
       #    `unit` job above.
+
+      # Recorded here because it is easy to misread as a product failure, and it
+      # is not. Observed 2026-10-16: the ten `a11y:audit` tests run at four
+      # workers under load failed one run in three with
+      # `SyntaxError: Unexpected token 'this'` inside
+      # `node_modules/playwright-core/lib/coreBundle.js`, raised from tsx's CJS
+      # require hook as it transformed Playwright's 3.5 MB bundle. The bundle is
+      # intact, the audit plays no part in it, and the same file run on its own
+      # passed twice. Same class as the SIGSEGV above - this machine under load,
+      # not the code. CI has never reproduced it, which is a weaker statement
+      # than "cannot", so treat a red audit test locally as this until shown
+      # otherwise: re-run it alone before investigating.
       - name: Run tests
         run: npx playwright test --project=${{ matrix.browser }}
 

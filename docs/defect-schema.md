@@ -422,6 +422,37 @@ cookie on login. All five `id` values satisfied the kebab-case pattern and the
 the documented absent-versus-empty rule for `signals` behaved as written in two of
 the five probes.
 
+### Run the way a consumer does
+
+The two commands above run the collector from inside this repository, which is the
+one place where the collector's path resolution is least interesting: the project
+root it resolves is the project root, so `projectRootFor` cannot be wrong.
+
+Re-run on 2026-10-16 through the installed binary instead — `npm pack` so
+`prepare` builds what a git install builds, then a directory outside this
+checkout with its own `config/project.json`:
+
+```bash
+npx --no-install qualityforge --report <the report above> --out ./artifacts --no-history --json
+```
+
+Exit 1, five artifacts, and the differences that only a foreign project shows:
+
+| What                                            | Why it needed a foreign directory                |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `tags` are `consumer`, `third-party`            | not this repository's `demo`, `smoke`            |
+| artifacts in `./artifacts`, 0 in `node_modules` | not written back into the package                |
+| `context.commit` absent                         | the consumer's directory is not a git repository |
+
+What held the same: every defect carried `context.baseUrl` for the third party
+with `targetSource: observed`, and `page.url` including the 404 path.
+
+Two behaviours this found that the in-repository run never reaches, both correct:
+`evidence` is required in a configuration and is not optional, and a consumer with
+no `config/project.json` of its own exits 2 with a `Configuration error`. The
+fallback to a packaged copy cannot rescue that one: the tarball ships no `config/`
+at all — 0 of its 88 files.
+
 ### Gaps
 
 Each one states what could not be expressed, what it risks a consumer, and what

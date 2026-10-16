@@ -191,6 +191,47 @@ reason every other claim here runs: break a locator in it, and exactly the
 test that reads it goes red. Its twelve per-project tests moved the
 quick-start's counts to 397.
 
+**Done, on 2026-10-16 — the item closes, and the measurement above was right
+about the wrong thing.** The 2026-10-15 note counted one entry point because both
+third-party suites import `../../fixtures.js` and nothing else. That is true, and
+it is not the whole picture: the same run carries a second entry point out of the
+repository, because the report it produces is consumed by the collector. One live
+run against `quotes.toscrape.com` therefore proved two.
+
+**The fixture**, as before: ten specs, five asserting the application's real
+behaviour and passing, five probes failing on purpose — the run's deliverable.
+
+**The CLI**, proved the way a consumer meets it rather than the way this
+repository runs it. `npm pack` (so `prepare` builds what a git install builds),
+installed into a directory outside this checkout with a `config/project.json` that
+was not ours, and then:
+
+```bash
+QUALITYFORGE_THIRD_PARTY=1 npx playwright test tests/smoke/third-party
+# from the consumer's directory, against the report that run produced:
+npx --no-install qualityforge --report <report> --out ./artifacts --no-history --json
+```
+
+Exit 1, the gate red as designed, five artifacts. What that run showed that the
+in-repository invocation cannot: the artifacts carry the **consumer's** tags
+(`consumer`, `third-party`) and not this repository's (`demo`, `smoke`), they land
+in the consumer's `artifacts/` with **zero** files written into `node_modules`,
+and no git commit is recorded because the consumer's directory is not a git
+repository — which is the honest answer, not a missing field. Every defect carries
+`context.baseUrl: https://quotes.toscrape.com` with `targetSource: observed`, and
+per-defect `page.url` values including the 404 path.
+
+The summary beside them says `baseUrl: http://127.0.0.1:4321`, `targetSource:
+report` — because that run's Playwright config declared a `webServer`, and
+`defect-schema.md` already says a summary keeps the configured answer while the
+observation lands per defect. Noted here because it is the first time that
+documented split has been observed rather than asserted.
+
+Two costs worth recording: the collector needs `evidence` in its configuration
+without being told, and a consumer project that has no `config/project.json` of
+its own exits 2 with `Configuration error` rather than guessing — both correct,
+both found by running it the way a consumer does.
+
 ## Board
 
 The closed issues on `v0.1.0-alpha` are the defects this repository found in

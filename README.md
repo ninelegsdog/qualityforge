@@ -362,8 +362,8 @@ npm run verify              # lint + typecheck + build + format check (CI runs t
 ```
 
 The Python-based checks — `mcp:check*`, `mcp:schema`, `mcp:live`,
-`defects:check`, `docs:numbers`, `docs:support` and `ci:validate` — are
-separate scripts so that `verify` stays runnable with only Node installed.
+`defects:check`, `docs:numbers`, `docs:support`, `docs:tools` and `ci:validate`
+— are separate scripts so that `verify` stays runnable with only Node installed.
 `mcp:live` additionally needs the `opencode` binary; without it the check fails
 rather than skips — a live-client check that quietly passes without a client
 would be decoration.

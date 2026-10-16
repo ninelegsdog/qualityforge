@@ -89,6 +89,39 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
+/** A ceiling, not a hope: a demo app is still a server a test suite points at. */
+const MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * Read a request body, refusing one that is over the ceiling.
+ *
+ * @param {import("node:http").IncomingMessage} req
+ * @returns {Promise<string>}
+ */
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error("request body over the ceiling"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+function sendJson(res, status, value) {
+  return send(res, status, JSON.stringify(value), {
+    "content-type": "application/json; charset=utf-8",
+  });
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${HOST}:${PORT}`);
   const pathname = url.pathname;
@@ -101,9 +134,34 @@ const server = createServer(async (req, res) => {
     }
 
     if (pathname === "/api/items") {
-      return send(res, 200, JSON.stringify(ITEMS), {
-        "content-type": "application/json; charset=utf-8",
-      });
+      return sendJson(res, 200, ITEMS);
+    }
+
+    // The first endpoint the demo app sends to. Until this existed, half of what
+    // an API contract talks about — what the application *sends* — had nothing
+    // to be observed on, because the contact form confirmed itself in the
+    // browser without a request ever leaving it.
+    if (pathname === "/api/contact") {
+      if (req.method !== "POST") {
+        return send(res, 405, JSON.stringify({ error: "method not allowed" }), {
+          "content-type": "application/json; charset=utf-8",
+          allow: "POST",
+        });
+      }
+
+      let received;
+      try {
+        received = JSON.parse(await readBody(req));
+      } catch {
+        return sendJson(res, 400, { error: "body must be JSON" });
+      }
+      if (typeof received?.email !== "string" || received.email === "") {
+        return sendJson(res, 400, { error: "email is required" });
+      }
+
+      // The fields the caller sent, by name only. Enough for a contract to be
+      // checked against, and nothing here echoes a value back.
+      return sendJson(res, 200, { received: true, fields: Object.keys(received).sort() });
     }
 
     const mapped = ROUTES[pathname] ?? pathname.replace(/^\/+/, "");

@@ -19,4 +19,6 @@ EXPECTED_TOOLS = [
     "quality_get_defect",
     "quality_flaky_tests",
     "quality_get_trend",
+    "quality_list_audits",
+    "quality_get_audit",
 ]

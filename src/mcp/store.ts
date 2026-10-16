@@ -22,6 +22,7 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { validateDefect, type DefectV1 } from "../defect/types.js";
+import { validateAudit, type A11yAudit } from "../a11y/types.js";
 import {
   readHistory,
   readHistoryRecords,
@@ -58,6 +59,21 @@ export interface StoreOptions {
    * something derived from a request, and it is still only ever read.
    */
   historyRoot?: string;
+  /**
+   * Absolute path to the accessibility-audit directory, if the project runs one.
+   *
+   * A third root, and a sibling rather than a subdirectory, for the same reason
+   * the history root is: `artifacts/defects` and `artifacts/a11y` are different
+   * measurements with different contracts, and nesting one inside the other would
+   * make `listRuns` read a directory that holds no summary at all.
+   *
+   * Confinement is unchanged — every path still goes through the same checks —
+   * but it resolves against *this* root. That matters: a client path like
+   * `../../defects/…` sent to an audit tool must be refused against the audit
+   * root, not quietly allowed to reach the defect tree because the server
+   * happened to have both open.
+   */
+  auditRoot?: string;
 }
 
 /** One run directory inside the root. */
@@ -70,17 +86,33 @@ export interface RunSummaryRef {
   failed?: number;
 }
 
+/** One accessibility audit, as the list tool reports it. */
+export interface AuditRunRef {
+  runId: string;
+  /** Relative POSIX path, safe to hand to a client. */
+  path: string;
+  createdAt?: string;
+  violations?: number;
+  incomplete?: number;
+  truncatedRules?: number;
+}
+
 export class ArtifactStore {
   readonly #root: string;
   /** Absolute realpath of the root, resolved once at construction. */
   #realRoot = "";
   /** Absolute history directory, when the project keeps one. */
   readonly #historyRoot: string | undefined;
+  /** Absolute audit directory, when the project runs audits. */
+  readonly #auditRoot: string | undefined;
+  /** Realpath of the audit root, empty when there is none or it is unreadable. */
+  #realAuditRoot = "";
 
   constructor(options: StoreOptions) {
     this.#root = path.resolve(options.root);
     this.#historyRoot =
       options.historyRoot === undefined ? undefined : path.resolve(options.historyRoot);
+    this.#auditRoot = options.auditRoot === undefined ? undefined : path.resolve(options.auditRoot);
   }
 
   /**
@@ -129,6 +161,24 @@ export class ArtifactStore {
       throw new Error(`Artifacts root is not a directory: ${resolved}`);
     }
     this.#realRoot = resolved.endsWith(path.sep) ? resolved : resolved + path.sep;
+
+    /**
+     * The audit root is optional and its absence is not an error.
+     *
+     * Most projects that use this server have never run an audit, and a missing
+     * `artifacts/a11y` says exactly that. Failing at startup would mean a server
+     * that refuses to answer about defects because nobody has audited
+     * accessibility — where the tools could have answered "no audits yet", which
+     * is evidence rather than a complaint.
+     */
+    if (this.#auditRoot !== undefined) {
+      try {
+        const auditReal = await realpath(this.#auditRoot);
+        this.#realAuditRoot = auditReal.endsWith(path.sep) ? auditReal : auditReal + path.sep;
+      } catch {
+        this.#realAuditRoot = "";
+      }
+    }
   }
 
   get root(): string {
@@ -141,6 +191,30 @@ export class ArtifactStore {
    * @returns the absolute path, guaranteed to be inside the real root.
    */
   async resolve(relative: string): Promise<string> {
+    return this.#resolveIn(this.#root, this.#realRoot, relative);
+  }
+
+  /**
+   * Resolve a client-supplied relative path inside the audit root.
+   *
+   * Refuses when the project runs no audits, rather than reporting an empty
+   * result that a client could mistake for "clean".
+   */
+  async resolveAudit(relative: string): Promise<string> {
+    if (this.#auditRoot === undefined || this.#realAuditRoot === "") {
+      throw new Error(
+        "No accessibility audits found. Run `npm run a11y:audit` before asking about them.",
+      );
+    }
+    return this.#resolveIn(this.#auditRoot, this.#realAuditRoot, relative);
+  }
+
+  /** True when the project has an audit root that exists. */
+  get hasAuditRoot(): boolean {
+    return this.#auditRoot !== undefined && this.#realAuditRoot !== "";
+  }
+
+  async #resolveIn(root: string, realRoot: string, relative: string): Promise<string> {
     if (typeof relative !== "string" || relative === "") {
       throw new PathAccessError(String(relative), "empty path");
     }
@@ -164,12 +238,12 @@ export class ArtifactStore {
       throw new PathAccessError(relative, "absolute path");
     }
 
-    const joined = path.resolve(this.#root, decoded);
+    const joined = path.resolve(root, decoded);
 
     // Normalisation already collapses `..`, but check the literal prefix too:
     // belt and braces, because this is the security boundary.
-    const withSep = this.#root.endsWith(path.sep) ? this.#root : this.#root + path.sep;
-    if (joined !== this.#root && !joined.startsWith(withSep)) {
+    const withSep = root.endsWith(path.sep) ? root : root + path.sep;
+    if (joined !== root && !joined.startsWith(withSep)) {
       throw new PathAccessError(relative, "resolves outside the root");
     }
 
@@ -181,8 +255,8 @@ export class ArtifactStore {
     } catch {
       throw new PathAccessError(relative, "does not exist");
     }
-    const realWithSep = this.#realRoot;
-    if (real !== this.#root && !real.startsWith(realWithSep)) {
+    const realWithSep = realRoot;
+    if (real !== root && !real.startsWith(realWithSep)) {
       throw new PathAccessError(relative, "symlink resolves outside the root");
     }
 
@@ -281,5 +355,71 @@ export class ArtifactStore {
       .filter((name) => name.endsWith(".v1.json") && name !== "quality-summary.v1.json")
       .sort()
       .map((name) => `${runId}/${name}`);
+  }
+
+  /**
+   * Every accessibility audit this project has written, newest first.
+   *
+   * Empty when the project runs no audits, which is the ordinary case: an absent
+   * `artifacts/a11y` is evidence that nothing has been audited, and a tool that
+   * says so is more useful to an agent than one that fails.
+   */
+  async listAudits(): Promise<AuditRunRef[]> {
+    if (!this.hasAuditRoot || this.#auditRoot === undefined) return [];
+
+    const entries = await readdir(this.#auditRoot, { withFileTypes: true });
+    const audits: AuditRunRef[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const relative = `${entry.name}/audit.v1.json`;
+      const parsed = await this.readAudit(relative).catch(() => null);
+      // A directory without a readable audit is not a run; skipping it is the
+      // same rule `listRuns` follows for a directory with no summary.
+      if (parsed === null) continue;
+      const counts =
+        typeof parsed.counts === "object" && parsed.counts !== null
+          ? (parsed.counts as Record<string, unknown>)
+          : {};
+      audits.push({
+        runId: entry.name,
+        path: relative,
+        createdAt: parsed.createdAt,
+        // Omit absent fields rather than setting them to undefined, for the same
+        // reason `listRuns` does: the type is exactOptional.
+        ...(typeof counts.violations === "number" ? { violations: counts.violations } : {}),
+        ...(typeof counts.incomplete === "number" ? { incomplete: counts.incomplete } : {}),
+        ...(typeof counts.truncatedRules === "number"
+          ? { truncatedRules: counts.truncatedRules }
+          : {}),
+      });
+    }
+    return audits.sort((a, b) => b.runId.localeCompare(a.runId));
+  }
+
+  /**
+   * Read one audit. The path is client-supplied and confined like any other.
+   *
+   * Validated on read for the same reason a defect is: the artifact crosses a
+   * trust boundary here, and a server that passed on whatever the file said would
+   * be handing a model a claim nobody checked.
+   */
+  async readAudit(relativePath: string): Promise<A11yAudit> {
+    const absolute = await this.resolveAudit(relativePath);
+    const text = await readFile(absolute, "utf8");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`Audit artifact is not valid JSON: ${relativePath}`, { cause: error });
+    }
+
+    const { valid, problems } = validateAudit(parsed);
+    if (!valid) {
+      throw new Error(
+        `Audit artifact violates the a11y-audit.v1 contract: ${relativePath}\n  - ${problems.join("\n  - ")}`,
+      );
+    }
+    return parsed as A11yAudit;
   }
 }

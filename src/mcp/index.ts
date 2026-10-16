@@ -60,6 +60,9 @@ import { SERVER_NAME, SERVER_VERSION } from "./protocol.js";
 /** Default root: where `npm run defects:collect` writes. */
 const DEFAULT_ROOT = "artifacts/defects";
 
+/** Default audit root: where `npm run a11y:audit` writes. */
+const DEFAULT_AUDIT_ROOT = "artifacts/a11y";
+
 /** Root of this checkout, used to resolve a relative root when cwd has none. */
 const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
@@ -68,12 +71,14 @@ function usage(): string {
     `${SERVER_NAME} ${SERVER_VERSION}`,
     "",
     "Usage:",
-    "  this repository     npm run mcp -- [--root <dir>] [--history <dir>]",
+    "  this repository     npm run mcp -- [--root <dir>] [--history <dir>] [--audit-root <dir>]",
     "  a consuming project npx --no-install qualityforge-mcp [--root <dir>] [--history <dir>]",
     "",
     "  --root <dir>    artifacts root to serve (default: " + DEFAULT_ROOT + ")",
     "  --history <dir> run-history directory to serve, if the project keeps one",
     "                  (default: quality-history, when that directory exists)",
+    "  --audit-root <dir> accessibility audits to serve, if the project runs them",
+    "                  (default: " + DEFAULT_AUDIT_ROOT + ", when that directory exists)",
     "  --help          this message",
     "",
     "Reads only. Writes nothing.",
@@ -83,16 +88,18 @@ function usage(): string {
 function parseArgs(argv: string[]): {
   root: string | undefined;
   history: string | undefined;
+  auditRoot: string | undefined;
   help: boolean;
 } {
   let root: string | undefined;
   let history: string | undefined;
+  let auditRoot: string | undefined;
   let help = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
       help = true;
-    } else if (arg === "--root" || arg === "--history") {
+    } else if (arg === "--root" || arg === "--history" || arg === "--audit-root") {
       const value = argv[i + 1];
       i += 1;
       if (value === undefined) {
@@ -102,6 +109,8 @@ function parseArgs(argv: string[]): {
       }
       if (arg === "--root") {
         root = value;
+      } else if (arg === "--audit-root") {
+        auditRoot = value;
       } else {
         history = value;
       }
@@ -111,11 +120,11 @@ function parseArgs(argv: string[]): {
       process.exit(1);
     }
   }
-  return { root, history, help };
+  return { root, history, auditRoot, help };
 }
 
 async function main(): Promise<number> {
-  const { root, history, help } = parseArgs(process.argv.slice(2));
+  const { root, history, auditRoot, help } = parseArgs(process.argv.slice(2));
 
   if (help) {
     console.error(usage());
@@ -153,9 +162,17 @@ async function main(): Promise<number> {
   // than a path that fails to resolve.
   const historyDir =
     history ?? ["quality-history"].find((candidate) => existsSync(path.resolve(cwd, candidate)));
+  // Only when it exists, for the same reason history is: a project that has never
+  // run an audit gets an empty answer from the audit tools, not a startup failure.
+  const auditDir =
+    auditRoot ?? [DEFAULT_AUDIT_ROOT].find((candidate) => existsSync(path.resolve(cwd, candidate)));
   const store = new ArtifactStore({
     root: absoluteRoot,
     ...(historyDir === undefined ? {} : { historyRoot: path.resolve(cwd, historyDir) }),
+    // The audit root is a third sibling directory, for the same reason: audits are
+    // a different measurement from defects, and resolving them inside the defect
+    // root would make `listRuns` read a directory that holds no summary.
+    ...(auditDir === undefined ? {} : { auditRoot: path.resolve(cwd, auditDir) }),
   });
   try {
     await store.init();

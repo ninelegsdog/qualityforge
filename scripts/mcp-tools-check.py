@@ -62,9 +62,15 @@ def run(
     requests: list[dict],
     root: pathlib.Path,
     history: pathlib.Path | None = None,
+    audit_root: pathlib.Path | None = None,
 ) -> tuple[dict, list, int]:
     """Drive the real server over a real pipe and collect its frames."""
     argv = ["npx", "tsx", "src/mcp/index.ts", "--root", str(root)]
+    if audit_root is not None:
+        # Explicit, for the same reason `--history` is: the check must not depend
+        # on the repository happening to contain an audit, and it should exercise
+        # the flag rather than the default.
+        argv += ["--audit-root", str(audit_root)]
     if history is not None:
         # An explicit flag, so the check does not depend on the repository happening
         # to contain a history directory — and so it exercises the flag itself.
@@ -132,9 +138,60 @@ def seed_history(scratch: pathlib.Path) -> pathlib.Path:
     return history
 
 
+def seed_audit(scratch: pathlib.Path) -> pathlib.Path:
+    """One accessibility audit, in the real format.
+
+    Written by hand for the same reason `seed_history` is: this check is
+    self-seeding by design, and running a browser to produce an audit would make
+    it depend on a browser it does not install. If the format drifts, the
+    assertions below fail rather than quietly pass.
+
+    `totalNodes` is deliberately larger than the nodes kept and `truncated` is
+    deliberately true. That is the one thing a client cannot reconstruct for
+    itself, so it is the one thing worth proving survives the wire.
+    """
+    audit_root = scratch / "a11y"
+    run_dir = audit_root / "2026-10-16T01-29-31-810Z-seeded"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    audit = {
+        "schemaVersion": "1.0.0",
+        "url": "https://quotes.toscrape.com",
+        "createdAt": "2026-10-16T01:29:31.810Z",
+        "engine": {"name": "axe-core", "version": "4.14.0"},
+        "counts": {"violations": 1, "incomplete": 1, "nodes": 1, "truncatedRules": 1},
+        "violations": [
+            {
+                "id": "color-contrast",
+                "impact": "serious",
+                "nodes": [
+                    {
+                        "target": [".quote:nth-child(1) > span"],
+                        "html": "<span class>",
+                        "failureSummary": "Fix any of the following: element has insufficient contrast",
+                    }
+                ],
+                "totalNodes": 48,
+                "truncated": True,
+            }
+        ],
+        "incomplete": [
+            {
+                "id": "form-field-multiple-labels",
+                "impact": None,
+                "nodes": [],
+                "totalNodes": 0,
+                "truncated": False,
+            }
+        ],
+    }
+    (run_dir / "audit.v1.json").write_text(json.dumps(audit, indent=2) + "\n", encoding="utf-8")
+    return audit_root
+
+
 def main() -> int:
     scratch, served_root, problems = evidence_seed.seed(ROOT)
     history_root = seed_history(scratch)
+    audit_root = seed_audit(scratch)
     if not os.environ.get(evidence_seed.SHARED_SCRATCH_ENV):
         print(evidence_seed.describe(scratch, served_root))
 
@@ -234,10 +291,89 @@ def main() -> int:
                     "_meta": envelope(),
                 },
             },
+            # The accessibility audits, against the seeded one.
+            {
+                "jsonrpc": "2.0",
+                "id": 20,
+                "method": "tools/call",
+                "params": {"name": "quality_list_audits", "arguments": {}, "_meta": envelope()},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 21,
+                "method": "tools/call",
+                "params": {
+                    "name": "quality_get_audit",
+                    "arguments": {"auditPath": "2026-10-16T01-29-31-810Z-seeded/audit.v1.json"},
+                    "_meta": envelope(),
+                },
+            },
+            # The escape a second root makes possible: out of the audit root and
+            # into the defect tree, which is exactly the tree the server also has
+            # open and serving.
+            {
+                "jsonrpc": "2.0",
+                "id": 22,
+                "method": "tools/call",
+                "params": {
+                    "name": "quality_get_audit",
+                    "arguments": {"auditPath": "../defects/anything/quality-summary.v1.json"},
+                    "_meta": envelope(),
+                },
+            },
         ],
         served_root,
         history_root,
+        audit_root,
     )
+
+    # --- accessibility audits, over the wire ---------------------------------
+    #
+    # The seeded audit exists so these assertions have something real to read, and
+    # the traversal below is the case a second root makes possible: a path aimed
+    # at an audit that walks out of the audit root and lands in the defect tree.
+    audits = (frames.get(20, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not audits.get("total"):
+        problems.append("list_audits returned no audits against the seeded audit root")
+    else:
+        print(f"audits: {audits.get('total')}")
+        listed = (audits.get("audits") or [{}])[0]
+        if listed.get("violations") != 1 or listed.get("truncatedRules") != 1:
+            problems.append(f"list_audits counts={listed!r}, expected 1 violation and 1 truncated rule")
+
+    audit_sc = (frames.get(21, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not audit_sc.get("counts"):
+        problems.append("get_audit returned no counts - the artifact never reached the client")
+    else:
+        print(f"audit: {audit_sc.get('runId')} {json.dumps(audit_sc.get('counts'), sort_keys=True)}")
+        rules = audit_sc.get("violations") or []
+        if not rules:
+            problems.append("get_audit returned no violations")
+        else:
+            # The truncation is the claim a client cannot reconstruct: ten nodes
+            # kept out of forty-eight. If it does not survive the wire, a model
+            # reads a capped artifact as a complete one.
+            kept = len(rules[0].get("nodes") or [])
+            if rules[0].get("totalNodes") != 48 or kept != 1 or rules[0].get("truncated") is not True:
+                problems.append(
+                    f"get_audit lost the truncation: kept={kept} total={rules[0].get('totalNodes')} "
+                    f"truncated={rules[0].get('truncated')!r}"
+                )
+        # An impact the engine did not state must arrive as null, not as a level.
+        undecided = (audit_sc.get("incomplete") or [{}])[0]
+        if undecided.get("impact") is not None:
+            problems.append(
+                f"get_audit turned an undecided impact into {undecided.get('impact')!r}"
+            )
+
+    escape = frames.get(22, {}).get("error", {})
+    if escape.get("code") != -32602:
+        problems.append(
+            f"an audit path escaping into the defect tree was not refused with -32602: "
+            f"{json.dumps(escape)}"
+        )
+    else:
+        print("audit path refused: -32602")
 
     if corrupt:
         problems.append(f"{len(corrupt)} corrupt stdout line(s)")
@@ -432,6 +568,7 @@ def main() -> int:
     evidence_seed.discard(scratch)
     print(
         "OK: tools answer with real data, all three traversal shapes refused with -32602, "
+        "accessibility audits answer with their truncation intact and cannot escape their root, "
         f"the {MODERN} envelope required and answered"
     )
     return 0

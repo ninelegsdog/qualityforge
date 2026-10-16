@@ -69,6 +69,14 @@ INITIALIZE = {
 # the checked package and the control, so existence cannot distinguish them.
 INTERNAL_PATH = "qualityforge/dist/fixtures/quality-context.js"
 
+# A page with deliberate accessibility defects. The audit must find them, so a
+# clean result cannot be mistaken for a working check — and the project's own
+# fixtures were measured at zero violations, which is exactly why this exists.
+CONTROL_AUDIT_PAGE = (
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>control</title></head>'
+    '<body><h1>control</h1><button></button><img src="/x.png"></body></html>'
+)
+
 PROBE_ENTRY = """\
 const entry = await import("qualityforge");
 if (entry.PACKAGE_NAME !== "qualityforge") {
@@ -260,7 +268,7 @@ def main() -> int:
     check(code == 0, f"the internal dist/ path is refused by the exports map, not by a missing file; exit {code} {err.strip()}")
 
     print("\nbinaries as the shell sees them")
-    for name, relative in (("qualityforge", "dist/cli/collect-defects.js"), ("qualityforge-mcp", "dist/mcp/index.js")):
+    for name, relative in (("qualityforge", "dist/cli/collect-defects.js"), ("qualityforge-a11y", "dist/cli/a11y-audit.js"), ("qualityforge-mcp", "dist/mcp/index.js")):
         target = package_root / relative
         first_line = target.read_text(encoding="utf-8").split("\n", 1)[0] if target.exists() else "<absent>"
         check(first_line == "#!/usr/bin/env node", f"{relative} carries a node shebang (found: {first_line})")
@@ -272,6 +280,49 @@ def main() -> int:
 
     code, out, err = run(["npx", "--no-install", "qualityforge", "--help"], consumer, 60)
     check(code == 0 and "Usage:" in out, f"npx --no-install qualityforge --help works from the consumer directory; exit {code} {err.strip()[:300]}")
+
+    # --- the audit command, and both sides of its engine dependency ----------
+    # `axe-core` is a peer. Either npm brought it along and the audit runs, or
+    # it did not and the command has to say so and refuse. What must never happen
+    # is exit 0 without an audit — a silent "no violations" from a command that
+    # never loaded an engine is the worst failure this gate could miss.
+    print("\nthe audit command, and both sides of its engine dependency")
+    code, out, err = run(["./node_modules/.bin/qualityforge-a11y", "--help"], consumer, 60)
+    check(code == 0 and "Exit codes:" in out, f"qualityforge-a11y --help exits 0 and states its exit codes; exit {code} {err.strip()[:300]}")
+
+    write(consumer / "audit-control.html", CONTROL_AUDIT_PAGE)
+    code, out, err = run(
+        [
+            "./node_modules/.bin/qualityforge-a11y",
+            "--url",
+            f"file://{consumer / 'audit-control.html'}",
+            "--out",
+            str(consumer / "a11y-out"),
+        ],
+        consumer,
+        180,
+    )
+    if code in (0, 1):
+        check(
+            "audit " in out and (consumer / "a11y-out").is_dir(),
+            f"the audit ran on the installed package and wrote an artifact; exit {code} {out.strip()[:300]} {err.strip()[:200]}",
+        )
+        check(
+            code == 1,
+            f"the control page has known defects, so a working audit must not report it clean; exit {code}",
+        )
+    else:
+        # Two refusals are correct here, and only these two. The engine is a peer
+        # dependency, and the browser build that is needed follows whichever
+        # Playwright the consumer resolved — this sandbox carries the build for
+        # the version this repository pins, not the one npm picked here. What
+        # must never happen is exit 0 without an audit.
+        refused_for_engine = code == 2 and "axe-core is not installed" in err
+        refused_for_browser = code == 2 and "npx playwright install chromium" in err
+        check(
+            refused_for_engine or refused_for_browser,
+            f"with neither engine nor browser it refuses and names the fix; exit {code} {err.strip()[:300]}",
+        )
 
     # --- the MCP server, started the way a client starts it --------------------
     print("\nthe MCP server as a client starts it (cwd = consumer, no npx in the spawn)")

@@ -7,7 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **An accessibility audit, as its own command and its own artifact.**
+  `npm run a11y:audit` — or `npx --no-install qualityforge-a11y` in a consuming
+  project — runs `axe-core` against a page and writes `a11y-audit.v1` under
+  `artifacts/a11y/<runId>/`. It exits `0` with no violations, `1` with
+  violations, and `2` when it could not audit at all; the third is deliberately
+  distinct from the first, because an audit that never ran must never read as an
+  audit that found nothing.
+
+  The artifact is not `defect.v1` and is not a field on it. An audit exists
+  whether or not anything failed, so binding the two would make every audit look
+  like a defect — and measured on this repository's own pages, the three fixtures
+  routes produce **zero** violations, so a green audit of them proves nothing
+  either.
+
+  What the artifact keeps was chosen from a real engine's answer, not from its
+  documentation: only `violations` and `incomplete` (on one real page they were
+  33 bytes out of 53 147 — `passes` and `inapplicable` are the rest), nodes
+  capped at ten per rule with `totalNodes` and `truncated` so the cap says what
+  it dropped, `html` reduced to tag and attribute names because nine separate
+  positions were measured carrying page content, and `target` kept whole —
+  without it, 48 nodes of one rule are indistinguishable.
+
+- **`axe-core` is a peer dependency**, declared the way `@playwright/test` is.
+  The core of this package does not use it: the audit uses the engine the
+  project already has, and nothing ships a second copy.
+
+### Fixed
+
+- **A token with no key beside it was not redacted.** `redactAssignments` matched
+  secrets by the name of the key next to them, which cannot work for a token
+  Playwright quotes out of the page into `Received:` — measured, the token
+  survived in 4 of 4 real failure messages and 4 of 4 stacks. Formats with a real
+  structure are matched as well, chosen by a probe over 29 706 lines of this
+  repository with eleven decoys built to look like secrets: the GitHub token
+  family, OpenAI keys, AWS access key ids. A broader `sk-` pattern was rejected
+  because it took an `sk-` slug and a CSS class out of working text. The known
+  residual — an Anthropic key with dashes in its body — is written into the
+  source rather than left to be rediscovered.
+
+- **`failure.message`, `failure.stack` and an audit's `target` are redacted.**
+  `snippet` deliberately is **not**: it is the test's own source, it carried the
+  token in 0 of 4, and redacting it rewrote a template literal into corrupted
+  code — damaging the line a reader came to see.
 
 ## [0.1.0] — 2026-10-15
 

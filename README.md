@@ -344,6 +344,7 @@ npm run report:clean        # remove generated output
 npm run build               # compile src/ to dist/ (an install runs this for you)
 npm run defects:collect     # build defect artifacts from the last run
 npm run defects:check       # prove two report-shape rules on a real Playwright run
+npm run a11y:audit          # audit a page for accessibility, into artifacts/a11y/<runId>/
 npm run mcp                 # start the read-only MCP server on stdio
 npm run mcp:check:all       # drive the server over real stdio and check it
 npm run mcp:schema          # cross-check capabilities against the client's binary

@@ -59,7 +59,13 @@ export interface ShapeOptions {
 export function originOf(url: string | undefined): string {
   if (!url) return "unknown";
   try {
-    return new URL(url).origin;
+    const parsed = new URL(url);
+    // `file:` and a few other schemes have no origin, and the platform reports
+    // that as the literal string "null". Recording it puts a reader one
+    // character away from mistaking it for a missing value; the scheme says the
+    // same thing honestly and leaks no filesystem path.
+    if (parsed.origin === "null" || parsed.origin === "") return parsed.protocol;
+    return parsed.origin;
   } catch {
     return "unknown";
   }

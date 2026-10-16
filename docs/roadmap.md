@@ -37,7 +37,11 @@ work that _is_ outstanding invisible.
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
   confinement. Seven tools — five over defects and run history, two over
   accessibility audits — plus resources and a `triage_failure` prompt. Verified
-  against OpenCode v2.0.16; Kilo and MiMo are out of scope by decision.
+  against OpenCode v2.0.16; Kilo and MiMo are out of scope by decision. Proven
+  against a real third-party application's artifacts as well: the installed
+  binary, driven by the real client from a directory outside both projects,
+  answering with that application's five defects — see
+  [`defect-schema.md`](defect-schema.md).
 - **Run history.** An optional `history` block keeps one compact file per run in a
   committed directory, plus a per-suite composition shared between runs, so "is this
   a regression or has it always been this way?" has an answer. Two MCP tools read

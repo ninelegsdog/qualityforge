@@ -453,6 +453,54 @@ no `config/project.json` of its own exits 2 with a `Configuration error`. The
 fallback to a packaged copy cannot rescue that one: the tarball ships no `config/`
 at all — 0 of its 88 files.
 
+### …and then the server an agent actually talks to
+
+Collecting is half the proof. The other half is the surface an agent uses, driven
+from a directory that is neither this repository nor the consumer's, by the real
+client. Run on 2026-10-16: a fresh directory outside both, wired to the
+**installed** `qualityforge-mcp` with its root at the consumer's third-party run,
+and `opencode mcp list` (2.0.16) pointed at it.
+
+| Frame                                                        | Answer                                                                 |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `initialize`, protocol 2025-11-25                            | `resultType: complete`, `serverInfo` `qualityforge-mcp` 0.1.0, `_meta` |
+| `tools/list`                                                 | **7 tools**, `resultType` / `ttlMs` 300000 / `cacheScope` private      |
+| `prompts/list`, `resources/list`, `resources/templates/list` | all three answered, all three carrying those fields                    |
+
+Then the data itself, asked over stdio rather than through the client — a client
+never calls a tool without a model, and no check in this repository has one:
+
+| Call                     | Answer                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `quality_get_latest_run` | the third-party run: 10 specs, 5 failed, `defectCount: 5`, the gate red and naming `failure rate 50.0% exceeds maxFailureRate 5.0% (5/10)` |
+| `quality_list_failures`  | **5** defects, third-party ids, `consoleErrorCount` and `httpErrorCount` on each                                                           |
+
+**The defaults line up, with no flag on either side.** Collecting with no `--out`
+wrote to `artifacts/defects/<runId>/`, which is exactly the server's default
+`--root`. A consumer who never passes a path gets both halves wired together by
+their own `config/project.json`.
+
+**One run in two, and it is worth knowing which.** The first `opencode mcp list`
+printed `No MCP servers configured` **while the proxy recorded a complete
+session** — it had spawned the server and listed before the new entry existed. The
+second printed `✓ qualityforge connected` from cached state without re-spawning
+it: 11 wire lines before, 11 after. `mcp-live-check.py` retries for the same
+reason, and this is why it has to.
+
+**What this run clarified rather than found.** `failure.location.file` arrives
+here as
+
+    ../../../../home/algtro/qualityforge/tests/smoke/third-party/quotes-toscrape.smoke.spec.ts
+
+— a path that walks out of the reading project. Rule 1 already covers this
+("paths are relative to the project root, and an absolute path would not be
+portable"), so this is not a hole in the contract: the path is relative to the
+**producing** project's root, and the test really did live there. What the rule
+does not spell out, and what only a foreign directory shows, is that the relative
+path may therefore leave the directory of whoever reads it. That is the intended
+consequence of portability, not a malformed value — and an agent reading a defect
+list should be told that rather than left to wonder.
+
 ### Gaps
 
 Each one states what could not be expressed, what it risks a consumer, and what

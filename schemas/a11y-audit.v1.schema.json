@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qualityforge.dev/schemas/a11y-audit.v1.schema.json",
+  "title": "QualityForge accessibility audit artifact v1",
+  "description": "One accessibility audit of one page, produced by axe-core and shaped before it is written. It is not a defect artifact and carries no field of defect.v1: an audit exists whether or not anything failed, so binding the two would make every audit look like a defect.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "url", "createdAt", "engine", "counts", "violations", "incomplete"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to this schema."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$",
+      "description": "Semantic version of this schema. A breaking change requires a new major."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "[?#]" },
+      "description": "Origin of the audited page, never a path, query or fragment: a query string is where a token would ride. A scheme with no origin, such as file:, is recorded as its scheme."
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "When the audit ran, ISO-8601 in UTC."
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "description": "The analysis engine that produced the answer before it was shaped. Recorded because a rule's meaning belongs to its engine, not to this package.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["violations", "incomplete", "nodes", "truncatedRules"],
+      "description": "Summary numbers. nodes counts what was kept, not what the page produced — the difference is in totalNodes, per rule.",
+      "properties": {
+        "violations": { "type": "integer", "minimum": 0 },
+        "incomplete": { "type": "integer", "minimum": 0 },
+        "nodes": { "type": "integer", "minimum": 0 },
+        "truncatedRules": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "violations": {
+      "type": "array",
+      "description": "Rules the engine decided were broken.",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "incomplete": {
+      "type": "array",
+      "description": "Rules the engine could not decide. Kept apart from violations because it is not the same claim, and a consumer that merges them will report uncertainty as certainty.",
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "impact", "nodes", "totalNodes", "truncated"],
+      "description": "One rule and the nodes it matched.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The engine's rule identifier, such as color-contrast or label."
+        },
+        "impact": {
+          "type": ["string", "null"],
+          "enum": ["critical", "serious", "moderate", "minor", null],
+          "description": "How badly the rule is judged to matter. null means the engine did not say, and it is carried through as null: fail closed, so that 'we could not tell' never reads as 'it passed'."
+        },
+        "nodes": {
+          "type": "array",
+          "description": "The nodes kept for this rule, capped. How many were dropped is in totalNodes; a cap that does not say what it dropped is a silent loss.",
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "totalNodes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many nodes the rule really produced, before the cap. Never less than the number kept."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when totalNodes exceeds the number of nodes kept."
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "html", "failureSummary"],
+      "description": "One element the rule matched.",
+      "properties": {
+        "target": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Selectors the engine built to reach the element, kept whole and redacted. Without them, 48 nodes of one rule are indistinguishable, and where is half the message."
+        },
+        "html": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The element's structure only: tag name and attribute names, never an attribute value and never text. Measured across nine separate positions on a real page, node.html carried page content; the name of an attribute is never the secret, its value is."
+        },
+        "failureSummary": {
+          "type": "string",
+          "description": "The engine's own prose about the failure. Measured to carry no page content in any observation, which is why it survives whole while html does not."
+        }
+      }
+    }
+  }
+}

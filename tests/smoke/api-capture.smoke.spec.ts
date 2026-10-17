@@ -31,7 +31,7 @@ test.describe("API capture", () => {
     await page.goto("/");
     await expect(page.getByRole("listitem").first()).toBeVisible();
 
-    const payload = api.toPayload();
+    const payload = await api.toPayload();
     const items = observationFor(payload, "items-are-json");
 
     expect(items.observed).toBeGreaterThan(0);
@@ -59,7 +59,7 @@ test.describe("API capture", () => {
     // to catch.
     await page.goto("/");
 
-    const contact = observationFor(api.toPayload(), "contact-is-posted-and-accepted");
+    const contact = observationFor(await api.toPayload(), "contact-is-posted-and-accepted");
     expect(contact.observed).toBe(0);
     expect(contact.exchanges).toEqual([]);
     expect(contact.dropped).toBe(0);
@@ -76,7 +76,7 @@ test.describe("API capture", () => {
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByRole("status")).toHaveText("Message sent");
 
-    const payload = api.toPayload();
+    const payload = await api.toPayload();
     const contact = observationFor(payload, "contact-is-posted-and-accepted");
 
     expect(contact.observed).toBe(1);
@@ -88,6 +88,40 @@ test.describe("API capture", () => {
     expect(whole).not.toContain("leak-canary");
   });
 
+  test("records a POST response body as unread where the engine never answers", async ({
+    page,
+    api,
+  }) => {
+    // The measured limit, pinned per engine. Measured 2026-10-17 against the demo
+    // app on all three: the POST body was read as `json` on firefox and webkit,
+    // and **chromium never answered** while the page stayed open. The bound is
+    // what turns chromium's silence into a recorded `too-late` instead of a hang.
+    //
+    // If this test ever fails on all three, Playwright answered everywhere and the
+    // bound can go. If it fails on chromium alone, chromium stopped answering and
+    // the limit is still there but moved.
+    await page.goto("/contact");
+    await page.getByLabel("Email").fill("canary@example.com");
+    await page.getByLabel("Message").fill("hello");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByRole("status")).toHaveText("Message sent");
+
+    const chromium = test.info().project.name === "chromium";
+    const contact = observationFor(await api.toPayload(), "contact-is-posted-and-accepted");
+    const exchange = contact.exchanges[0];
+
+    expect(contact.observed).toBe(1);
+    expect(exchange?.responseKind).toBe(chromium ? "too-late" : "json");
+    // What the engine *does* answer is answered everywhere, which is why the
+    // project's own POST expectation can assert a status and a media type even
+    // though it asserts no response field.
+    expect(exchange?.status).toBe(200);
+    expect(exchange?.contentType).toBe("application/json");
+    // The request body is readable on every engine.
+    expect(exchange?.requestKind).toBe("json");
+    expect(exchange?.requestMissing).toEqual([]);
+  });
+
   test("records the origin the exchange went to, so attribution can be weighed", async ({
     page,
     api,
@@ -95,7 +129,7 @@ test.describe("API capture", () => {
     await page.goto("/");
     await expect(page.getByRole("listitem").first()).toBeVisible();
 
-    const items = observationFor(api.toPayload(), "items-are-json");
+    const items = observationFor(await api.toPayload(), "items-are-json");
     expect(items.exchanges[0]?.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
 
@@ -111,7 +145,7 @@ test.describe("API capture", () => {
     // started yet.
     await expect(page.getByRole("listitem").first()).toBeVisible();
 
-    const items = observationFor(api.toPayload(), "items-are-json");
+    const items = observationFor(await api.toPayload(), "items-are-json");
     expect(items.observed).toBeGreaterThan(0);
     expect(items.exchanges[0]?.responseKind).toBe("text");
     expect(items.exchanges[0]?.responseMissing).toEqual(["[0].id", "[0].name"]);

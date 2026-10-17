@@ -27,7 +27,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ProjectConfig } from "../config/types.js";
+import { buildApiAudit } from "../api/audit.js";
+import type { ApiCapturePayload } from "../api/observe.js";
+import { validateApiAudit, type ApiAudit } from "../api/types.js";
+import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import {
   DEFECT_SCHEMA_VERSION,
   type DefectLocation,
@@ -413,6 +416,19 @@ const EVIDENCE_BY_ATTACHMENT: Record<string, "trace" | "screenshot" | "video"> =
 const SIGNALS_ATTACHMENT = "quality-context";
 
 /**
+ * Attachment written by the QualityForge fixture on **every** test.
+ *
+ * Separate from `quality-context` because it is written on a different rule, and
+ * the difference is the point: that one rides on failures, so a run where every
+ * test passed produces none. An API contract that broke without breaking a test
+ * is precisely what this dimension exists to catch.
+ */
+const API_ATTACHMENT = "quality-api";
+
+/** The API audit's own filename. */
+const API_AUDIT_FILE_NAME = "api-audit.v1.json";
+
+/**
  * The run summary's own filename.
  *
  * A defect's filename is `<id>.v1.json`, and an id is a slug, so a defect whose
@@ -421,6 +437,88 @@ const SIGNALS_ATTACHMENT = "quality-context";
  * at the end of the run.
  */
 const SUMMARY_FILE_NAME = "quality-summary.v1.json";
+
+/**
+ * Read every test's API capture and write one audit for the run.
+ *
+ * A separate pass from the defect loop, and it has to be: the capture attachment
+ * is written on every test, while a defect exists only for a failure. Reusing the
+ * defect loop would read the API evidence only from the specs that failed, which
+ * is the blind spot this whole dimension was built to remove.
+ *
+ * Every spec's **last attempt** is read, matching what the defect loop does, so a
+ * retry that finally passed does not contribute an exchange from the attempt that
+ * failed.
+ *
+ * Throws on an invalid artifact rather than writing it: rule 6 says fix the
+ * producer rather than relax the contract, and an audit file nobody can trust is
+ * worse than a failed collection.
+ */
+async function writeApiAudit(input: {
+  projectRoot: string;
+  report: PwJsonReport;
+  directory: string;
+  expectations: ApiExpectation[];
+  /** Origin resolved by the caller, or `undefined` when it could not be resolved. */
+  baseUrl?: string;
+  runId: string;
+  createdAt: string;
+}): Promise<{ path: string; audit: ApiAudit }> {
+  const payloads: ApiCapturePayload[] = [];
+  for (const spec of walkSpecs(input.report.suites)) {
+    for (const pwTest of spec.tests ?? []) {
+      // The last *attempt*, not the last test entry: a retry that finally passed
+      // must not contribute the exchange its failed attempt made.
+      const attempts = pwTest.results ?? [];
+      const lastAttempt = attempts[attempts.length - 1];
+      if (lastAttempt === undefined) {
+        continue;
+      }
+      for (const attachment of lastAttempt.attachments ?? []) {
+        if (attachment.name !== API_ATTACHMENT) {
+          continue;
+        }
+        const text = await readAttachmentText(attachment);
+        if (text === undefined) {
+          continue;
+        }
+        try {
+          payloads.push(JSON.parse(text) as ApiCapturePayload);
+        } catch (error) {
+          throw new Error(
+            `the ${API_ATTACHMENT} attachment on ${spec.title ?? "an untitled spec"} is not JSON`,
+            { cause: error },
+          );
+        }
+      }
+    }
+  }
+
+  // The resolved origin, or the one the capture itself recorded. Never a fallback
+  // to a filesystem path: an origin that is a directory name is a claim nobody
+  // could act on, and the validator refuses one.
+  const origin = input.baseUrl ?? payloads[0]?.baseUrl;
+
+  const audit = buildApiAudit({
+    declared: input.expectations,
+    payloads,
+    ...(origin === undefined ? {} : { baseUrl: origin }),
+    createdAt: input.createdAt,
+  });
+
+  const verdict = validateApiAudit(audit);
+  if (!verdict.valid) {
+    throw new Error(
+      `the produced ${API_AUDIT_FILE_NAME} is invalid: ${verdict.problems.join("; ")}`,
+    );
+  }
+
+  const runDir = path.join(input.projectRoot, input.directory, input.runId);
+  await mkdir(runDir, { recursive: true });
+  const target = path.join(runDir, API_AUDIT_FILE_NAME);
+  await writeFile(target, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+  return { path: target, audit };
+}
 
 /** One line naming a test, for a message its reader has to act on. */
 function describeTest(defect: DefectV1): string {
@@ -597,6 +695,18 @@ export interface CollectOptions {
   referenceErrorContext?: boolean;
   /** Labels copied onto every artifact. */
   tags?: string[];
+  /**
+   * Declared API contracts, and where to write the audit.
+   *
+   * Omitted means the dimension is off and no file is written: a project that
+   * declares no expectations has nothing to audit, and inventing an empty audit
+   * would be a claim that the run checked something.
+   */
+  api?: {
+    /** Directory, relative to the project root, for `api-audit.v1.json`. */
+    directory: string;
+    expectations: ApiExpectation[];
+  };
   /** Gate thresholds from configuration. */
   thresholds: ProjectConfig["thresholds"];
   /** Injected so tests can pin the clock. */
@@ -999,6 +1109,15 @@ export async function collectDefects(options: CollectOptions): Promise<{
     rotationFailed?: string;
     failed?: string;
   };
+  /**
+   * What the API audit pass did, or `undefined` when no expectations are declared.
+   *
+   * The artifact is its own contract and never a field on a defect, by the owner's
+   * decision of 2026-10-16. It is reported here rather than folded into the
+   * summary, because whether it *fails the gate* is a decision the owner still has
+   * to make — and a version bump rides on that answer.
+   */
+  apiAudit?: { path: string; violations: number; counts: ApiAudit["counts"] };
 }> {
   const {
     projectRoot,
@@ -1007,6 +1126,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     reportPath,
     referenceErrorContext = false,
     history,
+    api,
     tags = [],
     thresholds,
     now = new Date(),
@@ -1520,6 +1640,22 @@ export async function collectDefects(options: CollectOptions): Promise<{
     .sort();
   const flakiness = await historyFlakiness(projectRoot, history, failingIds);
 
+  // Written before the summary, so a producer that produced an invalid audit stops
+  // the run rather than being reported alongside a summary claiming the run was
+  // collected. Rule 6: fix the producer, do not relax the contract.
+  const apiAuditResult =
+    api === undefined
+      ? undefined
+      : await writeApiAudit({
+          projectRoot,
+          report,
+          directory: api.directory,
+          expectations: api.expectations,
+          ...(origin === undefined ? {} : { baseUrl: origin }),
+          runId,
+          createdAt,
+        });
+
   const summary: RunSummary = {
     schemaVersion: DEFECT_SCHEMA_VERSION,
     runId,
@@ -1607,5 +1743,14 @@ export async function collectDefects(options: CollectOptions): Promise<{
     summary,
     runDir,
     ...(historyResult === undefined ? {} : { history: historyResult }),
+    ...(apiAuditResult === undefined
+      ? {}
+      : {
+          apiAudit: {
+            path: apiAuditResult.path,
+            violations: apiAuditResult.audit.counts.violations,
+            counts: apiAuditResult.audit.counts,
+          },
+        }),
   };
 }

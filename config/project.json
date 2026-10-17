@@ -38,8 +38,7 @@
         "path": "/api/contact",
         "requestRequires": ["email", "message"],
         "status": 200,
-        "contentType": "application/json",
-        "responseRequires": ["received", "fields[0]"]
+        "contentType": "application/json"
       }
     ]
   },

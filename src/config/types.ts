@@ -112,6 +112,14 @@ export interface ApiExpectation {
  * missing key is not a mistake worth an error.
  */
 export interface ApiConfig {
+  /**
+   * Directory, relative to the project root, for `api-audit.v1.json`.
+   *
+   * Omitted means the default, `artifacts/api` — a sibling of the defects
+   * directory, not a subdirectory of it. The contract reserves a run directory
+   * for one artifact per failure, and an audit is not a failure.
+   */
+  directory?: string;
   expectations?: ApiExpectation[];
 }
 

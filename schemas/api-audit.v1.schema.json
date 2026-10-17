@@ -5,7 +5,7 @@
   "description": "One run's verdict on the API contracts a project declared. Written by `buildApiAudit`; validated by `validateApiAudit` before it reaches disk. Two invariants live in the runtime validator rather than here, because JSON Schema cannot express them: `counts.violations` equals the number of violations listed, and expectation names are unique.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "createdAt", "baseUrl", "counts", "expectations"],
+  "required": ["schemaVersion", "createdAt", "counts", "expectations"],
   "properties": {
     "$schema": { "type": "string" },
     "schemaVersion": { "const": "1.0.0" },
@@ -16,7 +16,7 @@
     "baseUrl": {
       "type": "string",
       "minLength": 1,
-      "description": "Origin under test, reduced from the configuration. Never a path or a query string: those carry tokens."
+      "description": "Origin under test, reduced to an origin. Absent when none could be established, which is better than a guess: an origin that is really a directory name is a claim nobody could act on. Never a path or a query string: those carry tokens."
     },
     "counts": {
       "type": "object",

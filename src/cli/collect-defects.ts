@@ -26,6 +26,16 @@ import { readGitInfo } from "../defect/git-info.js";
 const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 const DEFAULT_REPORT = "artifacts/json/playwright-results.json";
+
+/**
+ * Where the API audit goes when the configuration does not say.
+ *
+ * A sibling of `defects.directory` rather than a subdirectory of it: rule 14 of
+ * the contract reserves a run directory for one artifact per failure, and an audit
+ * is not a failure. Putting it inside would make a run directory hold a document
+ * the contract says cannot be there.
+ */
+const DEFAULT_API_DIRECTORY = "artifacts/api";
 const DEFAULT_TEST_DIR = "tests";
 
 /**
@@ -160,6 +170,16 @@ async function main(): Promise<number> {
       // append would mean every CI pass wrote synthetic entries into a history whose
       // whole value is that it records what actually happened here.
       ...(config.history === undefined || noHistory ? {} : { history: config.history }),
+      // Omitted entirely when no expectations are declared, so a project that has
+      // not opted in writes no audit file at all rather than an empty one.
+      ...(config.api?.expectations === undefined || config.api.expectations.length === 0
+        ? {}
+        : {
+            api: {
+              directory: config.api.directory ?? DEFAULT_API_DIRECTORY,
+              expectations: config.api.expectations,
+            },
+          }),
       tags: config.tags,
       thresholds: config.thresholds,
       commit,

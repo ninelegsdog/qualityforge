@@ -33,8 +33,8 @@ export interface BuildAuditOptions {
   declared: ApiExpectation[];
   /** One capture payload per test that ran. */
   payloads: ApiCapturePayload[];
-  /** Origin under test, reduced from the configuration. */
-  baseUrl: string;
+  /** Origin under test, reduced to an origin. Omitted when none is known. */
+  baseUrl?: string;
   /** ISO timestamp; supplied so a caller can freeze it in a test. */
   createdAt: string;
 }
@@ -217,7 +217,7 @@ export function buildApiAudit(options: BuildAuditOptions): ApiAudit {
   return {
     schemaVersion: API_AUDIT_SCHEMA_VERSION,
     createdAt,
-    baseUrl,
+    ...(baseUrl === undefined ? {} : { baseUrl }),
     counts: {
       expectations: expectations.length,
       tests: payloads.length,

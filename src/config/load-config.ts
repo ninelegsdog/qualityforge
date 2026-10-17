@@ -300,7 +300,10 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
   if (raw.api !== undefined) {
     if (!isRecord(raw.api)) {
       problems.push("api must be an object");
-    } else if (raw.api.expectations !== undefined) {
+    } else if (raw.api.directory !== undefined) {
+      requireString(raw.api.directory, "api.directory", problems);
+    }
+    if (isRecord(raw.api) && raw.api.expectations !== undefined) {
       const list = raw.api.expectations;
       if (!Array.isArray(list)) {
         problems.push(`api.expectations must be an array, got ${describe(list)}`);

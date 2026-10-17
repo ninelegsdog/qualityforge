@@ -121,7 +121,7 @@ export const test = base.extend<QualityFixtures>({
       // nothing. An expectation with no exchange is the fail-closed case the
       // owner decided on, and it can only be ruled on from a payload that says so.
       await testInfo.attach(API_ATTACHMENT_NAME, {
-        body: `${JSON.stringify(observer.toPayload(), null, 2)}\n`,
+        body: `${JSON.stringify(await observer.toPayload(), null, 2)}\n`,
         contentType: "application/json",
       });
     },

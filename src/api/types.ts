@@ -101,8 +101,17 @@ export interface ApiAuditCounts {
 export interface ApiAudit {
   schemaVersion: typeof API_AUDIT_SCHEMA_VERSION;
   createdAt: string;
-  /** Origin under test, reduced from the configuration. */
-  baseUrl: string;
+  /**
+   * Origin under test, reduced to an origin.
+   *
+   * Optional, and the reason is the same as `defect.v1`'s: an artifact that
+   * cannot establish its origin must say so rather than carry a guess. The
+   * collector resolves one from `BASE_URL`, the report's `webServer.url` or the
+   * configured value, and when none of those exist — a run whose config declares
+   * no base URL and whose report declares no server — there is nothing true to
+   * write, so the field is absent.
+   */
+  baseUrl?: string;
   counts: ApiAuditCounts;
   /** Declared order, so a consumer reads this beside `config/project.json`. */
   expectations: ApiExpectationResult[];
@@ -153,7 +162,9 @@ export function validateApiAudit(value: unknown): ValidationResult {
     problems.push(`createdAt must be an ISO 8601 timestamp, got ${show(value.createdAt)}`);
   }
 
-  if (typeof value.baseUrl !== "string" || value.baseUrl === "") {
+  if (value.baseUrl === undefined) {
+    // Checked above as absent rather than required: see the note on the type.
+  } else if (typeof value.baseUrl !== "string" || value.baseUrl === "") {
     problems.push(`baseUrl must be a non-empty string, got ${show(value.baseUrl)}`);
   } else {
     // An origin and nothing else. The loader refuses a configured base URL that

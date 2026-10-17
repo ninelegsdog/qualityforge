@@ -25,7 +25,22 @@ import { parseFieldPath, type FieldPathStep } from "../config/field-path.js";
 import type { ApiExpectation, HttpMethod } from "../config/types.js";
 
 /** Why a body could not be walked. `none` means it was walked and matched. */
-export type BodyKind = "json" | "text" | "absent" | "too-large";
+/**
+ * Why a body could not be walked.
+ *
+ * `too-late` is **measured, and only on chromium**. Probed 2026-10-17 against the
+ * demo app on all three engines: every GET answered `response.body()` everywhere,
+ * and the `POST /api/contact` answer was `json` on firefox and webkit — but
+ * chromium **never answered at all** while the page stayed open, and only rejected
+ * once the browser closed.
+ *
+ * So the dimension works on two engines of three, and the read is bounded rather
+ * than awaited forever, because on chromium an unbounded read holds the fixture
+ * teardown to its 30-second test timeout. A bound that expires is recorded as its
+ * own kind: "the engine did not answer" is a different fact from "the field is
+ * missing", and a consumer acting on the second would chase the wrong thing.
+ */
+export type BodyKind = "json" | "text" | "absent" | "too-large" | "too-late";
 
 /**
  * Ceiling on a body the capture will read.
@@ -38,6 +53,16 @@ export const MAX_BODY_BYTES = 64 * 1024;
 
 /** Matching exchanges kept per expectation. Bounded like signal capture. */
 export const MAX_EXCHANGES_PER_EXPECTATION = 40;
+
+/**
+ * How long a body read may take before the exchange is recorded as unread.
+ *
+ * Measured against the real behaviour rather than chosen: reads that do answer
+ * answer in single-digit milliseconds, and the one that never answers would
+ * otherwise hold the fixture teardown to its 30-second test timeout. Two seconds
+ * is far above the slowest observed and far below that timeout.
+ */
+export const MAX_BODY_READ_MS = 2000;
 
 /** One observed exchange, holding no value from either body. */
 export interface ApiExchangeObservation {
@@ -172,6 +197,16 @@ export class ApiObserver {
   readonly #records = new Map<string, PendingExchange[]>();
   /** Base URL of the project under test, recorded as an origin at most. */
   readonly #baseUrl?: string;
+  /**
+   * Body reads still in flight.
+   *
+   * `response.body()` resolves later than the page does, so a caller reading the
+   * payload the moment the rendered page appeared could see a response whose body
+   * had not been read yet — `responseKind` still `absent`. That was a real race,
+   * caught by a full-suite run that the isolated run kept missing. Tracked here
+   * so {@link toPayload} can wait rather than hope.
+   */
+  readonly #reading = new Set<Promise<void>>();
 
   constructor(page: Page, expectations: ApiExpectation[], baseUrl?: string) {
     this.#page = page;
@@ -276,9 +311,22 @@ export class ApiObserver {
       record.responseRead = true;
       record.status = response.status();
       record.contentType = mediaType(response.headers()["content-type"]);
+      let handle: ReturnType<typeof setTimeout> | undefined;
 
-      void response
-        .body()
+      // Bounded, because Playwright answers `response.body()` for a GET and never
+      // answers it for a POST — measured, not assumed. An unbounded read hangs the
+      // fixture teardown to its 30-second timeout.
+      //
+      // The timer is *cleared*, never `unref`ed: an unrefed timer does not fire in
+      // a Playwright worker, which is idle waiting on the driver, so the bound
+      // would silently stop existing.
+      const timer = new Promise<never>((_resolve, rejectBound) => {
+        handle = setTimeout(
+          () => rejectBound(new Error("body read exceeded the capture's wait")),
+          MAX_BODY_READ_MS,
+        );
+      });
+      const reading = Promise.race([response.body(), timer])
         .then((buffer) => {
           const announced = Number(response.headers()["content-length"]);
           if (Number.isFinite(announced) && announced > MAX_BODY_BYTES) {
@@ -301,21 +349,34 @@ export class ApiObserver {
           }
         })
         .catch(() => {
-          // A redirect or an aborted response has no readable body. Every declared
-          // path is reported missing rather than left unchecked.
-          record.responseKind = "absent";
+          // Either the read never answered inside the bound, or it failed outright.
+          // Both leave the declared paths unchecked, and fail-closed says report
+          // them as missing rather than pass an expectation nobody could verify.
+          record.responseKind = "too-late";
           record.responseMissing = [...(expectation?.responseRequires ?? [])];
+        })
+        .finally(() => {
+          clearTimeout(handle);
         });
+      this.#reading.add(reading);
+      void reading.then(() => this.#reading.delete(reading));
     }
   }
 
   /**
    * The attachment body.
    *
-   * Read after the test: bodies are fetched asynchronously, so reading earlier
-   * would produce a payload whose response fields were not written yet.
+   * Waits for every body read still in flight. Reading without waiting is the
+   * race described on `#reading`: a payload can say a response carried no readable
+   * body when in fact the body had simply not been read yet, which is the one
+   * sentence a consumer would be misled by.
    */
-  toPayload(): ApiCapturePayload {
+  async toPayload(): Promise<ApiCapturePayload> {
+    // One snapshot, not a loop. A loop that re-checks the set spins: the delete is
+    // queued behind the await, so the set can still hold a settled promise on the
+    // next turn. A loop over a set that removes its own entries is a busy-wait, and
+    // it hung the fixture teardown past the 30-second test timeout.
+    await Promise.allSettled([...this.#reading]);
     return {
       schemaVersion: "1.0.0",
       ...(this.#baseUrl === undefined ? {} : { baseUrl: this.#baseUrl }),

@@ -29,7 +29,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildApiAudit } from "../api/audit.js";
 import type { ApiCapturePayload } from "../api/observe.js";
-import { validateApiAudit, type ApiAudit } from "../api/types.js";
+import { API_AUDIT_FILE_NAME, validateApiAudit, type ApiAudit } from "../api/types.js";
 import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import {
   DEFECT_SCHEMA_VERSION,
@@ -448,7 +448,6 @@ const SIGNALS_ATTACHMENT = "quality-context";
 const API_ATTACHMENT = "quality-api";
 
 /** The API audit's own filename. */
-const API_AUDIT_FILE_NAME = "api-audit.v1.json";
 
 /**
  * The run summary's own filename.

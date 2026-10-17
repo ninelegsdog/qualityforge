@@ -23,6 +23,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { validateDefect, type DefectV1 } from "../defect/types.js";
 import { validateAudit, type A11yAudit } from "../a11y/types.js";
+import { API_AUDIT_FILE_NAME, validateApiAudit, type ApiAudit } from "../api/types.js";
 import {
   readHistory,
   readHistoryRecords,
@@ -74,6 +75,8 @@ export interface StoreOptions {
    * happened to have both open.
    */
   auditRoot?: string;
+  /** API audit artifacts, `artifacts/api` by the project's configuration. */
+  apiRoot?: string;
 }
 
 /** One run directory inside the root. */
@@ -84,6 +87,26 @@ export interface RunSummaryRef {
   createdAt?: string;
   passed?: number;
   failed?: number;
+}
+
+/** One API audit, as the list tool reports it. */
+export interface ApiAuditRunRef {
+  runId: string;
+  /** Relative POSIX path, safe to hand to a client. */
+  path: string;
+  baseUrl?: string;
+  /** How many contracts the project declared. */
+  expectations?: number;
+  /**
+   * How many tests produced a capture.
+   *
+   * `0` means the dimension never ran, which is not a clean audit: a run of pure
+   * logic tests never imports the fixture. The collector says the same thing, and
+   * two tools saying it differently would be worse than one.
+   */
+  tests?: number;
+  violations?: number;
+  passed?: number;
 }
 
 /** One accessibility audit, as the list tool reports it. */
@@ -105,14 +128,17 @@ export class ArtifactStore {
   readonly #historyRoot: string | undefined;
   /** Absolute audit directory, when the project runs audits. */
   readonly #auditRoot: string | undefined;
+  readonly #apiRoot: string | undefined;
   /** Realpath of the audit root, empty when there is none or it is unreadable. */
   #realAuditRoot = "";
+  #realApiRoot = "";
 
   constructor(options: StoreOptions) {
     this.#root = path.resolve(options.root);
     this.#historyRoot =
       options.historyRoot === undefined ? undefined : path.resolve(options.historyRoot);
     this.#auditRoot = options.auditRoot === undefined ? undefined : path.resolve(options.auditRoot);
+    this.#apiRoot = options.apiRoot === undefined ? undefined : path.resolve(options.apiRoot);
   }
 
   /**
@@ -179,6 +205,18 @@ export class ArtifactStore {
         this.#realAuditRoot = "";
       }
     }
+
+    // The third root gets the same treatment for the same reason. A project that
+    // declares no contracts has no `artifacts/api`, and that absence is evidence
+    // — "nobody has asked" — not a reason to refuse to answer about defects.
+    if (this.#apiRoot !== undefined) {
+      try {
+        const apiReal = await realpath(this.#apiRoot);
+        this.#realApiRoot = apiReal.endsWith(path.sep) ? apiReal : apiReal + path.sep;
+      } catch {
+        this.#realApiRoot = "";
+      }
+    }
   }
 
   get root(): string {
@@ -210,6 +248,29 @@ export class ArtifactStore {
   }
 
   /** True when the project has an audit root that exists. */
+  /**
+   * Resolve a client-supplied relative path inside the API audit root.
+   *
+   * Refuses when the project declares no contracts, rather than reporting an empty
+   * result a client could mistake for "every contract held" — the same distinction
+   * the collector's `summary.api` draws when the dimension did not run.
+   */
+  async resolveApi(relative: string): Promise<string> {
+    if (this.#apiRoot === undefined || this.#realApiRoot === "") {
+      throw new Error(
+        "No API audits found. A project declares its contracts in config/project.json and a " +
+          "run writes artifacts/api/<runId>/api-audit.v1.json — without that, nobody has asked " +
+          "whether the application still honours its own API.",
+      );
+    }
+    return this.#resolveIn(this.#apiRoot, this.#realApiRoot, relative);
+  }
+
+  /** True when the project has an API audit root that exists. */
+  get hasApiRoot(): boolean {
+    return this.#apiRoot !== undefined && this.#realApiRoot !== "";
+  }
+
   get hasAuditRoot(): boolean {
     return this.#auditRoot !== undefined && this.#realAuditRoot !== "";
   }
@@ -403,6 +464,68 @@ export class ArtifactStore {
    * trust boundary here, and a server that passed on whatever the file said would
    * be handing a model a claim nobody checked.
    */
+  /**
+   * List the API audits, newest first.
+   *
+   * A directory without a readable audit is not a run, for the same reason
+   * `listRuns` skips a directory with no summary: a run is what it wrote, not what
+   * its name claims.
+   */
+  async listApiAudits(): Promise<ApiAuditRunRef[]> {
+    if (!this.hasApiRoot || this.#apiRoot === undefined) return [];
+
+    const entries = await readdir(this.#apiRoot, { withFileTypes: true });
+    const audits: ApiAuditRunRef[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const relative = `${entry.name}/${API_AUDIT_FILE_NAME}`;
+      const parsed = await this.readApiAudit(relative).catch(() => null);
+      if (parsed === null) continue;
+      const counts =
+        typeof parsed.counts === "object" && parsed.counts !== null
+          ? (parsed.counts as unknown as Record<string, unknown>)
+          : {};
+      audits.push({
+        runId: entry.name,
+        path: relative,
+        // Omit absent rather than undefined, for the same reason `listAudits` does:
+        // the type is exactOptional.
+        ...(typeof parsed.baseUrl === "string" ? { baseUrl: parsed.baseUrl } : {}),
+        ...(typeof counts.expectations === "number" ? { expectations: counts.expectations } : {}),
+        ...(typeof counts.tests === "number" ? { tests: counts.tests } : {}),
+        ...(typeof counts.violations === "number" ? { violations: counts.violations } : {}),
+        ...(typeof counts.passed === "number" ? { passed: counts.passed } : {}),
+      });
+    }
+    return audits.sort((a, b) => b.runId.localeCompare(a.runId));
+  }
+
+  /**
+   * Read one API audit in full.
+   *
+   * The violations, not the exchanges: an artifact read by a model should not
+   * carry a list of successful traffic, which is evidence about nothing.
+   */
+  async readApiAudit(relativePath: string): Promise<ApiAudit> {
+    const absolute = await this.resolveApi(relativePath);
+    const text = await readFile(absolute, "utf8");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`API audit artifact is not valid JSON: ${relativePath}`, { cause: error });
+    }
+
+    const { valid, problems } = validateApiAudit(parsed);
+    if (!valid) {
+      throw new Error(
+        `API audit artifact violates the api-audit.v1 contract: ${relativePath}\n  - ${problems.join("\n  - ")}`,
+      );
+    }
+    return parsed as ApiAudit;
+  }
+
   async readAudit(relativePath: string): Promise<A11yAudit> {
     const absolute = await this.resolveAudit(relativePath);
     const text = await readFile(absolute, "utf8");

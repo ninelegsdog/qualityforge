@@ -104,6 +104,31 @@ never meant to make.
 9. **`baseUrl` is an origin or it is absent.** Never a path or a query string: those
    carry tokens.
 
+## Reading artifacts from an agent
+
+The MCP server serves them over the third root, `--api-root` (default
+`artifacts/api`, when that directory exists):
+
+```
+npx --no-install qualityforge-mcp --root artifacts/defects --api-root artifacts/api
+```
+
+| Tool                      | Answers                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `quality_list_api_audits` | what this project has written, newest first, with `expectations`, `tests`, `violations` and `passed` per run |
+| `quality_get_api_audit`   | one run in full: every declared contract and its violations                                                  |
+
+`tests: 0` means **the dimension never ran**, not that it passed, and both tools say
+so in words rather than printing a zero. A run of pure logic tests never imports the
+fixture, and a client that read "0 violations" there would report an unmeasured
+contract as a sound one.
+
+The root is confined like the other two: a path out of it is refused with
+`-32602`, including a path into the defect tree or the accessibility audits, both of
+which the same process has open and serving. A project that declares no contracts
+gets a sentence saying so — not an empty result a client could mistake for clean, and
+not `Internal error`.
+
 ## What is deliberately not in this artifact
 
 **The exchanges themselves.** An artifact is read by a language model, and a list

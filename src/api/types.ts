@@ -27,6 +27,15 @@ import { describeValue as show } from "../describe-value.js";
 export const API_AUDIT_SCHEMA_VERSION = "1.0.0" as const;
 
 /**
+ * The file name a run's audit is written under.
+ *
+ * Part of the contract rather than a detail of the collector, because a reader —
+ * the MCP server included — has to name the file to find it, and two places
+ * spelling it differently would be two readers looking in two directories.
+ */
+export const API_AUDIT_FILE_NAME = "api-audit.v1.json";
+
+/**
  * What went wrong, in a closed vocabulary.
  *
  * `no-exchange` and `exchanges-dropped` are the fail-closed pair: both mean the

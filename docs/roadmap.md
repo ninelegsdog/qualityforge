@@ -27,7 +27,7 @@ work that _is_ outstanding invisible.
   `defect.v1`, decided on 2026-10-15: a page's accessibility verdict and one
   test's failure are different claims with different owners. Ten nodes per rule
   with a `totalNodes` counter beside it, so a capped artifact cannot be read as
-  a complete one. Two of the seven MCP tools read the audits back. Ten tests
+  a complete one. Two of the nine MCP tools read the audits back. Ten tests
   exercise the command in the default suite, chromium only and only where
   chromium is installed — the command launches its own browser, so the project
   it runs inside is irrelevant to it. **They stay in the default run by the
@@ -43,8 +43,9 @@ work that _is_ outstanding invisible.
   **G18** to **G20**; the largest is measured — chromium never hands over a POST
   response body.
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
-  confinement. Seven tools — five over defects and run history, two over
-  accessibility audits — plus resources and a `triage_failure` prompt. Verified
+  confinement. Nine tools — five over defects and run history, two over
+  accessibility audits, two over API contract audits — plus resources and a
+  `triage_failure` prompt. Verified
   against OpenCode v2.0.16; Kilo and MiMo are out of scope by decision. Proven
   against a real third-party application's artifacts as well: the installed
   binary, driven by the real client from a directory outside both projects,

@@ -10,7 +10,9 @@
  * `quality_list_failures` is valid, and the `quality_` prefix namespaces them.
  */
 import { flakinessReport, trendReport } from "../defect/flakiness.js";
-import type { ArtifactStore } from "./store.js";
+import { PathAccessError, type ArtifactStore } from "./store.js";
+import type { ApiAudit } from "../api/types.js";
+import type { A11yAudit } from "../a11y/types.js";
 
 export const SERVER_INSTRUCTIONS = [
   "QualityForge exposes read-only evidence about browser test failures.",
@@ -296,6 +298,76 @@ export const TOOLS: ToolDefinition[] = [
       openWorldHint: false,
     },
   },
+  {
+    name: "quality_list_api_audits",
+    title: "List API contract audits",
+    description:
+      "List the API contract audits this project has written, newest first: how many " +
+      "contracts were declared, how many tests produced a capture, and how many " +
+      "violations and passes each found. Use it to see whether anyone has declared the " +
+      "application's API at all. Read tests as well as violations — tests = 0 means the " +
+      "dimension never ran, which is not a clean audit. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "How many audits to return (1–100, default 20)." },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        total: { type: "number" },
+        audits: { type: "array" },
+      },
+      required: ["total", "audits"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "quality_get_api_audit",
+    title: "Read one API contract audit",
+    description:
+      "Read one API contract audit in full: every declared contract, its violations with " +
+      "what was expected against what was observed, and how many tests and exchanges " +
+      "were examined. A contract with no exchange is a violation, not an absence — the " +
+      "application may have stopped calling its own endpoint. Values never survive a " +
+      "body, so only declared paths that were *missing* are recorded. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        auditPath: {
+          type: "string",
+          description: "Run-relative audit path, as listed by quality_list_api_audits.",
+        },
+      },
+      required: ["auditPath"],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string" },
+        baseUrl: { type: "string" },
+        counts: { type: "object" },
+        expectations: { type: "array" },
+      },
+      required: ["counts", "expectations"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 export interface ToolCallResult {
@@ -355,6 +427,10 @@ export async function callTool(
       return listAudits(store, args);
     case "quality_get_audit":
       return getAudit(store, args);
+    case "quality_list_api_audits":
+      return listApiAudits(store, args);
+    case "quality_get_api_audit":
+      return getApiAudit(store, args);
     default:
       return {
         content: text(
@@ -847,6 +923,120 @@ async function listAudits(
   };
 }
 
+async function listApiAudits(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const limitRaw = args.limit;
+  const limit = typeof limitRaw === "number" ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+
+  const audits = await store.listApiAudits();
+  const selected = audits.slice(0, limit);
+
+  if (audits.length === 0) {
+    return {
+      content: text(
+        "No API contract audits found. Declare the contracts in config/project.json and run " +
+          "the suite — this says nothing about whether the API is sound, only that nobody has " +
+          "asked.",
+      ),
+      structuredContent: { total: 0, audits: [] },
+    };
+  }
+
+  return {
+    content: text(
+      [
+        `${audits.length} API contract audit(s)` +
+          (audits.length > selected.length ? `, showing ${selected.length}` : ""),
+        ...selected.map((audit) => {
+          // `tests: 0` gets its own word. A run of pure logic tests never imports the
+          // fixture, so zero captures means nobody looked — which is not a clean
+          // audit, and printing it as one would be the same mistake the collector
+          // corrected when CI found it.
+          const state =
+            audit.tests === 0
+              ? "NOT RUN (no test produced a capture)"
+              : `${audit.violations ?? 0} violation(s), ${audit.passed ?? 0} passed`;
+          return `- ${audit.runId}: ${audit.expectations ?? 0} declared, ${audit.tests ?? 0} test(s), ${state}`;
+        }),
+        "",
+        `Next: call quality_get_api_audit with an auditPath to read one in full.`,
+      ].join("\n"),
+    ),
+    structuredContent: { total: audits.length, audits: selected },
+  };
+}
+
+async function getApiAudit(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult & { isError?: boolean }> {
+  const auditPath = args.auditPath;
+  if (typeof auditPath !== "string" || auditPath === "") {
+    return {
+      content: text("auditPath is required; list the audits first with quality_list_api_audits."),
+      isError: true,
+    };
+  }
+
+  // A refusal is a readable answer, not a crash: the project may simply have
+  // nothing there yet. `PathAccessError` still escapes, because the server logs it
+  // and answers "Path is not readable" — swallowing that would lose both.
+  let audit: ApiAudit;
+  try {
+    audit = await store.readApiAudit(auditPath);
+  } catch (error) {
+    if (error instanceof PathAccessError) throw error;
+    return { content: text((error as Error).message), isError: true };
+  }
+  const runId = auditPath.split("/")[0] ?? auditPath;
+  const { counts } = audit;
+  const totals = audit.expectations.reduce(
+    (sum, expectation) => ({
+      exchanges: sum.exchanges + expectation.observed.exchanges,
+      dropped: sum.dropped + expectation.observed.dropped,
+    }),
+    { exchanges: 0, dropped: 0 },
+  );
+
+  return {
+    content: text(
+      [
+        `API contract audit ${runId}${audit.baseUrl === undefined ? "" : ` · ${audit.baseUrl}`}`,
+        counts.tests === 0
+          ? `NOT RUN · ${counts.expectations} contract(s) declared, no test produced a capture`
+          : `${counts.violations} violation(s), ${counts.passed} passed, ` +
+            `${counts.tests} test(s), ${totals.exchanges} exchange(s) examined`,
+        ...audit.expectations.map((expectation) => {
+          const header = `- ${expectation.method} ${expectation.path} (${expectation.name})`;
+          if (expectation.violations.length === 0) {
+            return `${header}: held across ${expectation.observed.tests} test(s), ${expectation.observed.exchanges} exchange(s)`;
+          }
+          return (
+            header +
+            "\n    " +
+            expectation.violations
+              .map((violation) => `${violation.expected} — observed ${violation.observed}`)
+              .join("\n    ") +
+            (expectation.observed.dropped > 0
+              ? `\n    … and ${expectation.observed.dropped} exchange(s) the capture refused`
+              : "")
+          );
+        }),
+        "",
+        "Values never survive a body: only the declared paths a response did NOT carry are recorded.",
+      ].join("\n"),
+    ),
+    structuredContent: {
+      runId,
+      ...(audit.baseUrl === undefined ? {} : { baseUrl: audit.baseUrl }),
+      counts: audit.counts,
+      expectations: audit.expectations,
+    } as unknown as Record<string, unknown>,
+  };
+}
+
 async function getAudit(
   store: ArtifactStore,
   args: Record<string, unknown>,
@@ -859,7 +1049,16 @@ async function getAudit(
     };
   }
 
-  const audit = await store.readAudit(auditPath);
+  // A refusal is a readable answer, not a crash: the project may simply have
+  // nothing there yet. `PathAccessError` still escapes, because the server logs it
+  // and answers "Path is not readable" — swallowing that would lose both.
+  let audit: A11yAudit;
+  try {
+    audit = await store.readAudit(auditPath);
+  } catch (error) {
+    if (error instanceof PathAccessError) throw error;
+    return { content: text((error as Error).message), isError: true };
+  }
   const runId = auditPath.split("/")[0] ?? auditPath;
 
   return {

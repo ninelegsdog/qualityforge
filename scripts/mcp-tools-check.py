@@ -63,9 +63,15 @@ def run(
     root: pathlib.Path,
     history: pathlib.Path | None = None,
     audit_root: pathlib.Path | None = None,
+    api_root: pathlib.Path | None = None,
 ) -> tuple[dict, list, int]:
     """Drive the real server over a real pipe and collect its frames."""
     argv = ["npx", "tsx", "src/mcp/index.ts", "--root", str(root)]
+    if api_root is not None:
+        # The third root, explicit for the same reason as the other two: the check
+        # must not depend on this repository happening to contain an API audit, and
+        # it should exercise the flag rather than the default.
+        argv += ["--api-root", str(api_root)]
     if audit_root is not None:
         # Explicit, for the same reason `--history` is: the check must not depend
         # on the repository happening to contain an audit, and it should exercise
@@ -188,10 +194,68 @@ def seed_audit(scratch: pathlib.Path) -> pathlib.Path:
     return audit_root
 
 
+def seed_api_audit(scratch: pathlib.Path) -> pathlib.Path:
+    """One API contract audit, in the real format.
+
+    Written by hand for the same reason as `seed_audit`: this check is
+    self-seeding by design, and producing a real audit means running a browser. If
+    the format drifts, the assertions below fail rather than quietly pass.
+
+    The seeded run **breaks a contract**, on purpose. That is the one fact worth
+    proving survives the wire — an audit whose only content is a green result says
+    nothing about whether the server can carry a finding. The violation keeps the
+    shape a client cannot reconstruct by itself: what was declared, what was seen,
+    and in how many tests.
+    """
+    api_root = scratch / "api"
+    run_dir = api_root / "2026-10-17T09-30-00-000Z-seeded"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    audit = {
+        "schemaVersion": "1.0.0",
+        "createdAt": "2026-10-17T09:30:00.000Z",
+        "baseUrl": "http://127.0.0.1:4311",
+        "counts": {"expectations": 2, "tests": 1, "violations": 1, "passed": 1},
+        "expectations": [
+            {
+                "name": "items-are-json",
+                "method": "GET",
+                "path": "/api/items",
+                "declared": {
+                    "status": 200,
+                    "contentType": "application/json",
+                    "responseRequires": ["[0].id"],
+                },
+                "observed": {"exchanges": 3, "dropped": 0, "tests": 1},
+                "violations": [
+                    {
+                        "kind": "status",
+                        "expected": "200",
+                        "observed": "status 500",
+                        "exchanges": 1,
+                        "tests": 1,
+                    }
+                ],
+            },
+            {
+                "name": "contact-is-accepted",
+                "method": "POST",
+                "path": "/api/contact",
+                "declared": {"status": 200},
+                "observed": {"exchanges": 2, "dropped": 0, "tests": 1},
+                "violations": [],
+            },
+        ],
+    }
+    (run_dir / "api-audit.v1.json").write_text(json.dumps(audit, indent=2) + "\n", encoding="utf-8")
+    return api_root
+
+
+
 def main() -> int:
     scratch, served_root, problems = evidence_seed.seed(ROOT)
     history_root = seed_history(scratch)
     audit_root = seed_audit(scratch)
+    api_root = seed_api_audit(scratch)
     if not os.environ.get(evidence_seed.SHARED_SCRATCH_ENV):
         print(evidence_seed.describe(scratch, served_root))
 
@@ -320,11 +384,42 @@ def main() -> int:
                     "arguments": {"auditPath": "../defects/anything/quality-summary.v1.json"},
                     "_meta": envelope(),
                 },
-            },
+              },
+              # The API contract audits, against the seeded one, over the third root.
+              {
+                  "jsonrpc": "2.0",
+                  "id": 30,
+                  "method": "tools/call",
+                  "params": {"name": "quality_list_api_audits", "arguments": {}, "_meta": envelope()},
+              },
+              {
+                  "jsonrpc": "2.0",
+                  "id": 31,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "quality_get_api_audit",
+                      "arguments": {"auditPath": "2026-10-17T09-30-00-000Z-seeded/api-audit.v1.json"},
+                      "_meta": envelope(),
+                  },
+              },
+              # The escape a third root makes possible, and the one that only exists
+              # now that three directories are open at once: out of `artifacts/api`
+              # and into the accessibility audits, which the server is serving too.
+              {
+                  "jsonrpc": "2.0",
+                  "id": 32,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "quality_get_api_audit",
+                      "arguments": {"auditPath": "../a11y/2026-10-16T01-29-31-810Z-seeded/audit.v1.json"},
+                      "_meta": envelope(),
+                  },
+              },
         ],
         served_root,
         history_root,
         audit_root,
+        api_root,
     )
 
     # --- accessibility audits, over the wire ---------------------------------
@@ -374,6 +469,58 @@ def main() -> int:
         )
     else:
         print("audit path refused: -32602")
+
+    # --- API contract audits, over the wire ----------------------------------
+    #
+    # The seeded audit breaks a contract, so the finding has to survive the wire:
+    # declared against observed, plus the counts that say how widely it was seen. A
+    # client that receives the contract but not the breach would report a broken API
+    # as sound — which is the one thing this dimension exists to prevent.
+    api_audits = (frames.get(30, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not api_audits.get("total"):
+        problems.append("list_api_audits returned no audits against the seeded api root")
+    else:
+        print(f"api audits: {api_audits.get('total')}")
+        listed = (api_audits.get("audits") or [{}])[0]
+        if listed.get("violations") != 1 or listed.get("expectations") != 2 or listed.get("tests") != 1:
+            problems.append(
+                f"list_api_audits counts={listed!r}, expected 1 violation of 2 declared "
+                f"across 1 test"
+            )
+
+    api_sc = (frames.get(31, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not api_sc.get("counts"):
+        problems.append("get_api_audit returned no counts - the artifact never reached the client")
+    else:
+        print(f"api audit: {api_sc.get('runId')} {json.dumps(api_sc.get('counts'), sort_keys=True)}")
+        broken = [e for e in (api_sc.get("expectations") or []) if e.get("violations")]
+        if not broken:
+            problems.append("get_api_audit returned no violations - the breach did not survive")
+        else:
+            # What was declared against what was seen, and how widely. The shape a
+            # client cannot reconstruct from a count alone.
+            finding = broken[0]["violations"][0]
+            if (
+                finding.get("expected") != "200"
+                or finding.get("observed") != "status 500"
+                or finding.get("exchanges") != 1
+                or finding.get("tests") != 1
+            ):
+                problems.append(f"get_api_audit lost the finding: {json.dumps(finding, sort_keys=True)}")
+            # A contract that held must be named too, or a client cannot tell which
+            # of the declared ones were examined at all.
+            if not [e for e in (api_sc.get("expectations") or []) if not e.get("violations")]:
+                problems.append("get_api_audit returned only the broken contract, not the whole audit")
+
+    api_escape = frames.get(32, {}).get("error", {})
+    if api_escape.get("code") != -32602:
+        problems.append(
+            f"an api audit path escaping into the accessibility audits was not refused "
+            f"with -32602: {json.dumps(api_escape)}"
+        )
+    else:
+        print("api audit path refused: -32602")
+
 
     if corrupt:
         problems.append(f"{len(corrupt)} corrupt stdout line(s)")
@@ -567,7 +714,7 @@ def main() -> int:
 
     evidence_seed.discard(scratch)
     print(
-        "OK: tools answer with real data, all three traversal shapes refused with -32602, "
+        "OK: tools answer with real data, all four traversal shapes refused with -32602, "
         "accessibility audits answer with their truncation intact and cannot escape their root, "
         f"the {MODERN} envelope required and answered"
     )

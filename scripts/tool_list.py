@@ -21,4 +21,6 @@ EXPECTED_TOOLS = [
     "quality_get_trend",
     "quality_list_audits",
     "quality_get_audit",
+    "quality_list_api_audits",
+    "quality_get_api_audit",
 ]

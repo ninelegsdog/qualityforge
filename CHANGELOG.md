@@ -41,6 +41,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A broken API contract now fails the run, in `summary.api`.** The collector
   exits `1` when either the test thresholds or the declared contracts failed.
 
+  **Two read-only MCP tools read the audits back**, over a third root,
+  `--api-root` (default `artifacts/api`, when it exists):
+  `quality_list_api_audits` and `quality_get_api_audit`. A fourth conventional
+  name, and the last — three roots exist because three measurements answer three
+  different questions, and none of them belongs inside another's directory.
+
+  The root is confined like the other two, and the check that proves it now covers
+  the escape that **only exists with three roots open at once**: a path out of
+  `artifacts/api` and into the accessibility audits, refused with `-32602`.
+
+  **`tests: 0` reads as `NOT RUN` in both tools**, never as zero violations —
+  a run of pure logic tests never imports the fixture, and a client that read
+  "0 violations" there would report an unmeasured contract as a sound one.
+
+  **A refusal is now a readable answer rather than `Internal error`.** "This
+  project declares no API contracts" is a legitimate answer to a legitimate
+  question; it used to reach a client as a JSON-RPC internal error. Applied to the
+  accessibility pair too, because the wart was the same one. A rejected _path_
+  still throws, so the server keeps answering "Path is not readable" and keeps the
+  log line that says a client tried.
+
   **The contract is documented in prose, and three gaps are recorded as G18–G20.**
   `docs/api-audit-schema.md` states what a consumer can rely on — values never
   survive a body, an unreadable body makes every declared path missing, dropped

@@ -464,7 +464,7 @@ and `opencode mcp list` (2.0.16) pointed at it.
 | Frame                                                        | Answer                                                                 |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | `initialize`, protocol 2025-11-25                            | `resultType: complete`, `serverInfo` `qualityforge-mcp` 0.1.0, `_meta` |
-| `tools/list`                                                 | **7 tools**, `resultType` / `ttlMs` 300000 / `cacheScope` private      |
+| `tools/list`                                                 | **9 tools**, `resultType` / `ttlMs` 300000 / `cacheScope` private      |
 | `prompts/list`, `resources/list`, `resources/templates/list` | all three answered, all three carrying those fields                    |
 
 Then the data itself, asked over stdio rather than through the client — a client

@@ -14,6 +14,7 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { describeValue as describe } from "../describe-value.js";
 import { KEBAB_ID } from "../id-pattern.js";
 import { checkFieldPath } from "./field-path.js";
 import { CONFIG_SCHEMA_VERSION, HTTP_METHODS, type ProjectConfig } from "./types.js";
@@ -89,18 +90,6 @@ function requireBoolean(value: unknown, path: string, problems: string[]): void 
   if (typeof value !== "boolean") {
     problems.push(`${path} must be true or false, got ${describe(value)}`);
   }
-}
-
-function describe(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
-  if (value === undefined) return "undefined";
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "an array";
-  if (typeof value === "object") return "an object";
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  // No bare String(object): that yields "[object Object]", which tells the
-  // reader nothing about what was actually configured.
-  return `a ${typeof value}`;
 }
 
 /**

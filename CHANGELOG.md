@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **API contracts, declared and audited, as their own dimension.** A project
+  declares its contracts in `config/project.json` — method, path, and what the
+  exchange must carry: a status, a media type, field paths in the request body,
+  field paths in the response body. The fixture captures only the declared
+  exchanges, and the collector writes `api-audit.v1` under
+  `artifacts/api/<runId>/`.
+
+  The artifact is not `defect.v1` and is not a field on it. A contract that broke
+  without breaking a test is exactly what this catches, so the capture attachment is
+  written on **every** test rather than on failures only.
+
+  **An expectation nothing matched is a violation, not an absence** — the owner's
+  decision of 2026-10-16. Listing only what was seen would let an application stop
+  calling its own endpoint while every test stayed green. Two related rules fall
+  out of the same reasoning: a body that could not be read makes every declared
+  path missing, and exchanges the capture's cap refused are a violation of their
+  own, because a capture that examined 40 of 50 has not proved the other ten.
+
+  What survives a body is **presence, never values**: the audit records the
+  declared paths a body did _not_ carry, and the found ones are not recorded at all
+  — the declared list is in the configuration, and two copies of one list are two
+  things to drift.
+
+  Measured on 2026-10-17, on all three engines: every GET response body is
+  readable, and a POST response body is readable on firefox and webkit but
+  **chromium never answers** while the page stays open. The read is bounded rather
+  than awaited forever, and an expired bound is recorded as `too-late` — "the
+  engine did not answer" is a different fact from "the field is missing".
+
+- **A broken API contract now fails the run, in `summary.api`.** The collector
+  exits `1` when either the test thresholds or the declared contracts failed.
+
+  `summary.gate` is **unchanged and keeps its meaning** — it still answers "did the
+  tests hold the thresholds". Folding API violations into it would have changed
+  the _meaning_ of an existing field, which the rule below calls a major change and
+  a `v2` file; that is a price no one should pay for one added block. The two
+  verdicts are reported apart in the summary and combined in exactly one place, the
+  exit code — because a gate whose caller must distinguish two failure codes is a
+  gate people end up scripting for only the one they have seen. `summary.api` is
+  **absent** when nothing is declared, which is different from present and clean.
+
 - **An accessibility audit, as its own command and its own artifact.**
   `npm run a11y:audit` — or `npx --no-install qualityforge-a11y` in a consuming
   project — runs `axe-core` against a page and writes `a11y-audit.v1` under

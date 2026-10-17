@@ -8,8 +8,11 @@
  *   npm run defects:collect -- --report other-results.json --out /tmp/scratch
  *
  * Exit codes:
- *   0  collected, quality gate passed
- *   1  collected, quality gate failed (violations found)
+ *   0  collected, and both verdicts passed
+ *   1  collected, and something failed: the test thresholds (`summary.gate`) or
+ *      the declared API contracts (`summary.api`). The two are reported apart in
+ *      the summary, and combined here because a gate whose caller must know two
+ *      failure codes is a gate people script for only one of them
  *   2  could not collect (bad config, missing report)
  *
  * Exit code 1 is what makes this usable as a CI quality gate.
@@ -19,7 +22,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig, ConfigError } from "../config/load-config.js";
-import { collectDefects } from "../defect/collect.js";
+import { collectDefects, runExitCode } from "../defect/collect.js";
 import { readGitInfo } from "../defect/git-info.js";
 
 /** Where this script lives, used only as a fallback. */
@@ -215,6 +218,17 @@ async function main(): Promise<number> {
           ? "  gate PASSED"
           : `  gate FAILED\n${summary.gate.violations.map((v) => `    - ${v}`).join("\n")}`,
       );
+      // The API verdict is printed beside the gate, never inside it. `gate` still
+      // answers one question — did the tests hold the thresholds — and the two are
+      // combined only where a caller needs one answer, which is the exit code below.
+      if (summary.api !== undefined) {
+        const api = summary.api;
+        console.log(
+          api.violations.length === 0
+            ? `  api contracts PASSED (${api.counts.expectations} declared, ${api.counts.tests} test(s) audited)`
+            : `  api contracts FAILED (${api.counts.violations} violation(s))\n${api.violations.map((v) => `    - ${v}`).join("\n")}`,
+        );
+      }
       // History problems are printed, never thrown on: the artifacts are already
       // written and uploaded, and a red build over a missing index would train people
       // to ignore the one line that says it did not work.
@@ -233,7 +247,9 @@ async function main(): Promise<number> {
       }
     }
 
-    return summary.gate.passed ? 0 : 1;
+    // The rule that combines both verdicts lives with the summary it reads, so
+    // the check that guards it and the code it guards cannot drift apart.
+    return runExitCode(summary);
   } catch (error) {
     console.error(`Collection failed: ${(error as Error).message}`);
     return 2;

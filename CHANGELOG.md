@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A broken API contract now fails the run, in `summary.api`.** The collector
   exits `1` when either the test thresholds or the declared contracts failed.
 
+  **The contract is documented in prose, and three gaps are recorded as G18–G20.**
+  `docs/api-audit-schema.md` states what a consumer can rely on — values never
+  survive a body, an unreadable body makes every declared path missing, dropped
+  exchanges are a violation of their own — and what a consumer must not assume.
+  The largest gap is measured: chromium never hands over a POST response body, so
+  `responseRequires` cannot be relied on there while firefox and webkit answer.
+
   **"Not run" is a third state, and CI is what found it.** The `unit` job runs pure
   logic tests that never import the fixture, so no exchange could ever have been
   made — and fail-closed duly reported two violations for a run that had made no

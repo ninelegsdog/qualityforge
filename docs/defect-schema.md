@@ -933,6 +933,59 @@ _Owner's decision: documented limitation_ (2026-10-06). Absence is not a
 signal: the contract records what happened, not what did not, and a resource
 the page never requested produces nothing to write down.
 
+#### G18 · `responseRequires` cannot be relied on for a POST on chromium
+
+_What could not be expressed:_ that a response body could be checked at all.
+Measured 2026-10-17 on the demo app across all three engines: every GET response
+body is readable, and `POST /api/contact` reads as `json` on firefox and webkit —
+but **chromium never answers** `response.body()` while the page stays open, and
+only rejects once the browser closes.
+
+_Risk:_ an expectation naming a response field is a contract that holds on two
+engines and cannot be checked on the third. Declaring one anyway makes the run red
+on chromium for a reason the application never caused, and declaring none means the
+response side of that contract goes unchecked everywhere.
+
+_Owner's decision: documented limitation._ The read is bounded rather than awaited
+forever, an expired bound is recorded as `too-late` — "the engine did not answer"
+is a different fact from "the field is missing" — and the project's own POST
+expectation declares no `responseRequires`. See
+[`api-audit-schema.md`](api-audit-schema.md).
+
+#### G19 · An expectation matches on path, not origin
+
+_What could not be expressed:_ whose answer satisfied it. Matching is on method and
+path, so a third party serving the same path satisfies an expectation written for
+the application. This is **G5** met from the other side: G5 records that `signals`
+cannot tell a third party's CDN from the application under test, and this is the
+same blindness arriving through a different door.
+
+_Risk:_ a consumer grouping artifacts by origin would place a third party's answer
+among the application's contracts, which is the same merge G5 warns about — except
+here the merge is decided silently by the matcher.
+
+_Owner's decision: documented limitation_ (2026-10-16). The `origin` is recorded
+as **observed**, so a consumer can weigh the attribution, and nothing decides it
+for them. Deciding it would need a matcher that could tell origins apart, which is
+G5.
+
+#### G20 · An expectation nothing matched cannot say why
+
+_What could not be expressed:_ which of three different situations produced it. No
+page reached the endpoint, the application stopped calling it, or the test that
+would have driven it was skipped: all three are `no-exchange`, and the audit names
+the contract without naming the cause.
+
+_Risk:_ the reader's next question is "did it break, or did it never happen", and
+the artifact offers one answer — never happened — for both. A genuine regression
+that stopped the calls reads the same as a page nobody visited.
+
+_Owner's decision: documented limitation_ (2026-10-16). Fail-closed is kept: an
+expectation nothing matched is a **violation**, not an absence, which is what the
+owner chose and what stops an application quietly dropping its own endpoint while
+every test stays green. The cause is not in the artifact because nothing that ran
+observed it.
+
 #### What the second object did not bring
 
 The hypothesis list drawn up before the run also named iframes (in discussions

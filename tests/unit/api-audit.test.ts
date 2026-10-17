@@ -143,12 +143,29 @@ test.describe("fail-closed", () => {
     expect(violations[0]?.exchanges).toBe(0);
   });
 
-  test("no capture at all still lists every declared expectation", () => {
+  test("a run with no capture at all is neither clean nor failed", () => {
+    // Found by CI: the unit job runs pure logic tests that never import the
+    // fixture, so nothing could have made an exchange, and fail-closed reported two
+    // violations for a run that had made no claim at all.
     const audit = build([ITEMS, CONTACT], []);
 
+    // Every declaration is still listed, so a reader can see what was declared.
     expect(audit.expectations.map((entry) => entry.name)).toEqual([ITEMS.name, CONTACT.name]);
-    expect(audit.counts.violations).toBe(2);
+    // But the run is not a failed audit, and it is not a clean one either.
+    expect(audit.counts.violations).toBe(0);
     expect(audit.counts.passed).toBe(0);
+    expect(audit.counts.tests).toBe(0);
+    expect(audit.expectations[0]?.violations).toEqual([]);
+  });
+
+  test("fail-closed applies as soon as one test produced a capture", () => {
+    // The distinction that matters: one capture means the dimension ran, and from
+    // then on an expectation nothing matched is a violation again.
+    const audit = build([ITEMS, CONTACT], [payload({})]);
+    const contact = audit.expectations.find((entry) => entry.name === CONTACT.name);
+
+    expect(contact?.violations[0]?.kind).toBe("no-exchange");
+    expect(audit.counts.violations).toBe(1);
   });
 
   test("a wrong status is a violation naming what was expected and seen", () => {

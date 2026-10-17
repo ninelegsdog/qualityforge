@@ -98,6 +98,7 @@ function bodyReason(kind: string | undefined): string {
 export function buildApiAudit(options: BuildAuditOptions): ApiAudit {
   const { declared, payloads, baseUrl, createdAt } = options;
 
+  const ran = payloads.length > 0;
   const expectations: ApiExpectationResult[] = declared.map((expectation) => {
     // One bucket per distinct way the contract did not hold: fifty exchanges with
     // the wrong status are one finding about fifty exchanges.
@@ -168,7 +169,7 @@ export function buildApiAudit(options: BuildAuditOptions): ApiAudit {
     // Fail-closed, the owner's decision of 2026-10-16: an expectation nothing
     // matched is a violation. Listing only what was seen would let an application
     // stop calling its own endpoint while every test stayed green.
-    if (exchanges === 0) {
+    if (exchanges === 0 && ran) {
       buckets.set("no-exchange|none", {
         kind: "no-exchange",
         expected: "at least one exchange",
@@ -212,7 +213,20 @@ export function buildApiAudit(options: BuildAuditOptions): ApiAudit {
     };
   });
 
-  const violations = expectations.reduce((total, entry) => total + entry.violations.length, 0);
+  // **No capture at all means the dimension never ran**, which is not the same as
+  // the contracts having held and is not the same as them having broken. Found by
+  // CI: the unit job runs pure logic tests that never import the fixture, so
+  // nothing was ever going to produce an exchange, and fail-closed duly reported
+  // two violations for a run that had made no claim at all.
+  //
+  // So a run with no capture produces no violations and `tests: 0`, and the
+  // collector says `NOT RUN` rather than `PASSED`. Fail-closed still holds wherever
+  // the fixture *did* run: once a single capture exists, an expectation nothing
+  // matched is a violation.
+  const violations = expectations.reduce(
+    (total, entry) => total + (ran ? entry.violations.length : 0),
+    0,
+  );
 
   return {
     schemaVersion: API_AUDIT_SCHEMA_VERSION,
@@ -222,7 +236,8 @@ export function buildApiAudit(options: BuildAuditOptions): ApiAudit {
       expectations: expectations.length,
       tests: payloads.length,
       violations,
-      passed: expectations.filter((entry) => entry.violations.length === 0).length,
+      // Not "passed": a run that never exercised the dimension has not passed it.
+      passed: ran ? expectations.filter((entry) => entry.violations.length === 0).length : 0,
     },
     expectations,
   };

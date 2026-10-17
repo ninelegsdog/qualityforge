@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A broken API contract now fails the run, in `summary.api`.** The collector
   exits `1` when either the test thresholds or the declared contracts failed.
 
+  **"Not run" is a third state, and CI is what found it.** The `unit` job runs pure
+  logic tests that never import the fixture, so no exchange could ever have been
+  made — and fail-closed duly reported two violations for a run that had made no
+  claim at all. A run with no capture is now neither clean nor failed:
+  `summary.api.ran` is false and the collector prints `api contracts NOT RUN`.
+  Fail-closed applies from the moment a single capture exists.
+
   `summary.gate` is **unchanged and keeps its meaning** — it still answers "did the
   tests hold the thresholds". Folding API violations into it would have changed
   the _meaning_ of an existing field, which the rule below calls a major change and

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ninelegsdog/qualityforge/schemas/api-audit.v1.schema.json",
+  "title": "api-audit.v1",
+  "description": "One run's verdict on the API contracts a project declared. Written by `buildApiAudit`; validated by `validateApiAudit` before it reaches disk. Two invariants live in the runtime validator rather than here, because JSON Schema cannot express them: `counts.violations` equals the number of violations listed, and expectation names are unique.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "createdAt", "baseUrl", "counts", "expectations"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": "1.0.0" },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "baseUrl": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Origin under test, reduced from the configuration. Never a path or a query string: those carry tokens."
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expectations", "tests", "violations", "passed"],
+      "properties": {
+        "expectations": { "type": "integer", "minimum": 0 },
+        "tests": { "type": "integer", "minimum": 0 },
+        "violations": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "expectations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/expectation" }
+    }
+  },
+  "$defs": {
+    "expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "method", "path", "declared", "observed", "violations"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "pattern": "^/" },
+        "declared": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The assertions this expectation was judged against, as written in config/project.json.",
+          "properties": {
+            "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+            "contentType": { "type": "string", "minLength": 1 },
+            "requestRequires": { "$ref": "#/$defs/fieldPaths" },
+            "responseRequires": { "$ref": "#/$defs/fieldPaths" }
+          }
+        },
+        "observed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exchanges", "dropped", "tests"],
+          "properties": {
+            "exchanges": { "type": "integer", "minimum": 0 },
+            "dropped": { "type": "integer", "minimum": 0 },
+            "tests": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "violations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/violation" }
+        }
+      }
+    },
+    "violation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "expected", "observed", "exchanges", "tests"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "no-exchange",
+            "exchanges-dropped",
+            "status",
+            "content-type",
+            "missing-request-field",
+            "missing-response-field"
+          ]
+        },
+        "expected": { "type": "string", "minLength": 1 },
+        "observed": { "type": "string", "minLength": 1 },
+        "exchanges": { "type": "integer", "minimum": 0 },
+        "tests": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "fieldPaths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

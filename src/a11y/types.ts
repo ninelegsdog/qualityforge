@@ -74,11 +74,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * structural, which is a message that cannot be acted on — the whole point of
  * naming a field is that the reader knows what to fix.
  */
-function show(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
-  if (value === null || typeof value !== "object") return String(value);
-  return Object.prototype.toString.call(value);
-}
+import { describeValue as show } from "../describe-value.js";
 
 /**
  * Validate an audit before it reaches disk.

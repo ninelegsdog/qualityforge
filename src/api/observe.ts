@@ -40,7 +40,7 @@ import type { ApiExpectation, HttpMethod } from "../config/types.js";
  * own kind: "the engine did not answer" is a different fact from "the field is
  * missing", and a consumer acting on the second would chase the wrong thing.
  */
-export type BodyKind = "json" | "text" | "absent" | "too-large" | "too-late";
+export type BodyKind = "json" | "text" | "absent" | "too-large" | "too-late" | "pending";
 
 /**
  * Ceiling on a body the capture will read.
@@ -78,6 +78,16 @@ export interface ApiExchangeObservation {
   responseKind: BodyKind;
   /** Declared response paths this body did not carry. */
   responseMissing: string[];
+  /**
+   * Whether a test declared it broke this exchange on purpose.
+   *
+   * The suite's own capture tests stub a declared endpoint to prove the audit
+   * reports a breach, and without this flag those deliberate failures would be
+   * counted against the project's real contracts. The same reason the third-party
+   * suites sit behind an environment flag: a test that breaks a thing on purpose
+   * must not then be evidence that the thing is broken.
+   */
+  stubbed: boolean;
 }
 
 /** What was seen for one declared expectation, across the test. */
@@ -207,6 +217,8 @@ export class ApiObserver {
    * so {@link toPayload} can wait rather than hope.
    */
   readonly #reading = new Set<Promise<void>>();
+  /** Whether the current test declared its exchanges deliberate. */
+  #stubbed = false;
 
   constructor(page: Page, expectations: ApiExpectation[], baseUrl?: string) {
     this.#page = page;
@@ -219,6 +231,17 @@ export class ApiObserver {
         // than guessed at; the loader owns that complaint, not the capture.
       }
     }
+  }
+
+  /**
+   * Declare that every exchange from now on is broken on purpose.
+   *
+   * The test-suite counterpart of Playwright's `test.fail()`: a test that means to
+   * break something says so, and the evidence it produces is kept for that test's
+   * own assertions while the run's verdict ignores it.
+   */
+  markStubbed(): void {
+    this.#stubbed = true;
   }
 
   /** Start observing. Safe to call once per page. */
@@ -289,6 +312,7 @@ export class ApiObserver {
         requestMissing: missingFields(body, expectation?.requestRequires),
         responseKind: "absent",
         responseMissing: [],
+        stubbed: this.#stubbed,
         responseRead: false,
       };
       records.push(record);
@@ -372,6 +396,20 @@ export class ApiObserver {
    * sentence a consumer would be misled by.
    */
   async toPayload(): Promise<ApiCapturePayload> {
+    // A request whose response never arrived is an **unfinished observation**, not a
+    // contract breach. Found by CI: three tests fire `/api/items` on page load and
+    // finish before its response lands, and reporting `status: no response` for each
+    // made a green run read as three broken contracts. A request that failed
+    // outright is a different fact, and `signals.requestFailures` already records
+    // it — so this dimension does not duplicate that evidence here.
+    for (const records of this.#records.values()) {
+      for (const record of records) {
+        if (!record.responseRead) {
+          record.responseKind = "pending";
+        }
+      }
+    }
+
     // One snapshot, not a loop. A loop that re-checks the set spins: the delete is
     // queued behind the await, so the set can still hold a settled promise on the
     // next turn. A loop over a set that removes its own entries is a busy-wait, and

@@ -956,9 +956,29 @@ multi-host first-party assets (G16).
   That is how `signals` arrived in `1.1.0`, the file suffix staying `v1` and every
   `1.0.0` reader still working; how `page` and `context.targetSource` arrived in
   `1.2.0`; how `targetSource: "observed"` and `attribution: "hook"` arrived in
-  `1.3.0`; and how the run summary gained `flakiness` in `1.4.0`.
+  `1.3.0`; how the run summary gained `flakiness` in `1.4.0`; and how it
+  gained `api` in `1.5.0`.
 - Removing a field, renaming one, or changing a type or meaning: major bump,
   and the file suffix changes to `v2`.
+
+### 1.5.0 — the run summary carries what the API contracts said
+
+One change, additive, and it lands in the run summary rather than in the
+per-defect artifact: **`summary.api`**, carrying the path to `api-audit.v1.json`,
+its counts, and one line per violation naming the contract and what was observed.
+
+**No per-defect artifact changed at 1.5.0.** A reader holding a `1.5.0` defect
+should know nothing about it moved.
+
+**`summary.gate` did not change, and that was the point.** It still means "the
+tests held the thresholds". Folding API violations into it would have changed the
+_meaning_ of an existing field — which this rule calls a major change and a `v2`
+file — and a `v2` is a price no one should pay for one added block. So the API
+verdict is its own field and the two are combined in exactly one place: the
+collector's exit code. **A run passes when `gate.passed` holds and `api` is absent
+or carries no violations.** `summary.api` is absent when no expectations are
+declared, which is not the same as present and clean: an unaudited run is not a
+clean one.
 
 ### 1.4.0 — the run summary carries what history says
 

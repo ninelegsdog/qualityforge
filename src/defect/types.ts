@@ -23,8 +23,23 @@ import { KEBAB_ID } from "../id-pattern.js";
  * are new keys with new meanings and no existing key changed, so the bump is
  * minor again for the same reason. Nothing was removed, renamed, retyped or
  * given a new sense.
+ *
+ * 1.4.0 added `summary.flakiness` and 1.5.0 adds `summary.api`. Both land in the
+ * run summary rather than in the per-defect artifact, which is the precedent for
+ * a summary-only change carrying the minor bump the shared number demands.
+ *
+ * **Neither 1.4.0 nor 1.5.0 changed a per-defect artifact.** A reader holding a
+ * `1.5.0` defect should know that nothing about it moved: the field that arrived
+ * was `summary.api`, and the run summary is a separate document.
+ *
+ * And what deliberately did **not** happen at 1.5.0: `summary.gate` still means
+ * "the tests held the thresholds". Folding API violations into it would have
+ * changed the *meaning* of an existing field, which the rule calls a major change
+ * and a `v2` file - a price no one should pay for one added block. The API
+ * verdict is its own field, `summary.api.passed`, and the process exit code is
+ * where the two are combined.
  */
-export const DEFECT_SCHEMA_VERSION = "1.4.0" as const;
+export const DEFECT_SCHEMA_VERSION = "1.5.0" as const;
 
 /** Outcome of a single attempt. Mirrors Playwright's status vocabulary. */
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";

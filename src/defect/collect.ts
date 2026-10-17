@@ -336,6 +336,28 @@ export function defectIdFrom(file: string, title: string, project?: string): str
  * changed under an artifact contract. It is written down so that the day it does
  * bite, the cause is a two-line read rather than a mystery.
  */
+/**
+ * The process exit code for a collected run.
+ *
+ * **The one place the two verdicts are combined.** `summary.gate` and
+ * `summary.api` are reported apart, because `gate` has a published meaning that
+ * must not move; a caller that needs a single answer gets it here and nowhere
+ * else.
+ *
+ * One code for both failures, deliberately: a gate whose caller must distinguish
+ * two failure codes is a gate people end up scripting for only the one they have
+ * seen. The summary still says which one failed.
+ *
+ * Exported rather than left in the CLI because the first version of this rule was
+ * written into a test as a *copy* of the expression, and breaking the CLI left that
+ * test green — a check that cannot fail is worse than no check, and the copy was
+ * the reason it could not.
+ */
+export function runExitCode(summary: RunSummary): 0 | 1 {
+  const apiHeld = summary.api === undefined || summary.api.violations.length === 0;
+  return summary.gate.passed && apiHeld ? 0 : 1;
+}
+
 export function makeRunId(now: Date): string {
   const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/z$/, "Z");
   const digest = createHash("sha256").update(now.toISOString()).digest("hex").slice(0, 6);
@@ -780,6 +802,35 @@ export interface RunSummary {
   thresholds: ProjectConfig["thresholds"];
   gate: {
     passed: boolean;
+    violations: string[];
+  };
+  /**
+   * The run's API audit, when the project declared any contracts.
+   *
+   * **Separate from `gate`, and that is the design.** `gate` means "the tests held
+   * the thresholds" and keeps meaning exactly that; folding API violations into it
+   * would change the *meaning* of an existing field, which the versioning rule
+   * calls a major change and a `v2` file. The two verdicts are combined where a
+   * caller needs one answer — the collector's exit code — and nowhere else.
+   *
+   * Absent means no expectations are declared, which is different from present and
+   * clean: a project that declared nothing was not audited, and saying otherwise
+   * would be a claim the run never made.
+   */
+  api?: {
+    /** Run-prefixed path to `api-audit.v1.json`, in the same form as `defects`. */
+    audit: string;
+    counts: ApiAudit["counts"];
+    /**
+     * Whether any test produced a capture.
+     *
+     * False means the dimension **did not run** — a run of pure logic tests never
+     * imports the fixture, so nothing could have made an exchange. That is neither
+     * a clean audit nor a failed one, and the summary says which rather than
+     * picking one for the reader.
+     */
+    ran: boolean;
+    /** One line per violation, naming the contract and what was observed. */
     violations: string[];
   };
 }
@@ -1689,6 +1740,26 @@ export async function collectDefects(options: CollectOptions): Promise<{
       passed: violations.length === 0,
       violations,
     },
+    // Absent rather than present-and-clean when nothing is declared: "no
+    // expectations were declared" and "every declared expectation held" are
+    // different facts, and only one of them is true of an unaudited run.
+    ...(apiAuditResult === undefined
+      ? {}
+      : {
+          api: {
+            // Run-prefixed, so this can be handed to a reader the same way
+            // `defects` entries can, without the caller guessing the shape.
+            audit: `${runId}/${API_AUDIT_FILE_NAME}`,
+            counts: apiAuditResult.audit.counts,
+            ran: apiAuditResult.audit.counts.tests > 0,
+            violations: apiAuditResult.audit.expectations.flatMap((expectation) =>
+              expectation.violations.map(
+                (violation) =>
+                  `${expectation.method} ${expectation.path}: ${violation.expected} — observed ${violation.observed}`,
+              ),
+            ),
+          },
+        }),
   };
 
   await writeFile(

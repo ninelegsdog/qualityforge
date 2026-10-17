@@ -223,11 +223,19 @@ async function main(): Promise<number> {
       // combined only where a caller needs one answer, which is the exit code below.
       if (summary.api !== undefined) {
         const api = summary.api;
-        console.log(
-          api.violations.length === 0
-            ? `  api contracts PASSED (${api.counts.expectations} declared, ${api.counts.tests} test(s) audited)`
-            : `  api contracts FAILED (${api.counts.violations} violation(s))\n${api.violations.map((v) => `    - ${v}`).join("\n")}`,
-        );
+        if (!api.ran) {
+          // Neither PASSED nor FAILED: no test drove the fixture, so the dimension
+          // was never exercised and this run makes no claim about it.
+          console.log(
+            `  api contracts NOT RUN (${api.counts.expectations} declared, no test produced a capture)`,
+          );
+        } else {
+          console.log(
+            api.violations.length === 0
+              ? `  api contracts PASSED (${api.counts.expectations} declared, ${api.counts.tests} test(s) audited)`
+              : `  api contracts FAILED (${api.counts.violations} violation(s))\n${api.violations.map((v) => `    - ${v}`).join("\n")}`,
+          );
+        }
       }
       // History problems are printed, never thrown on: the artifacts are already
       // written and uploaded, and a red build over a missing index would train people

@@ -130,10 +130,19 @@ export function buildApiAudit(options: BuildAuditOptions): ApiAudit {
         return;
       }
       tests += 1;
-      exchanges += entry.observed ?? 0;
-      dropped += entry.dropped ?? 0;
-
       for (const exchange of entry.exchanges ?? []) {
+        // Counted as observed before anything is judged. An exchange a test broke
+        // on purpose still happened, and reporting it as "no exchange" would be a
+        // second, worse mistake than counting the breach.
+        exchanges += 1;
+
+        // Two kinds of exchange are observed but not judged: one a test broke on
+        // purpose, and one whose response had not arrived when the test finished.
+        // Neither is evidence about the application's contract, and reporting
+        // either as a breach makes a green run read as a broken API.
+        if (exchange.stubbed === true || exchange.responseKind === "pending") {
+          continue;
+        }
         if (expectation.status !== undefined && exchange.status !== expectation.status) {
           const seen =
             exchange.status === undefined ? "status: no response" : `status ${exchange.status}`;
@@ -164,6 +173,7 @@ export function buildApiAudit(options: BuildAuditOptions): ApiAudit {
           reasons.set(`response|${field}`, set);
         }
       }
+      dropped += entry.dropped ?? 0;
     });
 
     // Fail-closed, the owner's decision of 2026-10-16: an expectation nothing

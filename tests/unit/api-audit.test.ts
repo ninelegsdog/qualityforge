@@ -68,6 +68,7 @@ function payload(overrides: {
             origin: "http://127.0.0.1:4311",
             status: 200,
             contentType: "application/json",
+            stubbed: false,
             requestKind: "absent",
             requestMissing: [],
             responseKind: "json",
@@ -178,6 +179,7 @@ test.describe("fail-closed", () => {
               origin: "http://127.0.0.1:4311",
               status: 500,
               contentType: "application/json",
+              stubbed: false,
               requestKind: "absent",
               requestMissing: [],
               responseKind: "json",
@@ -204,6 +206,7 @@ test.describe("fail-closed", () => {
               origin: "http://127.0.0.1:4311",
               status: 200,
               contentType: "text/plain",
+              stubbed: false,
               requestKind: "absent",
               requestMissing: [],
               responseKind: "text",
@@ -246,6 +249,7 @@ test.describe("fail-closed", () => {
               origin: "http://127.0.0.1:4311",
               status: 500,
               contentType: "application/json",
+              stubbed: false,
               requestKind: "absent",
               requestMissing: [],
               responseKind: "json",
@@ -255,6 +259,7 @@ test.describe("fail-closed", () => {
               origin: "http://127.0.0.1:4311",
               status: 503,
               contentType: "application/json",
+              stubbed: false,
               requestKind: "absent",
               requestMissing: [],
               responseKind: "json",
@@ -282,6 +287,7 @@ test.describe("fail-closed", () => {
               origin: "http://127.0.0.1:4311",
               status: 500,
               contentType: "application/json",
+              stubbed: false,
               requestKind: "absent",
               requestMissing: [],
               responseKind: "json",
@@ -291,6 +297,7 @@ test.describe("fail-closed", () => {
               origin: "http://127.0.0.1:4311",
               status: 500,
               contentType: "application/json",
+              stubbed: false,
               requestKind: "absent",
               requestMissing: [],
               responseKind: "json",
@@ -303,6 +310,61 @@ test.describe("fail-closed", () => {
 
     expect(audit.expectations[0]?.violations[0]?.exchanges).toBe(2);
     expect(audit.expectations[0]?.violations[0]?.tests).toBe(1);
+  });
+
+  test("a test that broke an exchange on purpose is not a breach of the contract", () => {
+    // Found by CI a second time: the suite's own capture tests stub a declared
+    // endpoint to prove the audit reports a breach, and those deliberate failures
+    // were counted against the project's real contracts. The test declares it,
+    // the capture keeps the evidence for that test's own assertions, and the
+    // verdict ignores it — the separation the third-party suites get from a flag.
+    const withStub = payload({
+      exchanges: [
+        {
+          stubbed: true,
+          origin: "http://127.0.0.1:4311",
+          status: 500,
+          contentType: "text/plain",
+          requestKind: "absent",
+          requestMissing: [],
+          responseKind: "text",
+          responseMissing: ["[0].id", "[0].name"],
+        },
+      ],
+    });
+    const audit = build([ITEMS], [withStub]);
+
+    expect(audit.counts.violations).toBe(0);
+    expect(audit.expectations[0]?.violations).toEqual([]);
+    // The exchange was seen — it is simply not counted against the contract.
+    expect(audit.counts.tests).toBe(1);
+  });
+
+  test("a request whose response never arrived is unfinished, not a breach", () => {
+    // Found by CI: tests that fire `/api/items` on page load finish before its
+    // response lands, and each one made the run read as another broken contract.
+    const audit = build(
+      [ITEMS],
+      [
+        payload({
+          exchanges: [
+            {
+              stubbed: false,
+              origin: "http://127.0.0.1:4311",
+              requestKind: "absent",
+              requestMissing: [],
+              responseKind: "pending",
+              responseMissing: [],
+            },
+          ],
+        }),
+      ],
+    );
+
+    expect(audit.counts.violations).toBe(0);
+    expect(audit.expectations[0]?.violations).toEqual([]);
+    // It was seen. The difference is that nothing had answered yet.
+    expect(audit.expectations[0]?.observed.exchanges).toBe(1);
   });
 
   test("the order is the declared order, so the audit reads beside the config", () => {

@@ -136,6 +136,7 @@ test.describe("API capture", () => {
   test("reports a body it could not walk rather than an empty answer", async ({ page, api }) => {
     // A JSON endpoint answering something else: the declared fields cannot be
     // present, and fail-closed says say so rather than stay silent.
+    api.markStubbed();
     await page.route("**/api/items", (route) =>
       route.fulfill({ status: 200, contentType: "text/plain", body: "not json" }),
     );

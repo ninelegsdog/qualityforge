@@ -821,6 +821,15 @@ export interface RunSummary {
     /** Run-prefixed path to `api-audit.v1.json`, in the same form as `defects`. */
     audit: string;
     counts: ApiAudit["counts"];
+    /**
+     * Whether any test produced a capture.
+     *
+     * False means the dimension **did not run** — a run of pure logic tests never
+     * imports the fixture, so nothing could have made an exchange. That is neither
+     * a clean audit nor a failed one, and the summary says which rather than
+     * picking one for the reader.
+     */
+    ran: boolean;
     /** One line per violation, naming the contract and what was observed. */
     violations: string[];
   };
@@ -1742,6 +1751,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
             // `defects` entries can, without the caller guessing the shape.
             audit: `${runId}/${API_AUDIT_FILE_NAME}`,
             counts: apiAuditResult.audit.counts,
+            ran: apiAuditResult.audit.counts.tests > 0,
             violations: apiAuditResult.audit.expectations.flatMap((expectation) =>
               expectation.violations.map(
                 (violation) =>

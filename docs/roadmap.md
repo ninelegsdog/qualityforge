@@ -34,6 +34,14 @@ work that _is_ outstanding invisible.
   owner's decision of 2026-10-16**: issue #40 conditioned exclusion on a browser
   round-trip per page, and there is none, since each test builds the page it
   audits. Measured at 20 seconds of a 46-second chromium leg.
+- **API contracts, declared and audited.** A project declares its contracts in
+  `config/project.json` — method, path, and what the exchange must carry. The
+  fixture captures only the declared exchanges, the collector writes
+  `api-audit.v1` under `artifacts/api/<runId>/`, and a breach fails the run in
+  `summary.api` without touching what `summary.gate` means. The contract is in
+  [`api-audit-schema.md`](api-audit-schema.md), with three gaps recorded there as
+  **G18** to **G20**; the largest is measured — chromium never hands over a POST
+  response body.
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
   confinement. Seven tools — five over defects and run history, two over
   accessibility audits — plus resources and a `triage_failure` prompt. Verified

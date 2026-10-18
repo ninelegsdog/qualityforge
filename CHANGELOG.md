@@ -190,6 +190,38 @@ reads, and what this repository now enforces on itself.
 
 ### Changed
 
+- **One quality policy, shared by many repositories.** A project declares `extends`
+  with a path to a file, and the values it does not state come from there. The
+  project's own values win, field by field.
+
+  ```json
+  { "extends": "../../quality-policy.json" }
+  ```
+
+  **What may not be shared is refused rather than ignored**, and the error says why:
+  `name`, `baseUrl`, `projects`, `tags`, `defects.directory`, `history.directory`,
+  `api.directory` and `api.expectations` all belong to the project that runs the
+  application. A policy carrying any of them would look authoritative and mean
+  nothing — or worse, mean the wrong thing, since a shared `baseUrl` would point
+  every project's artifacts at somebody else's server.
+
+  **After those refusals a policy contains no arrays at all**, which removes the one
+  question per-field merging usually gets wrong: what a list from two sources should
+  mean. Here it never arises, and that is a consequence of what was forbidden rather
+  than a convenience.
+
+  **A policy's own values are checked before anything is merged from it.** An
+  impossible threshold is refused naming the _policy_, not the project — because an
+  error that sends the reader to the wrong file is the "half-applying" this feature
+  exists to prevent, in the only disguise it can reach this code in.
+
+  **A policy may inherit from another policy**, organisation to team, with the one
+  named first winning. A cycle is refused with the whole chain named: a loop is not
+  a slow run, it is a policy that would apply forever, and the visible failure has to
+  arrive before the invisible one.
+
+### Changed
+
 - **The configuration validator is fail-closed on keys, not only on values.**
   Measured on 2026-10-18: `nonsenseKey` at the top level, `evidence.nonsense` and
   `thresholds.extraKey` were **all accepted** — nothing in the loader ever asked

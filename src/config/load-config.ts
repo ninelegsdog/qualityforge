@@ -13,6 +13,7 @@
  * the artifacts it describes.
  */
 import { readFile } from "node:fs/promises";
+import { collectPolicies, mergePolicy, parsePolicy, type SharedPolicy } from "./policy.js";
 import path from "node:path";
 import { describeValue as describe } from "../describe-value.js";
 import { KEBAB_ID } from "../id-pattern.js";
@@ -439,21 +440,87 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
  */
 export async function loadConfig(projectRoot: string, configPath?: string): Promise<ProjectConfig> {
   const target = configPath ?? path.join(projectRoot, "config", "project.json");
+  const parsed = await readJsonFile(target);
+
+  if (!isRecord(parsed) || parsed.extends === undefined) {
+    return parseConfig(parsed, target);
+  }
+
+  // A project that shares a policy. The policy is validated **before** anything is
+  // merged from it, so an invalid one fails at load rather than half-applying —
+  // which is the criterion #44 states, and the reason the order is this way round.
+  const readPolicy = async (file: string): Promise<SharedPolicy> =>
+    parsePolicy(await readJsonFile(file), file);
+
+  // From the **policy**, not from the project. The project is not a policy: it is
+  // the one document allowed to carry `baseUrl` and `projects`, and checking it
+  // against the policy rules would refuse every project that shares anything.
+  if (typeof parsed.extends !== "string" || parsed.extends.trim() === "") {
+    // A project's own `extends` is checked as a string here rather than in
+    // `parsePolicy`, because the project is not a policy and must not be held to
+    // the policy's rules. `parseConfig` would only say "must be a string", which
+    // does not tell anyone that the key is the one that matters.
+    throw new ConfigError(
+      `extends must be a non-empty string path in ${target}, got ${describe(parsed.extends)}`,
+    );
+  }
+  const firstPolicy = path.resolve(path.dirname(target), parsed.extends);
+  const chain = await collectPolicies(
+    firstPolicy,
+    readPolicy,
+    (from, declared) => path.resolve(path.dirname(from), declared),
+    [],
+  );
+
+  // Weakest first, so the policy named **first** is the strongest of them, and then
+  // the project's own values on top of all of that. Written out rather than folded
+  // into one expression because the order is the whole feature, and an expression
+  // is where an order like this goes quietly wrong.
+  // `collectPolicies` already returns them in application order — weakest first, the
+  // one named first last — so each policy here overrides the ones before it and the
+  // strongest is applied last. Reversing this list was the bug: it made the *org*
+  // policy win over the *team* policy that named it.
+  const inherited = chain.reduce<Record<string, unknown>>(
+    (config, policy) => mergePolicy({ ...policy }, config),
+    {},
+  );
+  const merged = mergePolicy({ ...parsed }, inherited);
+
+  // `extends` has done its work by now. Leaving it in would have the merged config
+  // claim an inheritance that no longer exists, and `parseConfig` would — correctly —
+  // refuse it.
+  const withoutExtends = { ...merged };
+  delete withoutExtends.extends;
+
+  // The **policy's** declared version against the project's, checked where both are
+  // still visible. Written after the version check sat on the merged object and never
+  // fired: the project's own value always won that field, so the two were compared
+  // against themselves.
+  for (const policy of chain) {
+    if (policy.schemaVersion === undefined) continue;
+    if (policy.schemaVersion === parsed.schemaVersion) continue;
+    throw new ConfigError(
+      `Shared policy declares schemaVersion ${JSON.stringify(policy.schemaVersion)}, ` +
+        `but ${target} declares ${JSON.stringify(parsed.schemaVersion)}. A policy is ` +
+        `written against one version of these rules; which one would apply is not a ` +
+        `question this should answer by picking one.`,
+    );
+  }
+
+  return parseConfig(withoutExtends, `${target} (with its shared policy)`);
+}
+
+/** Read and parse one JSON file, naming it in both failures. */
+async function readJsonFile(target: string): Promise<unknown> {
   let text: string;
   try {
     text = await readFile(target, "utf8");
   } catch (error) {
     throw new ConfigError(`Cannot read configuration at ${target}`, [], { cause: error });
   }
-
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    return JSON.parse(text);
   } catch (error) {
-    throw new ConfigError(`Configuration at ${target} is not valid JSON`, [], {
-      cause: error,
-    });
+    throw new ConfigError(`Configuration at ${target} is not valid JSON`, [], { cause: error });
   }
-
-  return parseConfig(parsed, target);
 }

@@ -63,13 +63,23 @@ const DEFAULT_ROOT = "artifacts/defects";
 /** Default audit root: where `npm run a11y:audit` writes. */
 const DEFAULT_AUDIT_ROOT = "artifacts/a11y";
 /**
- * API contract audits, a sibling of the other two.
+ * API contract audits, the third root.
  *
- * A fourth conventional name, and the last: three roots exist because three
- * measurements answer three different questions, and none of them belongs inside
- * another's directory.
+ * There are now four — defects, accessibility, API contracts, transfer budgets —
+ * because four measurements answer four different questions and none of them
+ * belongs inside another's directory.
  */
 const DEFAULT_API_ROOT = "artifacts/api";
+
+/**
+ * Transfer-budget audits, the fourth root.
+ *
+ * A new measurement earns a new conventional name rather than a subdirectory of an
+ * existing one, for the reason the other three have: `listRuns` reads every
+ * directory it finds, and a directory holding something other than a defect run
+ * would be listed as a run it is not.
+ */
+const DEFAULT_PERF_ROOT = "artifacts/perf";
 
 /** Root of this checkout, used to resolve a relative root when cwd has none. */
 const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
@@ -79,7 +89,7 @@ function usage(): string {
     `${SERVER_NAME} ${SERVER_VERSION}`,
     "",
     "Usage:",
-    "  this repository     npm run mcp -- [--root <dir>] [--history <dir>] [--audit-root <dir>] [--api-root <dir>]",
+    "  this repository     npm run mcp -- [--root <dir>] [--history <dir>] [--audit-root <dir>] [--api-root <dir>] [--perf-root <dir>]",
     "  a consuming project npx --no-install qualityforge-mcp [--root <dir>] [--history <dir>]",
     "",
     "  --root <dir>    artifacts root to serve (default: " + DEFAULT_ROOT + ")",
@@ -88,6 +98,7 @@ function usage(): string {
     "  --audit-root <dir> accessibility audits to serve, if the project runs them",
     "                  (default: " + DEFAULT_AUDIT_ROOT + ", when that directory exists)",
     "  --api-root <dir> API contract audits to serve, if the project declares contracts",
+    "  --perf-root <dir> transfer-budget audits to serve, if the project declares a budget",
     "                  (default: " + DEFAULT_API_ROOT + ", when that directory exists)",
     "  --help          this message",
     "",
@@ -100,12 +111,14 @@ function parseArgs(argv: string[]): {
   history: string | undefined;
   auditRoot: string | undefined;
   apiRoot: string | undefined;
+  perfRoot: string | undefined;
   help: boolean;
 } {
   let root: string | undefined;
   let history: string | undefined;
   let auditRoot: string | undefined;
   let apiRoot: string | undefined;
+  let perfRoot: string | undefined;
   let help = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -115,7 +128,8 @@ function parseArgs(argv: string[]): {
       arg === "--root" ||
       arg === "--history" ||
       arg === "--audit-root" ||
-      arg === "--api-root"
+      arg === "--api-root" ||
+      arg === "--perf-root"
     ) {
       const value = argv[i + 1];
       i += 1;
@@ -130,6 +144,8 @@ function parseArgs(argv: string[]): {
         auditRoot = value;
       } else if (arg === "--api-root") {
         apiRoot = value;
+      } else if (arg === "--perf-root") {
+        perfRoot = value;
       } else {
         history = value;
       }
@@ -139,11 +155,11 @@ function parseArgs(argv: string[]): {
       process.exit(1);
     }
   }
-  return { root, history, auditRoot, apiRoot, help };
+  return { root, history, auditRoot, apiRoot, perfRoot, help };
 }
 
 async function main(): Promise<number> {
-  const { root, history, auditRoot, apiRoot, help } = parseArgs(process.argv.slice(2));
+  const { root, history, auditRoot, apiRoot, perfRoot, help } = parseArgs(process.argv.slice(2));
 
   if (help) {
     console.error(usage());
@@ -190,6 +206,10 @@ async function main(): Promise<number> {
   // contract" rather than refusing to start.
   const apiDir =
     apiRoot ?? [DEFAULT_API_ROOT].find((candidate) => existsSync(path.resolve(cwd, candidate)));
+  // Only when it exists, for the same reason: a project that declares no budget has
+  // no `artifacts/perf`, and the tools answer "nobody has declared a budget".
+  const perfDir =
+    perfRoot ?? [DEFAULT_PERF_ROOT].find((candidate) => existsSync(path.resolve(cwd, candidate)));
   const store = new ArtifactStore({
     root: absoluteRoot,
     ...(historyDir === undefined ? {} : { historyRoot: path.resolve(cwd, historyDir) }),
@@ -198,6 +218,7 @@ async function main(): Promise<number> {
     // root would make `listRuns` read a directory that holds no summary.
     ...(auditDir === undefined ? {} : { auditRoot: path.resolve(cwd, auditDir) }),
     ...(apiDir === undefined ? {} : { apiRoot: path.resolve(cwd, apiDir) }),
+    ...(perfDir === undefined ? {} : { perfRoot: path.resolve(cwd, perfDir) }),
   });
   try {
     await store.init();

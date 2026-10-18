@@ -12,6 +12,7 @@
 import { flakinessReport, trendReport } from "../defect/flakiness.js";
 import { PathAccessError, type ArtifactStore } from "./store.js";
 import type { ApiAudit } from "../api/types.js";
+import type { PerfAudit } from "../perf/types.js";
 import type { A11yAudit } from "../a11y/types.js";
 
 export const SERVER_INSTRUCTIONS = [
@@ -368,6 +369,77 @@ export const TOOLS: ToolDefinition[] = [
       openWorldHint: false,
     },
   },
+  {
+    name: "quality_list_perf_audits",
+    title: "List transfer-budget audits",
+    description:
+      "List the transfer-budget audits this project has written, newest first: how many " +
+      "budgets were declared, how many pages were measured, how many tests produced a " +
+      "capture, and how many budgets held. Use it to see whether anyone has declared a " +
+      "budget at all. Read tests as well as violations — tests = 0 means the dimension " +
+      "never ran, which is not a clean audit. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "How many audits to return (1–100, default 20)." },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        total: { type: "number" },
+        audits: { type: "array" },
+      },
+      required: ["total", "audits"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "quality_get_perf_audit",
+    title: "Read one transfer-budget audit",
+    description:
+      "Read one transfer-budget audit in full: every declared budget, what each page " +
+      "actually cost, and its violations with what was allowed against what was " +
+      "measured. A measured figure is the LARGEST load seen for that path, never an " +
+      "average — a page that is usually fine is what a regression looks like. A budget " +
+      "nothing loaded is a violation of its own kind, because a budget never held has " +
+      "not been passed. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        auditPath: {
+          type: "string",
+          description: "Run-relative audit path, as listed by quality_list_perf_audits.",
+        },
+      },
+      required: ["auditPath"],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string" },
+        baseUrl: { type: "string" },
+        counts: { type: "object" },
+        budgets: { type: "array" },
+      },
+      required: ["counts", "budgets"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 export interface ToolCallResult {
@@ -431,6 +503,10 @@ export async function callTool(
       return listApiAudits(store, args);
     case "quality_get_api_audit":
       return getApiAudit(store, args);
+    case "quality_list_perf_audits":
+      return listPerfAudits(store, args);
+    case "quality_get_perf_audit":
+      return getPerfAudit(store, args);
     default:
       return {
         content: text(
@@ -965,6 +1041,106 @@ async function listApiAudits(
       ].join("\n"),
     ),
     structuredContent: { total: audits.length, audits: selected },
+  };
+}
+
+async function listPerfAudits(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const limitRaw = args.limit;
+  const limit = typeof limitRaw === "number" ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+
+  const audits = await store.listPerfAudits();
+  const selected = audits.slice(0, limit);
+
+  if (audits.length === 0) {
+    return {
+      content: text(
+        "No transfer-budget audits found. Declare thresholds.maxTransferredBytes in " +
+          "config/project.json and run the suite — this says nothing about whether the " +
+          "pages are within budget, only that nobody has asked.",
+      ),
+      structuredContent: { total: 0, audits: [] },
+    };
+  }
+
+  return {
+    content: text(
+      [
+        `${audits.length} transfer-budget audit(s)` +
+          (audits.length > selected.length ? `, showing ${selected.length}` : ""),
+        ...selected.map((audit) => {
+          const state =
+            audit.tests === 0
+              ? "NOT RUN (no test loaded a page)"
+              : `${audit.violations ?? 0} breach(es), ${audit.passed ?? 0} held`;
+          return `- ${audit.runId}: ${audit.budgets ?? 0} budget(s), ${audit.pages ?? 0} page(s), ${audit.tests ?? 0} test(s), ${state}`;
+        }),
+        "",
+        `Next: call quality_get_perf_audit with an auditPath to read one in full.`,
+      ].join("\n"),
+    ),
+    structuredContent: { total: audits.length, audits: selected },
+  };
+}
+
+async function getPerfAudit(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult & { isError?: boolean }> {
+  const auditPath = args.auditPath;
+  if (typeof auditPath !== "string" || auditPath === "") {
+    return {
+      content: text("auditPath is required; list the audits first with quality_list_perf_audits."),
+      isError: true,
+    };
+  }
+
+  // A refusal is a readable answer, not a crash: the project may declare no budget at
+  // all. `PathAccessError` still escapes, because the server logs it and answers
+  // "Path is not readable" — swallowing that would lose the log line.
+  let audit: PerfAudit;
+  try {
+    audit = await store.readPerfAudit(auditPath);
+  } catch (error) {
+    if (error instanceof PathAccessError) throw error;
+    return { content: text((error as Error).message), isError: true };
+  }
+  const runId = auditPath.split("/")[0] ?? auditPath;
+  const { counts } = audit;
+
+  return {
+    content: text(
+      [
+        `transfer-budget audit ${runId}${audit.baseUrl === undefined ? "" : ` · ${audit.baseUrl}`}`,
+        counts.tests === 0
+          ? `NOT RUN · ${counts.budgets} budget(s) declared, no test loaded a page`
+          : `${counts.violations} breach(es), ${counts.passed} held, ` +
+            `${counts.pages} page(s) measured across ${counts.tests} test(s)`,
+        ...audit.budgets.map((budget) => {
+          const measured =
+            budget.measuredBytes === null ? "never measured" : `${budget.measuredBytes} bytes`;
+          const header = `- ${budget.path}: ${measured} of ${budget.budgetBytes} allowed`;
+          if (budget.violations.length === 0) return `${header}, held`;
+          return (
+            header +
+            "\n    " +
+            budget.violations
+              .map((violation) => `${violation.expected} — observed ${violation.observed}`)
+              .join("\n    ")
+          );
+        }),
+        "",
+        "A measured figure is the LARGEST load for that path, never an average.",
+      ].join("\n"),
+    ),
+    structuredContent: {
+      runId,
+      ...(audit.baseUrl === undefined ? {} : { baseUrl: audit.baseUrl }),
+      counts: audit.counts,
+      budgets: audit.budgets,
+    } as unknown as Record<string, unknown>,
   };
 }
 

@@ -188,6 +188,23 @@ reads, and what this repository now enforces on itself.
   `docs/defect-schema.md`, `docs/parallel-work.md`, `docs/quick-start.md`,
   `docs/quick-start.ru.md`, `docs/roadmap.md`, `docs/selectors-and-testid.md`.
 
+  **Two read-only MCP tools read the budgets back**, over a **fourth** root,
+  `--perf-root` (default `artifacts/perf`, when it exists):
+  `quality_list_perf_audits` and `quality_get_perf_audit`. Four directories are now
+  open at once, and the check proves the escape that only becomes reachable at four:
+  out of `artifacts/perf` and into the API audits, refused with `-32602`.
+
+  **The contract is documented in prose**, in
+  [`docs/perf-audit-schema.md`](docs/perf-audit-schema.md), with nine rules a consumer
+  can rely on — the largest load rather than an average, a budget nothing loaded as a
+  violation of its own kind, a reading that covers the page that stands rather than the
+  pages that passed.
+
+  **Two gaps recorded as G21 and G22** in
+  [`docs/defect-schema.md`](docs/defect-schema.md): a timing budget cannot be made to
+  fail only for a real regression on a shared runner, and a reading cannot reach back
+  to a page the browser has left.
+
 - **One quality policy, shared by many repositories.** A project declares `extends`
   with a path to a file and takes what it does not state from there; its own values
   win, field by field. The contract is in

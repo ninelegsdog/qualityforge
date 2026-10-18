@@ -50,11 +50,26 @@ work that _is_ outstanding invisible.
   per-field merging usually gets wrong. A run records the chain it inherited in
   `summary.policy`. The contract is in
   [`shared-policy.md`](shared-policy.md).
+- **Transfer budgets, as an evidence dimension.** A project declares
+  `thresholds.maxTransferredBytes`, the fixture records what each page actually cost
+  from Resource Timing, and the collector writes `perf-audit.v1` under
+  `artifacts/perf/<runId>/`. A breach fails the run in `summary.perf`, without
+  touching what `summary.gate` means.
+
+  **One metric, chosen by measuring two:** `transferSize` gave 3 922 bytes with a
+  spread of 0 across five runs, while summing response bodies gave 1 704 and 2 101 on
+  the same page — the engine does not always hand a body over. Timing was measured and
+  **not** budgeted: it separates a real regression 5.7-fold, but its noise grows from
+  4 ms to 39 ms under load. The verdict is the **largest** load, never an average.
+
+  Two gaps recorded as **G21** and **G22**; the contract is in
+  [`perf-audit-schema.md`](perf-audit-schema.md).
+
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
-  confinement. Nine tools — five over defects and run history, two over
-  accessibility audits, two over API contract audits — plus resources and a
-  `triage_failure` prompt. Verified
-  against OpenCode v2.0.16; Kilo and MiMo are out of scope by decision. Proven
+  confinement. Eleven tools — five over defects and run history, two over
+  accessibility audits, two over API contract audits, two over transfer budgets —
+  plus resources and a `triage_failure` prompt.
+  Verified
   against a real third-party application's artifacts as well: the installed
   binary, driven by the real client from a directory outside both projects,
   answering with that application's five defects — see

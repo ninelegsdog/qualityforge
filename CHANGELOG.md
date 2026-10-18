@@ -190,6 +190,26 @@ reads, and what this repository now enforces on itself.
 
 ### Changed
 
+- **The configuration validator is fail-closed on keys, not only on values.**
+  Measured on 2026-10-18: `nonsenseKey` at the top level, `evidence.nonsense` and
+  `thresholds.extraKey` were **all accepted** — nothing in the loader ever asked
+  which keys were present. Values the schema does know were checked strictly, so
+  the validator was strict about what it understood and silent about everything
+  else.
+
+  This is a change of behaviour, not an added field: **a configuration carrying a
+  key QualityForge does not define will now be rejected**, at every level, naming
+  the offending key and suggesting the nearest one that does exist. Nothing in this
+  repository relied on the loose behaviour — the whole suite passed unchanged on the
+  first run — but a consuming project holding a stray key will find out.
+
+  It lands first, and separately, because #44 introduces a key (`extends`) whose
+  entire function is that it is read. Under the old rules a typo in it would have
+  disabled inheritance in **every** project that misspelled it, each of them going
+  on believing it shared a policy.
+
+### Changed
+
 - **The README is a front page** (PR #37): pitch, badges, a table of contents
   and user-facing sections, and the stale "not on npm yet" claim is gone now
   that the package is published.

@@ -38,6 +38,76 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Refuse a key this configuration does not define.
+ *
+ * Measured before this existed, 2026-10-18: `nonsenseKey` at the top level,
+ * `evidence.nonsense` and `thresholds.extraKey` were **all accepted**, because
+ * nothing here ever asked which keys were present. Values the schema does know were
+ * checked strictly, so the validator was strict about what it understood and silent
+ * about everything else.
+ *
+ * That is fail-open, and #44 is what made it matter: the shared-policy feature
+ * introduces a key (`extends`) whose typo would otherwise **silently disable
+ * inheritance** — both projects would believe they share a policy while reading
+ * none of it. A validator that cannot fail on a key it does not know cannot hold up
+ * a feature whose whole point is that one key must be right.
+ *
+ * The message names the offending key and suggests the nearest known one, because a
+ * typo is nearly always a transposition, a hyphen instead of an underscore, or a
+ * camelCase spelling of a kebab-case name.
+ */
+function rejectUnknownKeys(
+  record: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string,
+  problems: string[],
+): void {
+  const known = new Set(allowed);
+  for (const key of Object.keys(record)) {
+    if (known.has(key)) continue;
+    const where = path === "" ? key : `${path}.${key}`;
+    const near = closestKey(key, allowed);
+    problems.push(
+      `unknown key ${JSON.stringify(where)}` +
+        (near === undefined
+          ? `; known keys here are ${allowed.join(", ")}`
+          : `; did you mean ${JSON.stringify(path === "" ? near : `${path}.${near}`)}?`),
+    );
+  }
+}
+
+/** The known key nearest to an unknown one, when one is close enough to suggest. */
+function closestKey(key: string, allowed: readonly string[]): string | undefined {
+  let best: string | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of allowed) {
+    const distance = editDistance(key, candidate);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+  // Two edits is a suggestion; more than that is a coincidence.
+  return bestDistance <= 2 ? best : undefined;
+}
+
+/** Levenshtein distance, small inputs only — a dozen keys, not a corpus. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] =
+        a[i - 1] === b[j - 1]
+          ? previous[j - 1]!
+          : 1 + Math.min(previous[j - 1]!, previous[j]!, current[j - 1]!);
+    }
+    previous = current;
+  }
+  return previous[b.length]!;
+}
+
 function requireString(
   value: unknown,
   path: string,
@@ -210,6 +280,28 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
     throw new ConfigError(`${source} must contain a JSON object, got ${describe(raw)}`);
   }
 
+  // Every level, not just the root: a typo three objects deep is the same mistake as
+  // one at the top, and the third one is the hardest to notice. `extends` is named
+  // here so this call is not revisited when phase 2 adds it.
+  rejectUnknownKeys(
+    raw,
+    [
+      "schemaVersion",
+      "name",
+      "baseUrl",
+      "projects",
+      "evidence",
+      "thresholds",
+      "defects",
+      "history",
+      "api",
+      "tags",
+      "extends",
+    ],
+    "",
+    problems,
+  );
+
   if (raw.schemaVersion !== CONFIG_SCHEMA_VERSION) {
     problems.push(
       `schemaVersion must be "${CONFIG_SCHEMA_VERSION}", got ${describe(raw.schemaVersion)}`,
@@ -239,6 +331,7 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
   if (!isRecord(raw.evidence)) {
     problems.push("evidence must be an object");
   } else {
+    rejectUnknownKeys(raw.evidence, ["trace", "screenshot", "video"], "evidence", problems);
     requireOneOf(raw.evidence.trace, "evidence.trace", TRACE_VALUES, problems);
     requireOneOf(raw.evidence.screenshot, "evidence.screenshot", SCREENSHOT_VALUES, problems);
     requireOneOf(raw.evidence.video, "evidence.video", VIDEO_VALUES, problems);
@@ -247,6 +340,12 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
   if (!isRecord(raw.thresholds)) {
     problems.push("thresholds must be an object");
   } else {
+    rejectUnknownKeys(
+      raw.thresholds,
+      ["maxFailureRate", "maxAttemptsPerTest", "maxDurationMs"],
+      "thresholds",
+      problems,
+    );
     requireNumberInRange(
       raw.thresholds.maxFailureRate,
       "thresholds.maxFailureRate",
@@ -274,6 +373,12 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
     problems.push("defects must be an object");
   } else {
     requireString(raw.defects.directory, "defects.directory", problems);
+    rejectUnknownKeys(
+      raw.defects,
+      ["directory", "writeSummary", "referenceErrorContext"],
+      "defects",
+      problems,
+    );
     requireBoolean(raw.defects.writeSummary, "defects.writeSummary", problems);
     requireBoolean(raw.defects.referenceErrorContext, "defects.referenceErrorContext", problems);
   }
@@ -286,6 +391,7 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
       problems.push("history must be an object");
     } else {
       requireString(raw.history.directory, "history.directory", problems);
+      rejectUnknownKeys(raw.history, ["directory", "keep"], "history", problems);
       requireNumberInRange(raw.history.keep, "history.keep", 1, 100000, problems);
       // Whole runs only. A fractional keep would silently round, and the directory
       // would then hold a number nobody chose.
@@ -300,8 +406,11 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
   if (raw.api !== undefined) {
     if (!isRecord(raw.api)) {
       problems.push("api must be an object");
-    } else if (raw.api.directory !== undefined) {
-      requireString(raw.api.directory, "api.directory", problems);
+    } else {
+      rejectUnknownKeys(raw.api, ["directory", "expectations"], "api", problems);
+      if (raw.api.directory !== undefined) {
+        requireString(raw.api.directory, "api.directory", problems);
+      }
     }
     if (isRecord(raw.api) && raw.api.expectations !== undefined) {
       const list = raw.api.expectations;

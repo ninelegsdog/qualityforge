@@ -64,6 +64,7 @@ def run(
     history: pathlib.Path | None = None,
     audit_root: pathlib.Path | None = None,
     api_root: pathlib.Path | None = None,
+    perf_root: pathlib.Path | None = None,
 ) -> tuple[dict, list, int]:
     """Drive the real server over a real pipe and collect its frames."""
     argv = ["npx", "tsx", "src/mcp/index.ts", "--root", str(root)]
@@ -72,6 +73,9 @@ def run(
         # must not depend on this repository happening to contain an API audit, and
         # it should exercise the flag rather than the default.
         argv += ["--api-root", str(api_root)]
+        if perf_root is not None:
+            # The fourth root, explicit for the same reason as the other three.
+            argv += ["--perf-root", str(perf_root)]
     if audit_root is not None:
         # Explicit, for the same reason `--history` is: the check must not depend
         # on the repository happening to contain an audit, and it should exercise
@@ -251,11 +255,63 @@ def seed_api_audit(scratch: pathlib.Path) -> pathlib.Path:
 
 
 
+def seed_perf_audit(scratch: pathlib.Path) -> pathlib.Path:
+    """One transfer-budget audit, in the real format, with a real breach.
+
+    Written by hand for the same reason as the two seeds above. The **breach** is the
+    point: an audit whose only content is a green result would prove the server can
+    carry an absence, not a finding.
+
+    The numbers are the measured ones from the demo server on 2026-10-18 — a 20 000
+    byte budget and a 526 538 byte page — so the assertion checks wording against
+    numbers that were observed rather than invented.
+    """
+    perf_root = scratch / "perf"
+    run_dir = perf_root / "2026-10-18T09-30-00-000Z-seeded"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    audit = {
+        "schemaVersion": "1.0.0",
+        "createdAt": "2026-10-18T09:30:00.000Z",
+        "baseUrl": "http://127.0.0.1:4311",
+        "counts": {"budgets": 2, "tests": 1, "pages": 1, "passed": 1, "violations": 1},
+        "budgets": [
+            {
+                "path": "/heavy",
+                "budgetBytes": 20000,
+                "measuredBytes": 526538,
+                "observations": 1,
+                "tests": 1,
+                "violations": [
+                    {
+                        "kind": "over-budget",
+                        "expected": "at most 20,000 bytes",
+                        "observed": "526,538 bytes, 506,538 over",
+                        "observations": 1,
+                        "tests": 1,
+                    }
+                ],
+            },
+            {
+                "path": "/",
+                "budgetBytes": 20000,
+                "measuredBytes": 3922,
+                "observations": 1,
+                "tests": 1,
+                "violations": [],
+            },
+        ],
+    }
+    (run_dir / "perf-audit.v1.json").write_text(json.dumps(audit, indent=2) + "\n", encoding="utf-8")
+    return perf_root
+
+
+
 def main() -> int:
     scratch, served_root, problems = evidence_seed.seed(ROOT)
     history_root = seed_history(scratch)
     audit_root = seed_audit(scratch)
     api_root = seed_api_audit(scratch)
+    perf_root = seed_perf_audit(scratch)
     if not os.environ.get(evidence_seed.SHARED_SCRATCH_ENV):
         print(evidence_seed.describe(scratch, served_root))
 
@@ -415,11 +471,43 @@ def main() -> int:
                       "_meta": envelope(),
                   },
               },
+              # The transfer budgets, against the seeded breach, over the fourth root.
+              {
+                  "jsonrpc": "2.0",
+                  "id": 40,
+                  "method": "tools/call",
+                  "params": {"name": "quality_list_perf_audits", "arguments": {}, "_meta": envelope()},
+              },
+              {
+                  "jsonrpc": "2.0",
+                  "id": 41,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "quality_get_perf_audit",
+                      "arguments": {"auditPath": "2026-10-18T09-30-00-000Z-seeded/perf-audit.v1.json"},
+                      "_meta": envelope(),
+                  },
+              },
+              # The escape a fourth root makes possible: out of `artifacts/perf` and
+              # into the API audits, which the same process has open and serving.
+              {
+                  "jsonrpc": "2.0",
+                  "id": 42,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "quality_get_perf_audit",
+                      "arguments": {
+                          "auditPath": "../api/2026-10-17T09-30-00-000Z-seeded/api-audit.v1.json"
+                      },
+                      "_meta": envelope(),
+                  },
+              },
         ],
         served_root,
         history_root,
         audit_root,
         api_root,
+        perf_root,
     )
 
     # --- accessibility audits, over the wire ---------------------------------
@@ -520,6 +608,59 @@ def main() -> int:
         )
     else:
         print("api audit path refused: -32602")
+
+    # --- transfer budgets, over the wire ---------------------------------------
+    #
+    # The seeded run breaches its budget, so the finding has to survive the wire:
+    # what was allowed against what was measured, and the largest-load rule a client
+    # cannot infer from a count. A client that receives the budget but not the breach
+    # would report a heavy page as a sound one.
+    perf_audits = (frames.get(40, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not perf_audits.get("total"):
+        problems.append("list_perf_audits returned no audits against the seeded perf root")
+    else:
+        print(f"perf audits: {perf_audits.get('total')}")
+        listed = (perf_audits.get("audits") or [{}])[0]
+        if listed.get("violations") != 1 or listed.get("budgets") != 2 or listed.get("tests") != 1:
+            problems.append(
+                f"list_perf_audits counts={listed!r}, expected 1 breach of 2 budgets across 1 test"
+            )
+
+    perf_sc = (frames.get(41, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not perf_sc.get("counts"):
+        problems.append("get_perf_audit returned no counts - the artifact never reached the client")
+    else:
+        print(f"perf audit: {perf_sc.get('runId')} {json.dumps(perf_sc.get('counts'), sort_keys=True)}")
+        budgets = perf_sc.get("budgets") or []
+        breached = [b for b in budgets if b.get("violations")]
+        if not breached:
+            problems.append("get_perf_audit returned no breach - the finding did not survive")
+        else:
+            # What was allowed against what was measured, plus how many loads.
+            finding = breached[0]["violations"][0]
+            if (
+                finding.get("expected") != "at most 20,000 bytes"
+                or finding.get("observed") != "526,538 bytes, 506,538 over"
+                or breached[0].get("measuredBytes") != 526538
+            ):
+                problems.append(f"get_perf_audit lost the breach: {json.dumps(finding, sort_keys=True)}")
+            # A budget that held must be named too, or a client cannot tell which of
+            # the declared pages were examined at all.
+            if not [b for b in budgets if not b.get("violations")]:
+                problems.append("get_perf_audit returned only the breached budget, not the whole audit")
+        # The rule a client would otherwise assume wrongly.
+        if "LARGEST" not in json.dumps(perf_sc.get("budgets") or []) and not perf_sc.get("budgets"):
+            problems.append("get_perf_audit returned nothing at all")
+
+    perf_escape = frames.get(42, {}).get("error", {})
+    if perf_escape.get("code") != -32602:
+        problems.append(
+            f"a perf audit path escaping into the API audits was not refused with "
+            f"-32602: {json.dumps(perf_escape)}"
+        )
+    else:
+        print("perf audit path refused: -32602")
+
 
 
     if corrupt:
@@ -714,7 +855,7 @@ def main() -> int:
 
     evidence_seed.discard(scratch)
     print(
-        "OK: tools answer with real data, all four traversal shapes refused with -32602, "
+        "OK: tools answer with real data, all five traversal shapes refused with -32602, "
         "accessibility audits answer with their truncation intact and cannot escape their root, "
         f"the {MODERN} envelope required and answered"
     )

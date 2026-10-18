@@ -986,6 +986,40 @@ owner chose and what stops an application quietly dropping its own endpoint whil
 every test stays green. The cause is not in the artifact because nothing that ran
 observed it.
 
+#### G21 · A transfer budget cannot be timing, on a shared runner
+
+_What could not be expressed:_ a timing budget that only fails for a real regression.
+Measured 2026-10-18 on the demo pages: a deliberately heavy page separates cleanly —
+70 ms becomes 401 ms — but the noise grows with the machine, from a spread of **4 ms
+idle to 39 ms with four CPUs busy** on the same host. Any budget tight enough to catch
+that regression also fires on the jitter.
+
+_Risk:_ a timing budget tuned on a quiet machine becomes a coin flip in CI, and a gate
+that flips is a gate people learn to re-run.
+
+_Owner's decision: documented limitation._ The dimension budgets **transferred bytes**,
+whose spread was **0** across five runs on both pages. Timing is recorded as available
+and not budgeted; a budget that can fail for two reasons is worth less than a second
+budget that can fail for one. See
+[`perf-audit-schema.md`](perf-audit-schema.md).
+
+#### G22 · A reading cannot reach back to a page the browser has left
+
+_What could not be expressed:_ what a page cost, for a test that visited several. The
+figure is read from Resource Timing on the page that stands at that moment; once the
+browser has navigated to `/contact`, it can no longer say what `/` cost.
+
+_Risk:_ a test that loads a page, navigates, and is then measured records the second
+page twice and the first not at all — so a budget covering the first page would read
+as `no-observation`, which is a violation, but for a reason that has nothing to do with
+the page's weight.
+
+_Owner's decision: documented limitation._ Reading happens after the test body rather
+than on the `load` event, because reading on the event races the navigation that
+raised it — measured: **nine firefox tests failing** with a destroyed execution
+context. A test that visits two pages measures at each, which is the honest shape of
+the rule and is what the browser tests do.
+
 #### What the second object did not bring
 
 The hypothesis list drawn up before the run also named iframes (in discussions

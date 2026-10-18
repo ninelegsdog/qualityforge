@@ -24,6 +24,7 @@ import path from "node:path";
 import { validateDefect, type DefectV1 } from "../defect/types.js";
 import { validateAudit, type A11yAudit } from "../a11y/types.js";
 import { API_AUDIT_FILE_NAME, validateApiAudit, type ApiAudit } from "../api/types.js";
+import { PERF_AUDIT_FILE_NAME, validatePerfAudit, type PerfAudit } from "../perf/types.js";
 import {
   readHistory,
   readHistoryRecords,
@@ -77,6 +78,8 @@ export interface StoreOptions {
   auditRoot?: string;
   /** API audit artifacts, `artifacts/api` by the project's configuration. */
   apiRoot?: string;
+  /** Transfer-budget audits, `artifacts/perf` by the project's configuration. */
+  perfRoot?: string;
 }
 
 /** One run directory inside the root. */
@@ -87,6 +90,26 @@ export interface RunSummaryRef {
   createdAt?: string;
   passed?: number;
   failed?: number;
+}
+
+/** One transfer-budget audit, as the list tool reports it. */
+export interface PerfAuditRunRef {
+  runId: string;
+  /** Relative POSIX path, safe to hand to a client. */
+  path: string;
+  baseUrl?: string;
+  /** How many budgets the project declared. */
+  budgets?: number;
+  /**
+   * How many tests produced a capture.
+   *
+   * `0` means the dimension never ran, which is not a clean audit: a run of pure
+   * logic tests never loads a page.
+   */
+  tests?: number;
+  pages?: number;
+  violations?: number;
+  passed?: number;
 }
 
 /** One API audit, as the list tool reports it. */
@@ -129,9 +152,11 @@ export class ArtifactStore {
   /** Absolute audit directory, when the project runs audits. */
   readonly #auditRoot: string | undefined;
   readonly #apiRoot: string | undefined;
+  readonly #perfRoot: string | undefined;
   /** Realpath of the audit root, empty when there is none or it is unreadable. */
   #realAuditRoot = "";
   #realApiRoot = "";
+  #realPerfRoot = "";
 
   constructor(options: StoreOptions) {
     this.#root = path.resolve(options.root);
@@ -139,6 +164,7 @@ export class ArtifactStore {
       options.historyRoot === undefined ? undefined : path.resolve(options.historyRoot);
     this.#auditRoot = options.auditRoot === undefined ? undefined : path.resolve(options.auditRoot);
     this.#apiRoot = options.apiRoot === undefined ? undefined : path.resolve(options.apiRoot);
+    this.#perfRoot = options.perfRoot === undefined ? undefined : path.resolve(options.perfRoot);
   }
 
   /**
@@ -217,6 +243,15 @@ export class ArtifactStore {
         this.#realApiRoot = "";
       }
     }
+
+    if (this.#perfRoot !== undefined) {
+      try {
+        const perfReal = await realpath(this.#perfRoot);
+        this.#realPerfRoot = perfReal.endsWith(path.sep) ? perfReal : perfReal + path.sep;
+      } catch {
+        this.#realPerfRoot = "";
+      }
+    }
   }
 
   get root(): string {
@@ -264,6 +299,28 @@ export class ArtifactStore {
       );
     }
     return this.#resolveIn(this.#apiRoot, this.#realApiRoot, relative);
+  }
+
+  /**
+   * Resolve a client-supplied relative path inside the transfer-budget root.
+   *
+   * Refuses when the project declares no budget, for the reason the others refuse:
+   * "nobody declared one" must not read as "every page was within it".
+   */
+  async resolvePerf(relative: string): Promise<string> {
+    if (this.#perfRoot === undefined || this.#realPerfRoot === "") {
+      throw new Error(
+        "No transfer-budget audits found. Declare thresholds.maxTransferredBytes in " +
+          "config/project.json and run the suite — without that, nobody has asked what a " +
+          "page costs.",
+      );
+    }
+    return this.#resolveIn(this.#perfRoot, this.#realPerfRoot, relative);
+  }
+
+  /** True when the project has a transfer-budget root that exists. */
+  get hasPerfRoot(): boolean {
+    return this.#perfRoot !== undefined && this.#realPerfRoot !== "";
   }
 
   /** True when the project has an API audit root that exists. */
@@ -506,6 +563,66 @@ export class ArtifactStore {
    * The violations, not the exchanges: an artifact read by a model should not
    * carry a list of successful traffic, which is evidence about nothing.
    */
+  /**
+   * List the transfer-budget audits, newest first.
+   *
+   * A directory without a readable audit is not a run, for the same reason
+   * `listRuns` skips a directory with no summary.
+   */
+  async listPerfAudits(): Promise<PerfAuditRunRef[]> {
+    if (!this.hasPerfRoot || this.#perfRoot === undefined) return [];
+
+    const entries = await readdir(this.#perfRoot, { withFileTypes: true });
+    const audits: PerfAuditRunRef[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const relative = `${entry.name}/${PERF_AUDIT_FILE_NAME}`;
+      const parsed = await this.readPerfAudit(relative).catch(() => null);
+      if (parsed === null) continue;
+      const counts = parsed.counts;
+      audits.push({
+        runId: entry.name,
+        path: relative,
+        ...(typeof parsed.baseUrl === "string" ? { baseUrl: parsed.baseUrl } : {}),
+        ...(typeof counts.budgets === "number" ? { budgets: counts.budgets } : {}),
+        ...(typeof counts.tests === "number" ? { tests: counts.tests } : {}),
+        ...(typeof counts.pages === "number" ? { pages: counts.pages } : {}),
+        ...(typeof counts.violations === "number" ? { violations: counts.violations } : {}),
+        ...(typeof counts.passed === "number" ? { passed: counts.passed } : {}),
+      });
+    }
+    return audits.sort((a, b) => b.runId.localeCompare(a.runId));
+  }
+
+  /**
+   * Read one transfer-budget audit in full.
+   *
+   * The budgets and their violations: what each page cost, what it was allowed, and
+   * where the verdict is the **largest** load rather than an average — a budget that
+   * passed on a mean would not be a budget.
+   */
+  async readPerfAudit(relativePath: string): Promise<PerfAudit> {
+    const absolute = await this.resolvePerf(relativePath);
+    const text = await readFile(absolute, "utf8");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`Transfer-budget artifact is not valid JSON: ${relativePath}`, {
+        cause: error,
+      });
+    }
+
+    const { valid, problems } = validatePerfAudit(parsed);
+    if (!valid) {
+      throw new Error(
+        `Transfer-budget artifact violates the perf-audit.v1 contract: ${relativePath}\n  - ${problems.join("\n  - ")}`,
+      );
+    }
+    return parsed as PerfAudit;
+  }
+
   async readApiAudit(relativePath: string): Promise<ApiAudit> {
     const absolute = await this.resolveApi(relativePath);
     const text = await readFile(absolute, "utf8");

@@ -42,17 +42,21 @@ const DEFAULT_API_DIRECTORY = "artifacts/api";
 const DEFAULT_PERF_DIRECTORY = "artifacts/perf";
 
 /**
- * The pages a transfer budget holds, and why these four.
+ * The pages this repository's own budget holds: `/`, `/docs` and `/contact`.
  *
- * The demo app's own pages, and the heavy one on purpose: `/heavy` is where the
- * fixture server keeps a page that exists to breach a budget, and a budget nobody
- * visits can never be shown to catch anything.
+ * **Not `/heavy`, and the omission is the design.** The demo server keeps that page
+ * precisely to breach a budget, and a fixture application cannot both contain a
+ * deliberately over-budget page and pass its own budget — CI proved it by going red
+ * on all three browser legs the first time the budget was switched on.
  *
- * Not derived from anything — a project lists its own. What this list proves is that
- * the numbers are stable enough to gate on, and the heavy page is the half of the
- * criterion that says a real regression goes red.
+ * So the heavy page is proved by the test that measures it, and the three real pages
+ * are gated. That leaves one thing this repository's CI does not exercise end to
+ * end: the collector with a **real** breach, which `tests/unit/api-gate.test.ts`
+ * covers with a synthetic report instead. Recorded as a limitation rather than papered
+ * over, because the alternative — a fixture that quietly sits under its own budget —
+ * would make the red half of the criterion untestable.
  */
-const PERF_BUDGET_PATHS = ["/", "/docs", "/contact", "/heavy"];
+const PERF_BUDGET_PATHS = ["/", "/docs", "/contact"];
 const DEFAULT_TEST_DIR = "tests";
 
 /**

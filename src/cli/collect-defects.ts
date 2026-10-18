@@ -39,6 +39,24 @@ const DEFAULT_REPORT = "artifacts/json/playwright-results.json";
  * the contract says cannot be there.
  */
 const DEFAULT_API_DIRECTORY = "artifacts/api";
+const DEFAULT_PERF_DIRECTORY = "artifacts/perf";
+
+/**
+ * The pages this repository's own budget holds: `/`, `/docs` and `/contact`.
+ *
+ * **Not `/heavy`, and the omission is the design.** The demo server keeps that page
+ * precisely to breach a budget, and a fixture application cannot both contain a
+ * deliberately over-budget page and pass its own budget — CI proved it by going red
+ * on all three browser legs the first time the budget was switched on.
+ *
+ * So the heavy page is proved by the test that measures it, and the three real pages
+ * are gated. That leaves one thing this repository's CI does not exercise end to
+ * end: the collector with a **real** breach, which `tests/unit/api-gate.test.ts`
+ * covers with a synthetic report instead. Recorded as a limitation rather than papered
+ * over, because the alternative — a fixture that quietly sits under its own budget —
+ * would make the red half of the criterion untestable.
+ */
+const PERF_BUDGET_PATHS = ["/", "/docs", "/contact"];
 const DEFAULT_TEST_DIR = "tests";
 
 /**
@@ -181,6 +199,21 @@ async function main(): Promise<number> {
       // Omitted when the project inherits nothing, so the summary carries no
       // `policy` at all rather than an empty chain claiming a check nobody made.
       ...(policyChain === undefined ? {} : { policyChain }),
+      // The transfer budget, when one is declared. Omitted entirely otherwise, so a
+      // project that has not opted in writes no audit at all rather than an empty one.
+      ...(config.thresholds.maxTransferredBytes === undefined
+        ? {}
+        : {
+            perf: {
+              directory: DEFAULT_PERF_DIRECTORY,
+              maxBytes: config.thresholds.maxTransferredBytes,
+              // Every page the project's own pages resolve to. One number, held
+              // against each of them: a budget is a statement about the application
+              // as a whole, not about one route.
+              paths: PERF_BUDGET_PATHS,
+            },
+          }),
+
       // Omitted entirely when no expectations are declared, so a project that has
       // not opted in writes no audit file at all rather than an empty one.
       ...(config.api?.expectations === undefined || config.api.expectations.length === 0
@@ -239,6 +272,21 @@ async function main(): Promise<number> {
       // The API verdict is printed beside the gate, never inside it. `gate` still
       // answers one question — did the tests hold the thresholds — and the two are
       // combined only where a caller needs one answer, which is the exit code below.
+      if (summary.perf !== undefined) {
+        const perf = summary.perf;
+        if (!perf.ran) {
+          console.log(
+            `  transfer budgets NOT RUN (${perf.counts.budgets} declared, no test loaded a page)`,
+          );
+        } else {
+          console.log(
+            perf.violations.length === 0
+              ? `  transfer budgets PASSED (${perf.counts.budgets} budget(s), ${perf.counts.pages} page(s), ${perf.counts.tests} test(s))`
+              : `  transfer budgets FAILED (${perf.counts.violations} breach(es))\n${perf.violations.map((v) => `    - ${v}`).join("\n")}`,
+          );
+        }
+      }
+
       if (summary.api !== undefined) {
         const api = summary.api;
         if (!api.ran) {

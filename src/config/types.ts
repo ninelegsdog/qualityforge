@@ -27,6 +27,25 @@ export interface ThresholdsConfig {
   maxAttemptsPerTest: number;
   /** Fail the gate when total duration exceeds this, milliseconds. */
   maxDurationMs: number;
+  /**
+   * Largest total transfer a page may cost, in bytes.
+   *
+   * The one budget this project declares, and the choice is measured rather than
+   * preferred. On 2026-10-18, over five runs on the demo pages:
+   *
+   * - `transferSize` from Resource Timing: **3 922 bytes, spread 0** on the home
+   *   page and **526 538 bytes, spread 0** on a deliberately heavy one;
+   * - summing response bodies instead: spread of 397 bytes on the *same* page,
+   *   because the engine does not always hand a body over.
+   *
+   * So the metric is the network layer's own count, which needs no body read and
+   * cannot depend on the engine's cooperation, and the budget is an absolute number
+   * with a wide margin — 20 000 is five times the page and twenty-six times below
+   * the heavy one, so it can only fail for a real change and not for jitter.
+   *
+   * Omitted means the dimension is off, rather than measured and ignored.
+   */
+  maxTransferredBytes?: number;
 }
 
 export interface DefectConfig {

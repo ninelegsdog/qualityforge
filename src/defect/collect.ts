@@ -30,6 +30,9 @@ import path from "node:path";
 import { buildApiAudit } from "../api/audit.js";
 import type { ApiCapturePayload } from "../api/observe.js";
 import { API_AUDIT_FILE_NAME, validateApiAudit, type ApiAudit } from "../api/types.js";
+import { buildPerfAudit } from "../perf/audit.js";
+import { PERF_AUDIT_FILE_NAME, validatePerfAudit, type PerfAudit } from "../perf/types.js";
+import type { PerfCapturePayload } from "../perf/observe.js";
 import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import {
   DEFECT_SCHEMA_VERSION,
@@ -355,7 +358,14 @@ export function defectIdFrom(file: string, title: string, project?: string): str
  */
 export function runExitCode(summary: RunSummary): 0 | 1 {
   const apiHeld = summary.api === undefined || summary.api.violations.length === 0;
-  return summary.gate.passed && apiHeld ? 0 : 1;
+  // A budget nobody was held to has not been breached, so `ran: false` is not a
+  // failure — the same third state the collector prints as `NOT RUN`. A budget that
+  // *was* held and was missed is a failure, and it stops the run: a page that
+  // doubled in weight while every test stayed green is exactly what the milestone
+  // asked to be caught.
+  const perfHeld =
+    summary.perf === undefined || !summary.perf.ran || summary.perf.violations.length === 0;
+  return summary.gate.passed && apiHeld && perfHeld ? 0 : 1;
 }
 
 export function makeRunId(now: Date): string {
@@ -446,6 +456,7 @@ const SIGNALS_ATTACHMENT = "quality-context";
  * is precisely what this dimension exists to catch.
  */
 const API_ATTACHMENT = "quality-api";
+const PERF_ATTACHMENT = "quality-perf";
 
 /** The API audit's own filename. */
 
@@ -475,6 +486,67 @@ const SUMMARY_FILE_NAME = "quality-summary.v1.json";
  * producer rather than relax the contract, and an audit file nobody can trust is
  * worse than a failed collection.
  */
+/**
+ * Write one run's transfer-budget audit, or refuse to.
+ *
+ * Refuses rather than writing: a producer that cannot satisfy the contract is a bug
+ * in the producer, and an artifact that exists but is invalid teaches a reader to
+ * check the file's validity themselves — the habit this contract exists to remove.
+ */
+async function writePerfAudit(input: {
+  projectRoot: string;
+  report: PwJsonReport;
+  directory: string;
+  maxBytes: number;
+  paths: string[];
+  baseUrl?: string;
+  runId: string;
+  createdAt: string;
+}): Promise<{ path: string; audit: PerfAudit }> {
+  const payloads: PerfCapturePayload[] = [];
+  for (const spec of walkSpecs(input.report.suites)) {
+    for (const pwTest of spec.tests ?? []) {
+      const attempts = pwTest.results ?? [];
+      const lastAttempt = attempts[attempts.length - 1];
+      if (lastAttempt === undefined) continue;
+      for (const attachment of lastAttempt.attachments ?? []) {
+        if (attachment.name !== PERF_ATTACHMENT) continue;
+        const text = await readAttachmentText(attachment);
+        if (text === undefined) continue;
+        try {
+          payloads.push(JSON.parse(text) as PerfCapturePayload);
+        } catch (error) {
+          throw new Error(
+            `the ${PERF_ATTACHMENT} attachment on ${spec.title ?? "an untitled spec"} is not JSON`,
+            { cause: error },
+          );
+        }
+      }
+    }
+  }
+
+  const audit = buildPerfAudit({
+    payloads,
+    budgets: input.paths.map((pagePath) => ({ path: pagePath, maxBytes: input.maxBytes })),
+    ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
+    createdAt: input.createdAt,
+  });
+
+  const verdict = validatePerfAudit(audit);
+  if (!verdict.valid) {
+    throw new Error(
+      `the produced ${PERF_AUDIT_FILE_NAME} is invalid: ${verdict.problems.join("; ")}`,
+    );
+  }
+
+  const runDir = path.join(input.projectRoot, input.directory, input.runId);
+  await mkdir(runDir, { recursive: true });
+  const target = path.join(runDir, PERF_AUDIT_FILE_NAME);
+  await writeFile(target, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+
+  return { path: path.relative(input.projectRoot, target), audit };
+}
+
 async function writeApiAudit(input: {
   projectRoot: string;
   report: PwJsonReport;
@@ -735,6 +807,21 @@ export interface CollectOptions {
     directory: string;
     expectations: ApiExpectation[];
   };
+  /**
+   * Transfer budgets, when the project declares one.
+   *
+   * Omitted means the dimension is off and no audit is written, rather than one with
+   * nothing in it. A project that has not opted in should not be handed an artifact
+   * claiming it was measured.
+   */
+  perf?: {
+    /** Directory, relative to the project root, for `perf-audit.v1.json`. */
+    directory: string;
+    /** Largest transfer any page may cost, in bytes. */
+    maxBytes: number;
+    /** The page paths the budget holds. */
+    paths: string[];
+  };
   /** Gate thresholds from configuration. */
   thresholds: ProjectConfig["thresholds"];
   /** Injected so tests can pin the clock. */
@@ -836,6 +923,29 @@ export interface RunSummary {
    * from where: a chain of two files and a threshold that matches neither is still
    * readable, but only by opening the files.
    */
+  /**
+   * The transfer budgets this run held pages to, when the project declared one.
+   *
+   * **Separate from `gate`, for the reason `api` is separate:** folding budget
+   * breaches into the test thresholds would change the *meaning* of an existing
+   * field, which the versioning rule calls a major change and a `v2` file. The two
+   * verdicts meet in exactly one place, the exit code.
+   */
+  perf?: {
+    /** Run-prefixed path to `perf-audit.v1.json`, in the same form as `defects`. */
+    audit: string;
+    counts: PerfAudit["counts"];
+    /**
+     * Whether any test produced a capture.
+     *
+     * `0` means the dimension never ran, which is neither a clean audit nor a failed
+     * one — a run of pure logic tests never loads a page.
+     */
+    ran: boolean;
+    /** One line per violation, naming the path and what was measured. */
+    violations: string[];
+  };
+
   policy?: {
     /** In application order: weakest first, the one named first last. */
     chain: string[];
@@ -1201,6 +1311,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     referenceErrorContext = false,
     history,
     api,
+    perf,
     tags = [],
     thresholds,
     now = new Date(),
@@ -1717,6 +1828,20 @@ export async function collectDefects(options: CollectOptions): Promise<{
   // Written before the summary, so a producer that produced an invalid audit stops
   // the run rather than being reported alongside a summary claiming the run was
   // collected. Rule 6: fix the producer, do not relax the contract.
+  const perfAuditResult =
+    perf === undefined
+      ? undefined
+      : await writePerfAudit({
+          projectRoot,
+          report,
+          directory: perf.directory,
+          maxBytes: perf.maxBytes,
+          paths: perf.paths,
+          ...(origin === undefined ? {} : { baseUrl: origin }),
+          runId,
+          createdAt,
+        });
+
   const apiAuditResult =
     api === undefined
       ? undefined
@@ -1766,6 +1891,22 @@ export async function collectDefects(options: CollectOptions): Promise<{
     // Absent rather than present-and-clean when nothing is declared: "no
     // expectations were declared" and "every declared expectation held" are
     // different facts, and only one of them is true of an unaudited run.
+    ...(perfAuditResult === undefined
+      ? {}
+      : {
+          perf: {
+            audit: `${runId}/${PERF_AUDIT_FILE_NAME}`,
+            counts: perfAuditResult.audit.counts,
+            ran: perfAuditResult.audit.counts.tests > 0,
+            violations: perfAuditResult.audit.budgets.flatMap((budget) =>
+              budget.violations.map(
+                (violation) =>
+                  `${budget.path}: ${violation.expected} — observed ${violation.observed}`,
+              ),
+            ),
+          },
+        }),
+
     ...(options.policyChain === undefined ? {} : { policy: { chain: options.policyChain } }),
     ...(apiAuditResult === undefined
       ? {}

@@ -122,6 +122,18 @@ function sendJson(res, status, value) {
   });
 }
 
+/**
+ * How large the deliberately heavy payload is.
+ *
+ * 512 KiB, chosen to be past any budget this repository would declare and well
+ * under a megabyte — the page has to load quickly, because a slow fixture page would
+ * make every run of it slower than the regression it exists to demonstrate.
+ */
+const HEAVY_PAYLOAD_BYTES = 512 * 1024;
+
+/** One allocated buffer, reused: the payload never changes. */
+let heavyPayload = null;
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${HOST}:${PORT}`);
   const pathname = url.pathname;
@@ -168,8 +180,49 @@ const server = createServer(async (req, res) => {
     const file = await resolveInRoot(mapped === "" ? "index.html" : mapped);
 
     if (file === null) {
+      if (pathname === "/heavy/payload.bin") {
+        heavyPayload ??= Buffer.alloc(HEAVY_PAYLOAD_BYTES, 0x20);
+        return send(res, 200, heavyPayload, {
+          "content-type": "application/octet-stream",
+          "cache-control": "no-store",
+        });
+      }
+
+      if (pathname === "/heavy") {
+        const page = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Heavy · fixtures</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main data-testid="heavy">
+      <h1>Deliberately heavy</h1>
+      <!--
+        Eager, render-blocking, and first in the document: the browser cannot paint
+        until it has arrived. That is the regression #42 exists to catch, made real
+        over HTTP rather than faked by a route in a test.
+      -->
+      <script src="/heavy/payload.bin"></script>
+      <p>This page exists to breach a transfer budget, and to exist only for that.</p>
+    </main>
+  </body>
+</html>
+`;
+        return send(res, 200, page, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+        });
+      }
+
       return send(res, 404, "404 Not Found\n", { "content-type": "text/plain; charset=utf-8" });
     }
+
+    // A large eager resource, served rather than committed. Keeping 512 KiB of
+    // filler out of the repository means the page is a few lines of code instead of
+    // half a megabyte of content that exists only to be downloaded.
 
     const body = await readFile(file);
     return send(res, 200, body, {

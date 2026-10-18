@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { collectDefects, runExitCode, type RunSummary } from "../../src/defect/collect.js";
@@ -64,10 +64,19 @@ function capture(status: number, observed: number): string {
 }
 
 /** A run whose tests all pass, so only the API verdict can turn it red. */
+interface PerfDeclaration {
+  directory: string;
+  maxBytes: number;
+  paths: string[];
+  /** The pages the captures claim were loaded, when any. */
+  pages?: { path: string; transferredBytes: number; resources: number }[];
+}
+
 async function collect(
   root: string,
   captures: string[],
   expectations: ApiExpectation[] | undefined,
+  perf?: PerfDeclaration,
 ): Promise<RunSummary> {
   mkdirSync(path.join(root, "artifacts", "json"), { recursive: true });
   writeFileSync(
@@ -111,6 +120,28 @@ async function collect(
     }),
   );
 
+  if (perf !== undefined) {
+    // Written into the same report so the collector reads it the way it reads a real
+    // run's capture, rather than through a path that exists only in this test.
+    const file = path.join(root, "artifacts/json/playwright-results.json");
+    const report = JSON.parse(readFileSync(file, "utf8")) as {
+      suites: { specs: { tests: { results: { attachments: unknown[] }[] }[] }[] }[];
+    };
+    const body = JSON.stringify({
+      schemaVersion: "1.0.0",
+      pages: perf.pages ?? [],
+    });
+    const results = report.suites[0]?.specs[0]?.tests[0]?.results ?? [];
+    for (const result of results) {
+      result.attachments.push({
+        name: "quality-perf",
+        body: Buffer.from(body, "utf8").toString("base64"),
+        contentType: "application/json",
+      });
+    }
+    writeFileSync(file, JSON.stringify(report), "utf8");
+  }
+
   const { summary } = await collectDefects({
     projectRoot: root,
     testDir: "tests",
@@ -121,6 +152,15 @@ async function collect(
     commit: "deadbeef",
     branch: "main",
     ...(expectations === undefined ? {} : { api: { directory: "artifacts/api", expectations } }),
+    ...(perf === undefined
+      ? {}
+      : {
+          perf: {
+            directory: perf.directory,
+            maxBytes: perf.maxBytes,
+            paths: perf.paths,
+          },
+        }),
   });
   return summary;
 }
@@ -191,6 +231,61 @@ test.describe("the two verdicts", () => {
     expect(runExitCode(broken)).toBe(1);
     // And a run with nothing declared is judged only on its tests.
     expect(runExitCode(undeclared)).toBe(0);
+  });
+
+  test("a breached transfer budget fails the run, with every test green", async () => {
+    // The case #42 exists for: a page that doubled in weight while nothing broke.
+    // Added after a reverse run showed the exit rule's perf half was guarded by
+    // nothing at all — removing it left this whole file green.
+    const root = mkdtempSync(path.join(tmpdir(), "qf-perf-gate-"));
+    const summary = await collect(root, [capture(200, 1)], [ITEMS], {
+      directory: "artifacts/perf",
+      maxBytes: 20000,
+      paths: ["/"],
+      // A page that cost 526 538 bytes against a 20 000 budget: the measured numbers
+      // from the demo server, not invented ones.
+      pages: [{ path: "/", transferredBytes: 526538, resources: 2 }],
+    });
+
+    // `gate` keeps its meaning, again. Folding this into it would be a change of
+    // meaning and a `v2` file.
+    expect(summary.gate.passed).toBe(true);
+    expect(summary.gate.violations).toEqual([]);
+
+    // The breach names the path, the budget and what was measured — the second
+    // criterion, and a "page was slow" message would not be evidence.
+    expect(summary.perf?.violations).toEqual([
+      "/: at most 20,000 bytes — observed 526,538 bytes, 506,538 over",
+    ]);
+    expect(runExitCode(summary)).toBe(1);
+  });
+
+  test("a page under budget does not fail the run", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "qf-perf-green-"));
+    const summary = await collect(root, [capture(200, 1)], [ITEMS], {
+      directory: "artifacts/perf",
+      maxBytes: 20000,
+      paths: ["/"],
+      pages: [{ path: "/", transferredBytes: 3922, resources: 3 }],
+    });
+
+    expect(summary.perf?.violations).toEqual([]);
+    expect(runExitCode(summary)).toBe(0);
+  });
+
+  test("a budget nobody was held to is not a breach, and says NOT RUN instead", async () => {
+    // The third state, for the same reason as the API dimension: a run of pure logic
+    // tests never loads a page, and reporting that as a passed budget would claim a
+    // measurement nobody made.
+    const root = mkdtempSync(path.join(tmpdir(), "qf-perf-notrun-"));
+    const summary = await collect(root, [], [], {
+      directory: "artifacts/perf",
+      maxBytes: 20000,
+      paths: ["/"],
+    });
+
+    expect(summary.perf?.ran).toBe(false);
+    expect(runExitCode(summary)).toBe(0);
   });
 
   test("the bump is minor, because no existing field changed meaning", () => {

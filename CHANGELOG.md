@@ -202,6 +202,41 @@ reads, and what this repository now enforces on itself.
   not ask whether a policy had been involved. Absent when nothing was inherited,
   because an empty chain claims a check nobody made.
 
+- **Transfer budgets as an evidence dimension.** `thresholds.maxTransferredBytes`
+  declares the largest a page may cost, the fixture captures what each page actually
+  cost, and the collector writes `perf-audit.v1` under `artifacts/perf/<runId>/`. A
+  breach stops the run.
+
+  **One metric, chosen by measuring two.** Over five runs on the demo pages:
+
+  | measured                            | home          | heavy   | spread |
+  | ----------------------------------- | ------------- | ------- | ------ |
+  | `transferSize` from Resource Timing | 3 922         | 526 538 | **0**  |
+  | sum of response bodies              | 1 704 / 2 101 | 525 638 | 397    |
+
+  So the metric is the network layer's own count: summing bodies needs the engine to
+  hand each one over, and it does not always — the same page measured 1 704 and 2 101.
+  **Timing was measured and rejected**: it separates a real regression 5.7-fold, but
+  its noise grows from 4 ms idle to 39 ms with four CPUs busy. A budget that can fail
+  for two reasons is worth less than a second budget that can fail for one.
+
+  **The budget is 20 000 bytes** — five times the home page and twenty-six times below
+  the heavy one. The margin is not fighting noise, which is zero; it is bought for
+  the future.
+
+  **The verdict is the largest load, never the average.** A page that is usually fine
+  is what a regression looks like, and a mean would pass four small loads and one
+  enormous one.
+
+  **Three states, not two.** Held, breached, and _not run_ — a run of pure logic tests
+  never loads a page, and reporting that as a passed budget would claim a measurement
+  nobody made. `summary.perf` is a field of its own: folding budget breaches into the
+  test thresholds would change the meaning of an existing field, which is a `v2` file.
+
+  The demo server gains `/heavy`, a page that exists to breach a budget and is linked
+  from nowhere, so the red half of "a heavy page goes red" is checkable rather than
+  assumed.
+
 ### Changed
 
 - **One quality policy, shared by many repositories.** A project declares `extends`

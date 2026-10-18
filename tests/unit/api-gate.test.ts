@@ -194,6 +194,10 @@ test.describe("the two verdicts", () => {
   });
 
   test("the bump is minor, because no existing field changed meaning", () => {
-    expect(DEFECT_SCHEMA_VERSION).toBe("1.5.0");
+    // Pinned rather than ranged, so every addition to the summary forces a conscious
+    // decision about the number instead of drifting past it. It is 1.6.0 now because
+    // `summary.policy` arrived after `summary.api`, and it is still a 1.x: three
+    // summary-only changes in a row, and a `v2` would be the price of two added blocks.
+    expect(DEFECT_SCHEMA_VERSION).toBe("1.6.0");
   });
 });

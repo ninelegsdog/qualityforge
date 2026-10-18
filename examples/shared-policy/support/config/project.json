@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "support",
+  "baseUrl": "http://127.0.0.1:4312",
+  "projects": ["chromium"],
+  "defects": {
+    "directory": "artifacts/defects"
+  },
+  "tags": ["team-infra"],
+  "extends": "../../policy.json",
+  "thresholds": {
+    "maxDurationMs": 1800000
+  }
+}

@@ -21,7 +21,7 @@ import { readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, ConfigError } from "../config/load-config.js";
+import { loadConfiguration, ConfigError } from "../config/load-config.js";
 import { collectDefects, runExitCode } from "../defect/collect.js";
 import { readGitInfo } from "../defect/git-info.js";
 
@@ -133,8 +133,13 @@ async function main(): Promise<number> {
   const projectRoot = projectRootFor(configPath);
 
   let config;
+  let policyChain: string[] | undefined;
   try {
-    config = await loadConfig(projectRoot, configPath);
+    // The pair, not the values alone: the chain is what lets a stored artifact
+    // say whether a shared policy decided anything about this run.
+    const loaded = await loadConfiguration(projectRoot, configPath);
+    config = loaded.config;
+    policyChain = loaded.policyChain;
   } catch (error) {
     if (error instanceof ConfigError) {
       console.error(`Configuration error:\n${error.message}`);
@@ -173,6 +178,9 @@ async function main(): Promise<number> {
       // append would mean every CI pass wrote synthetic entries into a history whose
       // whole value is that it records what actually happened here.
       ...(config.history === undefined || noHistory ? {} : { history: config.history }),
+      // Omitted when the project inherits nothing, so the summary carries no
+      // `policy` at all rather than an empty chain claiming a check nobody made.
+      ...(policyChain === undefined ? {} : { policyChain }),
       // Omitted entirely when no expectations are declared, so a project that has
       // not opted in writes no audit file at all rather than an empty one.
       ...(config.api?.expectations === undefined || config.api.expectations.length === 0
@@ -207,6 +215,16 @@ async function main(): Promise<number> {
       console.log(
         `  artifacts in ${path.relative(projectRoot, runDir)}/ (${written.length} files)`,
       );
+      if (policyChain !== undefined) {
+        // A run that inherited a policy must say so on the console as well as in the
+        // artifact: the reader who is watching this build has no way to open the
+        // summary yet, and "which thresholds applied here" is exactly the question
+        // that arrives during one.
+        console.log(
+          `  shared policy: ${policyChain.length} file(s), weakest first: ` +
+            `${policyChain.join(" · ")}`,
+        );
+      }
       for (const defect of defects) {
         console.log(`  - ${defect.status} ${defect.id}`);
         console.log(

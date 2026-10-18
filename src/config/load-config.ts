@@ -438,12 +438,32 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
  * @param projectRoot Directory to resolve the default path against.
  * @param configPath  Optional explicit path, overriding the default.
  */
+export interface LoadedConfiguration {
+  config: ProjectConfig;
+  /**
+   * The policy files that were inherited, in application order — weakest first,
+   * the one named first last.
+   *
+   * Empty for a project that extends nothing, and **absent** rather than empty when
+   * the caller did not ask: "nobody asked" and "there is no policy" are different
+   * facts, and only one of them is true of a project that inherits nothing.
+   */
+  policyChain?: string[];
+}
+
 export async function loadConfig(projectRoot: string, configPath?: string): Promise<ProjectConfig> {
+  return (await loadConfiguration(projectRoot, configPath)).config;
+}
+
+export async function loadConfiguration(
+  projectRoot: string,
+  configPath?: string,
+): Promise<LoadedConfiguration> {
   const target = configPath ?? path.join(projectRoot, "config", "project.json");
   const parsed = await readJsonFile(target);
 
   if (!isRecord(parsed) || parsed.extends === undefined) {
-    return parseConfig(parsed, target);
+    return { config: parseConfig(parsed, target) };
   }
 
   // A project that shares a policy. The policy is validated **before** anything is
@@ -481,7 +501,7 @@ export async function loadConfig(projectRoot: string, configPath?: string): Prom
   // strongest is applied last. Reversing this list was the bug: it made the *org*
   // policy win over the *team* policy that named it.
   const inherited = chain.reduce<Record<string, unknown>>(
-    (config, policy) => mergePolicy({ ...policy }, config),
+    (config, { policy }) => mergePolicy({ ...policy }, config),
     {},
   );
   const merged = mergePolicy({ ...parsed }, inherited);
@@ -496,7 +516,7 @@ export async function loadConfig(projectRoot: string, configPath?: string): Prom
   // still visible. Written after the version check sat on the merged object and never
   // fired: the project's own value always won that field, so the two were compared
   // against themselves.
-  for (const policy of chain) {
+  for (const { policy } of chain) {
     if (policy.schemaVersion === undefined) continue;
     if (policy.schemaVersion === parsed.schemaVersion) continue;
     throw new ConfigError(
@@ -507,7 +527,13 @@ export async function loadConfig(projectRoot: string, configPath?: string): Prom
     );
   }
 
-  return parseConfig(withoutExtends, `${target} (with its shared policy)`);
+  return {
+    config: parseConfig(withoutExtends, `${target} (with its shared policy)`),
+    // Relative to the project root when it lives inside it, absolute when it does
+    // not — an org policy above the repository must not be reported as a pile of
+    // `../../..` that means nothing once the artifacts are read elsewhere.
+    policyChain: chain.map(({ file }) => path.relative(projectRoot, file) || file),
+  };
 }
 
 /** Read and parse one JSON file, naming it in both failures. */

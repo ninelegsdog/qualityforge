@@ -1010,9 +1010,31 @@ multi-host first-party assets (G16).
   `1.0.0` reader still working; how `page` and `context.targetSource` arrived in
   `1.2.0`; how `targetSource: "observed"` and `attribution: "hook"` arrived in
   `1.3.0`; how the run summary gained `flakiness` in `1.4.0`; and how it
-  gained `api` in `1.5.0`.
+  gained `api` in `1.5.0`, and `policy` in `1.6.0`.
 - Removing a field, renaming one, or changing a type or meaning: major bump,
   and the file suffix changes to `v2`.
+
+### 1.6.0 — the run summary says whether a shared policy decided anything
+
+One change, additive, and it lands in the run summary rather than in the
+per-defect artifact: **`summary.policy`**, carrying the shared policy files a run
+inherited from, in application order — weakest first, the one named first last.
+
+**No per-defect artifact changed at 1.6.0.** A reader holding a `1.6.0` defect
+should know nothing about it moved.
+
+**Absent when nothing was inherited**, rather than present and empty. An empty chain
+would claim a check was made — that nothing was inherited — which is false of every
+run for which nobody asked.
+
+**What it answers and what it does not.** "Did a shared policy decide anything here"
+is the first question anyone asks of a governance claim, and before this field two
+projects — one writing everything itself and one sharing a policy — produced
+identical configuration. What it does not answer is _which_ value came from which
+file: comparing a stored threshold against the policy still means opening the policy.
+A per-value record is a second map that can drift out of step with the merge that
+produced it, and a wrong attribution is worse than an absent one. The contract is in
+[`shared-policy.md`](shared-policy.md).
 
 ### 1.5.0 — the run summary carries what the API contracts said
 

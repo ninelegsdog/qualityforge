@@ -1,5 +1,6 @@
 import { test as base, expect } from "@playwright/test";
 import { ApiObserver } from "../api/observe.js";
+import { PerfObserver } from "../perf/observe.js";
 import { loadConfig } from "../config/load-config.js";
 import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import { capturePageContext, shouldAttachContext } from "../defect/page-context.js";
@@ -19,11 +20,21 @@ export const ATTACHMENT_NAME = "quality-context";
  */
 export const API_ATTACHMENT_NAME = "quality-api";
 
+/**
+ * The transfer-budget capture, attached on the same rule as `quality-api` and for
+ * the same reason: a page can get twice as heavy while every test stays green, which
+ * is the case this dimension exists to catch, so its evidence cannot live on a
+ * failure-only attachment.
+ */
+export const PERF_ATTACHMENT_NAME = "quality-perf";
+
 export interface QualityFixtures {
   /** Captured console, page-error and network signals for this test. */
   signals: SignalCollector;
   /** Observed exchanges against the project's declared API contracts. */
   api: ApiObserver;
+  /** What each page the test loaded cost to transfer. */
+  perf: PerfObserver;
 }
 
 /**
@@ -44,6 +55,12 @@ function projectConfig(): Promise<ProjectConfig> {
 async function declaredExpectations(): Promise<ApiExpectation[]> {
   const config = await projectConfig();
   return config.api?.expectations ?? [];
+}
+
+/** Whether a transfer budget is declared. Absence means the dimension is off. */
+async function hasPerfBudget(): Promise<boolean> {
+  const config = await projectConfig();
+  return config.thresholds.maxTransferredBytes !== undefined;
 }
 
 /**
@@ -122,6 +139,38 @@ export const test = base.extend<QualityFixtures>({
       // owner decided on, and it can only be ruled on from a payload that says so.
       await testInfo.attach(API_ATTACHMENT_NAME, {
         body: `${JSON.stringify(await observer.toPayload(), null, 2)}\n`,
+        contentType: "application/json",
+      });
+    },
+    { auto: true },
+  ],
+
+  perf: [
+    async ({ page }, use, testInfo) => {
+      const declared = await hasPerfBudget();
+      const observer = new PerfObserver(page);
+
+      // No declared budget means no listener: an `auto` fixture must not cost
+      // anything on a project that has not opted in.
+      if (declared) {
+        observer.attach();
+      }
+
+      await use(observer);
+
+      if (!declared) {
+        return;
+      }
+
+      // Attached whatever the outcome. A page nobody measured is the fail-closed
+      // case, and it can only be ruled on from a payload that says so.
+      // Read after the test body, so the page has settled. Reading on `load`
+      // races the navigation that raised it — measured: nine firefox tests
+      // failing with a destroyed execution context.
+      await observer.measureNow();
+
+      await testInfo.attach(PERF_ATTACHMENT_NAME, {
+        body: `${JSON.stringify(observer.toPayload(), null, 2)}\n`,
         contentType: "application/json",
       });
     },

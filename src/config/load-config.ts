@@ -343,7 +343,7 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
   } else {
     rejectUnknownKeys(
       raw.thresholds,
-      ["maxFailureRate", "maxAttemptsPerTest", "maxDurationMs"],
+      ["maxFailureRate", "maxAttemptsPerTest", "maxDurationMs", "maxTransferredBytes"],
       "thresholds",
       problems,
     );
@@ -354,6 +354,27 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
       1,
       problems,
     );
+    // Optional, so a project that has not opted in is not made to invent a number.
+    if (raw.thresholds.maxTransferredBytes !== undefined) {
+      requireNumberInRange(
+        raw.thresholds.maxTransferredBytes,
+        "thresholds.maxTransferredBytes",
+        1,
+        Number.MAX_SAFE_INTEGER,
+        problems,
+      );
+      // Whole bytes. A fractional budget would be rounded somewhere, and the
+      // artifact would then hold a number nobody chose.
+      if (
+        typeof raw.thresholds.maxTransferredBytes === "number" &&
+        !Number.isInteger(raw.thresholds.maxTransferredBytes)
+      ) {
+        problems.push(
+          `thresholds.maxTransferredBytes must be a whole number of bytes, got ${raw.thresholds.maxTransferredBytes}`,
+        );
+      }
+    }
+
     requireNumberInRange(
       raw.thresholds.maxAttemptsPerTest,
       "thresholds.maxAttemptsPerTest",

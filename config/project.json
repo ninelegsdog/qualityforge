@@ -11,7 +11,8 @@
   "thresholds": {
     "maxFailureRate": 0.05,
     "maxAttemptsPerTest": 2,
-    "maxDurationMs": 900000
+    "maxDurationMs": 900000,
+    "maxTransferredBytes": 20000
   },
   "defects": {
     "directory": "artifacts/defects",

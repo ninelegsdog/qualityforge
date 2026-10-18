@@ -188,6 +188,20 @@ reads, and what this repository now enforces on itself.
   `docs/defect-schema.md`, `docs/parallel-work.md`, `docs/quick-start.md`,
   `docs/quick-start.ru.md`, `docs/roadmap.md`, `docs/selectors-and-testid.md`.
 
+- **One quality policy, shared by many repositories.** A project declares `extends`
+  with a path to a file and takes what it does not state from there; its own values
+  win, field by field. The contract is in
+  [`docs/shared-policy.md`](docs/shared-policy.md), with a worked example in
+  [`examples/shared-policy/`](examples/shared-policy/) holding two projects on one
+  policy.
+
+  **`summary.policy` records the chain a run inherited**, `1.5.0` → `1.6.0`,
+  additive and in the run summary only — nothing about a `1.6.0` **defect** moved.
+  Before this field two projects, one writing every value itself and one sharing a
+  policy, produced identical configuration, and a reader of the stored artifact could
+  not ask whether a policy had been involved. Absent when nothing was inherited,
+  because an empty chain claims a check nobody made.
+
 ### Changed
 
 - **One quality policy, shared by many repositories.** A project declares `extends`

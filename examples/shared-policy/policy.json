@@ -1,0 +1,16 @@
+{
+  "evidence": {
+    "trace": "on-first-retry",
+    "screenshot": "only-on-failure",
+    "video": "off"
+  },
+  "thresholds": {
+    "maxFailureRate": 0.02,
+    "maxAttemptsPerTest": 3,
+    "maxDurationMs": 900000
+  },
+  "defects": {
+    "writeSummary": true,
+    "referenceErrorContext": true
+  }
+}

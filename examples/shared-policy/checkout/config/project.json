@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "checkout",
+  "baseUrl": "http://127.0.0.1:4311",
+  "projects": ["chromium"],
+  "defects": {
+    "directory": "artifacts/defects"
+  },
+  "tags": ["team-payments"],
+  "extends": "../../policy.json"
+}

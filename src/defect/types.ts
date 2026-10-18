@@ -28,9 +28,9 @@ import { KEBAB_ID } from "../id-pattern.js";
  * run summary rather than in the per-defect artifact, which is the precedent for
  * a summary-only change carrying the minor bump the shared number demands.
  *
- * **Neither 1.4.0 nor 1.5.0 changed a per-defect artifact.** A reader holding a
- * `1.5.0` defect should know that nothing about it moved: the field that arrived
- * was `summary.api`, and the run summary is a separate document.
+ * **Neither 1.4.0, 1.5.0 nor 1.6.0 changed a per-defect artifact.** A reader holding a
+ * `1.6.0` defect should know that nothing about it moved: the fields that arrived were
+ * `summary.api` and `summary.policy`, and the run summary is a separate document.
  *
  * And what deliberately did **not** happen at 1.5.0: `summary.gate` still means
  * "the tests held the thresholds". Folding API violations into it would have
@@ -38,8 +38,20 @@ import { KEBAB_ID } from "../id-pattern.js";
  * and a `v2` file - a price no one should pay for one added block. The API
  * verdict is its own field, `summary.api.passed`, and the process exit code is
  * where the two are combined.
+ *
+ * 1.6.0 adds `summary.policy`: the shared policy files a run inherited from, when
+ * it inherited any. Additive, in the summary, for the same reason 1.4.0 and 1.5.0
+ * were minor — the run summary is a separate document from the defect artifact, and
+ * nothing about a `1.6.0` **defect** moved.
+ *
+ * It answers one question — *did a shared policy decide anything here* — and that is
+ * the first question anyone asks of a governance claim. What it does not answer is
+ * which value came from which file, so a reader comparing a stored threshold against
+ * the policy still has to open the policy. That limit is deliberate rather than
+ * overlooked: a per-value record is a second map that can drift out of step with the
+ * merge that produced it, and a wrong attribution is worse than an absent one.
  */
-export const DEFECT_SCHEMA_VERSION = "1.5.0" as const;
+export const DEFECT_SCHEMA_VERSION = "1.6.0" as const;
 
 /** Outcome of a single attempt. Mirrors Playwright's status vocabulary. */
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";

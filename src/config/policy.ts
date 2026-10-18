@@ -50,7 +50,6 @@ export const POLICY_KEYS = [
   "evidence",
   "thresholds",
   "defects",
-  "history",
 ] as const;
 
 /**
@@ -71,6 +70,8 @@ export const FORBIDDEN_IN_POLICY: Record<string, string> = {
   "defects.directory": "where a repository keeps its artifacts is its own arrangement",
   "history.directory": "where a repository keeps its history is its own arrangement",
   "api.directory": "where a repository keeps its API audits is its own arrangement",
+  history:
+    "a history section needs `directory`, and the directory is this project's own arrangement — so a policy could set `keep` only by shipping a section that is invalid on its own, and 'keep 50 runs' is not worth a configuration that fails to load",
   "api.expectations":
     "contracts describe this application's own endpoints; shared ones would be checked against an address that does not exist here",
 };
@@ -140,7 +141,7 @@ export function parsePolicy(raw: unknown, source: string): SharedPolicy {
     problems.push(`policy extends must be a non-empty string path`);
   }
 
-  for (const section of ["evidence", "thresholds", "defects", "history"] as const) {
+  for (const section of ["evidence", "thresholds", "defects"] as const) {
     if (raw[section] !== undefined && !isRecord(raw[section])) {
       problems.push(`policy ${section} must be an object`);
     }
@@ -209,7 +210,7 @@ function validProject(): Record<string, unknown> {
 
 function validatePolicyValues(policy: Record<string, unknown>, source: string): void {
   const overlay: Record<string, unknown> = { ...validProject() };
-  for (const section of ["evidence", "thresholds", "defects", "history"] as const) {
+  for (const section of ["evidence", "thresholds", "defects"] as const) {
     const value = policy[section];
     if (value === undefined) continue;
     overlay[section] = {
@@ -227,6 +228,13 @@ function validatePolicyValues(policy: Record<string, unknown>, source: string): 
     }
     throw error;
   }
+}
+
+/** One policy, with the file it was read from. */
+export interface ResolvedPolicy {
+  /** Absolute path, as resolved from the file that named it. */
+  file: string;
+  policy: SharedPolicy;
 }
 
 /** One link in the chain, for a cycle report a reader can follow. */
@@ -255,7 +263,7 @@ export async function collectPolicies(
   links: PolicyLink[],
   depth = 0,
   read_: string[] = [],
-): Promise<SharedPolicy[]> {
+): Promise<ResolvedPolicy[]> {
   if (depth > MAX_POLICY_DEPTH) {
     throw new ConfigError(
       `Shared policy chain is deeper than ${MAX_POLICY_DEPTH} links`,
@@ -283,7 +291,7 @@ export async function collectPolicies(
   }
 
   const policy = await readPolicy(first);
-  const collected: SharedPolicy[] = [policy];
+  const collected: ResolvedPolicy[] = [{ file: first, policy }];
   if (policy.extends === undefined) return collected;
 
   const next = resolve(first, policy.extends);

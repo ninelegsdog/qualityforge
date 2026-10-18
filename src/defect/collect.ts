@@ -694,6 +694,13 @@ export interface CollectOptions {
   /** Playwright JSON report path, relative to projectRoot. */
   reportPath: string;
   /**
+   * The shared policy files that were inherited, in application order.
+   *
+   * Omitted means the project inherits nothing, and the summary then carries no
+   * `policy` at all rather than an empty chain — see the field.
+   */
+  policyChain?: string[];
+  /**
    * The configured origin, from config/project.json.
    *
    * A fallback, not the answer: see `resolveTarget`. Reduced to an origin before
@@ -816,6 +823,23 @@ export interface RunSummary {
    * clean: a project that declared nothing was not audited, and saying otherwise
    * would be a claim the run never made.
    */
+  /**
+   * The shared policy files this run inherited from, when it inherited any.
+   *
+   * **Present when a policy was read, absent when none was.** A run of a project
+   * that states everything itself carries no policy — and saying "none" about that
+   * would claim a check nobody made.
+   *
+   * What this answers is "did a shared policy decide anything here", which is the
+   * first question about any governance claim and the one a reader of a stored
+   * artifact otherwise cannot ask. What it does **not** answer is which value came
+   * from where: a chain of two files and a threshold that matches neither is still
+   * readable, but only by opening the files.
+   */
+  policy?: {
+    /** In application order: weakest first, the one named first last. */
+    chain: string[];
+  };
   api?: {
     /** Run-prefixed path to `api-audit.v1.json`, in the same form as `defects`. */
     audit: string;
@@ -1742,6 +1766,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     // Absent rather than present-and-clean when nothing is declared: "no
     // expectations were declared" and "every declared expectation held" are
     // different facts, and only one of them is true of an unaudited run.
+    ...(options.policyChain === undefined ? {} : { policy: { chain: options.policyChain } }),
     ...(apiAuditResult === undefined
       ? {}
       : {

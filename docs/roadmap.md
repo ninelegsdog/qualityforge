@@ -42,6 +42,14 @@ work that _is_ outstanding invisible.
   [`api-audit-schema.md`](api-audit-schema.md), with three gaps recorded there as
   **G18** to **G20**; the largest is measured — chromium never hands over a POST
   response body.
+- **One quality policy, shared by many repositories.** A project declares `extends`
+  with a path to a file and wins, field by field, wherever the two overlap. What a
+  policy may **not** say — a base URL, a project's own tags, where its artifacts
+  live, its API contracts — is refused with its reason rather than ignored, and after
+  those refusals a policy contains no arrays at all, which removes the one question
+  per-field merging usually gets wrong. A run records the chain it inherited in
+  `summary.policy`. The contract is in
+  [`shared-policy.md`](shared-policy.md).
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
   confinement. Nine tools — five over defects and run history, two over
   accessibility audits, two over API contract audits — plus resources and a

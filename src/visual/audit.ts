@@ -73,8 +73,48 @@ function short(hash: string): string {
  * @param input The captures, the declared pages, and what is on disk.
  * @returns The audit, with one entry per declared page.
  */
+/**
+ * A page this leg did not look at, with nothing claimed about it.
+ *
+ * Used when the run is not the approved engine. `observations: 0` is the honest count —
+ * zero — rather than a number borrowed from a leg that did photograph something, and
+ * `baseline: null` says the baseline was not consulted rather than that none exists.
+ */
+function unobserved(path: string): VisualPageResult {
+  return {
+    path,
+    sha256: null,
+    bytes: null,
+    viewport: null,
+    baseline: null,
+    observations: 0,
+    tests: 0,
+    violations: [],
+  };
+}
+
 export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
-  const ran = input.payloads.length > 0;
+  // Whether this **leg** is the one being gated.
+  //
+  // Not the same question as "did anything render". The dimension approves one engine,
+  // and CI runs three, so on the firefox and webkit legs nothing here is being judged —
+  // and a leg that is not judging anything must not fail. Measured: both legs reported
+  // `no-observation` on all three pages against a rule that has nothing to say about
+  // them.
+  //
+  // So there are three states, and each is one answer to one question:
+  //
+  // | state | meaning | a failure |
+  // | --- | --- | --- |
+  // | not run here | this leg is not the approved engine | no |
+  // | ran, page unobserved | the approved engine ran and never looked at this page | yes |
+  // | ran, page observed, differs | the approved engine looked and it moved | yes |
+  //
+  // Fail-closed applies inside the run that is judging. Outside it, there is nothing to
+  // be closed about.
+  const ran = input.payloads.some((payload) =>
+    payload.pages.some((page) => page.browser === input.project),
+  );
 
   const pages: VisualPageResult[] = input.declarations.map((declaration) => {
     let sha256: string | null = null;
@@ -88,11 +128,16 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
     // not track assignments made inside a callback, so every value written in one
     // stayed narrowed to its initialiser — `null` — and every `!== null` branch below
     // was typed `never`. The linter was right about the code it was shown.
+    // This leg is not the approved engine, so there is nothing to say about any page:
+    // not a violation, because the question was never asked here.
+    if (!ran) return unobserved(declaration.path);
+
     for (const [index, payload] of input.payloads.entries()) {
       // A test that broke this page on purpose is evidence about its own stub. Counted,
       // recorded, and **not judged** — the same separation the API dimension makes,
       // and for the same reason: without it a green run cannot be told from a
       // deliberately broken one.
+
       const captured = payload.pages.filter(
         (page) =>
           page.path === declaration.path &&

@@ -146,10 +146,22 @@ test.describe("the appearance verdict", () => {
   });
 
   test("a run with no capture at all says the dimension never ran", () => {
+    // **No violations**, which changed when "ran" was given its real meaning.
+    //
+    // There are two questions a reader could be asking: *did this leg photograph
+    // anything*, and *is this leg the one being gated*. A run on a browser the project
+    // did not approve answers the first yes and the second no, and reporting
+    // `no-observation` for it would fail a leg that is judging nothing — which is what
+    // CI's firefox and webkit legs did, on all three pages.
+    //
+    // So `no-observation` means *the approved engine ran and did not look at this page*,
+    // which is a failure. Silence means the question was never asked here.
     const audit = build([], { "/": baseline(HOME, "b.png") });
 
     expect(audit.counts.tests).toBe(0);
-    expect(audit.pages[0]?.violations[0]?.kind).toBe("no-observation");
+    expect(audit.pages[0]?.violations).toEqual([]);
+    // And it says nothing was observed, rather than borrowing a count from elsewhere.
+    expect(audit.pages[0]?.observations).toBe(0);
   });
 
   test("each declared page is judged on its own baseline", () => {
@@ -247,10 +259,10 @@ test.describe("the appearance verdict", () => {
       { "/": baseline(HOME, "home-chromium-linux.png") },
     );
 
-    expect(audit.pages[0]?.violations.map((violation) => violation.kind)).toEqual([
-      "no-observation",
-    ]);
-    // Not counted either: it was not an observation of the approved engine.
+    // **No finding at all.** The approved engine never ran on this leg, so the leg is
+    // not judging appearance and has nothing to report. Failing here would be CI
+    // telling a project its firefox leg broke the appearance of a page it never gates.
+    expect(audit.pages[0]?.violations).toEqual([]);
     expect(audit.pages[0]?.observations).toBe(0);
   });
 
@@ -272,8 +284,23 @@ test.describe("the appearance verdict", () => {
       createdAt: "2026-10-18T10:00:00.000Z",
     });
 
-    expect(audit.pages[0]?.violations.map((violation) => violation.kind)).toEqual([
-      "no-observation",
+    expect(audit.pages[0]?.violations).toEqual([]);
+    expect(audit.pages[0]?.observations).toBe(0);
+  });
+
+  test("the approved engine running and missing a page is still a failure", () => {
+    // The other half, and the one that keeps the rule from being a loophole: silence is
+    // for a leg that is not judging. When the approved engine ran and photographed
+    // `/docs` but not `/`, that is a page nobody looked at, and it fails.
+    const audit = build(
+      [capture({ path: "/docs", sha256: HOME, bytes: 36111 })],
+      { "/": baseline(HOME, "home.png"), "/docs": baseline(HOME, "docs.png") },
+      ["/", "/docs"],
+    );
+
+    expect(audit.pages.map((page) => page.violations.map((violation) => violation.kind))).toEqual([
+      ["no-observation"],
+      [],
     ]);
   });
 

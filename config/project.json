@@ -43,5 +43,10 @@
       }
     ]
   },
-  "tags": ["demo", "smoke"]
+  "tags": ["demo", "smoke"],
+  "visual": {
+    "project": "chromium",
+    "directory": "tests/visual-baselines",
+    "pages": ["/", "/docs", "/contact"]
+  }
 }

@@ -32,8 +32,19 @@ playwright/.cache/
 .playwright/
 playwright-cli/
 
-# Screenshots / videos / traces produced ad hoc
+# Screenshots / videos / traces produced ad hoc.
+#
+
 *.png
+# **Except** the appearance baselines, which are source and not output. #41 asks
+# that a reviewer see an approved appearance in the diff, and an approval nobody can
+# see is not an approval — it is a fact buried in one run's artifacts. The collector
+# hashes exactly these files, so they and the verdicts that read them cannot drift
+# apart the way a manifest beside them could.
+#
+# Placed *after* `*.png` on purpose: in a gitignore the later rule wins, so a negation
+# above the pattern it negates is simply overridden.
+!tests/visual-baselines/*.png
 *.jpeg
 *.jpg
 *.webm

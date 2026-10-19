@@ -185,6 +185,14 @@ producers = {
     "test-results/junit.xml": "junit reporter in playwright.config.ts",
     "artifacts/json/playwright-results.json": "json reporter in playwright.config.ts",
     "artifacts/defects/": "npm run defects:collect, defects.directory in config/project.json",
+    # Written by the "Produce missing appearance baselines" step, which is the only
+    # thing in the repository allowed to create one. The table is here so that adding
+    # an upload without a producer is still a failure, and this entry is the record of
+    # *which* producer it is — a directory that is only ever written by hand is not a
+    # producer, it is a place someone forgot.
+    "tests/visual-baselines/": (
+        "npm run visual:baselines, snapshotPathTemplate in playwright.config.ts"
+    ),
 }
 for target in sorted(set(uploaded)):
     if target.startswith("/") or "${{" in target:

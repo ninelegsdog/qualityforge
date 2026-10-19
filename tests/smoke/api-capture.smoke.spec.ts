@@ -133,10 +133,15 @@ test.describe("API capture", () => {
     expect(items.exchanges[0]?.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
 
-  test("reports a body it could not walk rather than an empty answer", async ({ page, api }) => {
+  test("reports a body it could not walk rather than an empty answer", async ({
+    page,
+    api,
+    visual,
+  }) => {
     // A JSON endpoint answering something else: the declared fields cannot be
     // present, and fail-closed says say so rather than stay silent.
     api.markStubbed();
+    visual.markStubbed();
     await page.route("**/api/items", (route) =>
       route.fulfill({ status: 200, contentType: "text/plain", body: "not json" }),
     );

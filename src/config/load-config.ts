@@ -296,6 +296,7 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
       "defects",
       "history",
       "api",
+      "visual",
       "tags",
       "extends",
     ],
@@ -440,6 +441,29 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
         problems.push(`api.expectations must be an array, got ${describe(list)}`);
       } else {
         checkExpectations(list, problems);
+      }
+    }
+  }
+
+  // Optional, and validated when present rather than required, for the same reason
+  // as `api`: a project that has not opted in should not be forced to invent pages.
+  if (raw.visual !== undefined) {
+    if (!isRecord(raw.visual)) {
+      problems.push("visual must be an object");
+    } else {
+      rejectUnknownKeys(raw.visual, ["project", "directory", "pages"], "visual", problems);
+      requireString(raw.visual.project, "visual.project", problems);
+      requireString(raw.visual.directory, "visual.directory", problems);
+      requireStringArray(raw.visual.pages, "visual.pages", problems);
+      // Every declared page must be an absolute path, for the same reason an
+      // expectation's path is: a relative one would be matched against whatever the
+      // browser happened to put in front of it.
+      if (Array.isArray(raw.visual.pages)) {
+        for (const [index, page] of raw.visual.pages.entries()) {
+          if (typeof page === "string" && !page.startsWith("/")) {
+            problems.push(`visual.pages[${index}] must begin with "/", got ${describe(page)}`);
+          }
+        }
       }
     }
   }

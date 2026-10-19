@@ -130,6 +130,32 @@ export interface ApiExpectation {
  * Optional, like `history`: a project that declares none has not opted in, and a
  * missing key is not a mistake worth an error.
  */
+export interface VisualConfig {
+  /**
+   * The engine project whose appearance is approved.
+   *
+   * Named rather than derived, because measurement showed it cannot be derived: on
+   * 2026-10-18 the same page produced **no shared screenshot hash** between firefox
+   * and chromium, and every viewport and scale produced its own. A baseline says
+   * nothing without saying which engine approved it.
+   *
+   * One project on the owner's decision of 2026-10-19: firefox renders two stable
+   * states for this page, differing by exactly 253 pixels on 3 runs of 10, and
+   * waiting does not settle it. Chromium was byte-identical across five runs.
+   */
+  project: string;
+  /**
+   * Where committed baseline images live, relative to the project root.
+   *
+   * The images **are** the baselines; there is no manifest of expected hashes
+   * beside them. A manifest would be a second copy of one fact, and two copies of one
+   * fact are two things to drift.
+   */
+  directory: string;
+  /** The pages held to their baselines. */
+  pages: string[];
+}
+
 export interface ApiConfig {
   /**
    * Directory, relative to the project root, for `api-audit.v1.json`.
@@ -157,6 +183,8 @@ export interface ProjectConfig {
   history?: HistoryConfig;
   /** Declared API contracts. Omitted means the dimension is off. */
   api?: ApiConfig;
+  /** Appearance comparison. Omitted means the dimension is off. */
+  visual?: VisualConfig;
   /** Labels copied onto every produced defect artifact. */
   tags: string[];
 }

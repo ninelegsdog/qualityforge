@@ -324,6 +324,35 @@ jobs:
         env:
           REPORT_CHECK_BROWSER: ${{ matrix.browser }}
 
+      # Appearance baselines are born **here**, in this image, and never anywhere else.
+      #
+      # Measured 2026-10-19: the same commit produces screenshots differing by
+      # 269-1898 pixels between this runner and a developer's machine, against a real
+      # CSS change worth 3 315. A baseline captured elsewhere cannot gate here, and a
+      # threshold wide enough to tolerate that would swallow nearly every real change —
+      # so the budget is zero-tolerance **within one rendering environment**, and the
+      # environment is pinned by capturing and checking in the same place.
+      #
+      # **After** the collector, deliberately. A page with no baseline is reported as a
+      # violation and that verdict stands: writing the image first would let an
+      # appearance nobody reviewed pass un-reviewed. The run stays red until a human
+      # commits the image this step produces.
+      #
+      # `--update-snapshots=missing` writes only what is absent and never overwrites,
+      # so this cannot quietly re-approve a page after a real change.
+      - name: Produce missing appearance baselines
+        if: ${{ !cancelled() && matrix.browser == 'chromium' }}
+        run: npm run visual:baselines
+
+      - name: Upload appearance baselines for review
+        if: ${{ !cancelled() && matrix.browser == 'chromium' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visual-baselines-${{ matrix.browser }}-node24
+          path: tests/visual-baselines/
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Upload defect artifacts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -29,6 +29,45 @@ const UNIT_TESTS = /tests[\\/]unit[\\/].*\.test\.ts$/;
 const SMOKE_TESTS = /tests[\\/]smoke[\\/].*\.spec\.ts$/;
 
 export default defineConfig({
+  /**
+   * Where approved screenshots live, and it is source rather than output.
+   *
+   * Playwright's default puts them beside the spec, in a `-snapshots` directory.
+   * That is fine for throwaway assertions and wrong for an **approval**: #41 asks
+   * that a reviewer see the change in the diff, and an approval nobody can see is
+   * not an approval. So the baselines sit in one named directory, and the collector
+   * hashes exactly these files — one location, no second copy, nothing to keep in
+   * step.
+   *
+   * `{-projectName}{-snapshotSuffix}` are Playwright's own, and **both are needed**:
+   * a template without them produces a name that does not say which engine or
+   * platform approved a picture, which is the thing this dimension most needs to
+   * state. `{-projectName}` is the engine, `{-snapshotSuffix}` the platform.
+   *
+   * `{arg}{ext}` is the name the test asks for,
+   * platform. That is not decoration: measured 2026-10-18, the same page produced
+   * no shared screenshot hash across engines or viewports, so a filename that did
+   * not say which engine approved a picture would say nothing about it.
+   */
+  snapshotPathTemplate: "{testDir}/visual-baselines/{arg}{-projectName}{-snapshotSuffix}{ext}",
+
+  /**
+   * A missing screenshot **fails** the run, and this is the difference between a
+   * review and a rubber stamp.
+   *
+   * Playwright's default is `missing`: a suite run writes any snapshot it does not
+   * have and passes. Left alone, that means the first run of any new page approves its
+   * own appearance — nobody looked at the picture, and the run is green anyway. That
+   * is the exact hole `no-baseline` exists to close, opened again by the framework's
+   * own convenience.
+   *
+   * So the default here is `none`, and the only thing allowed to write a baseline is
+   * `npm run visual:baselines`, which passes `--update-snapshots=missing` explicitly.
+   * It writes what is absent and never overwrites what exists, so it cannot re-approve
+   * a page after a real change either.
+   */
+  updateSnapshots: "none",
+
   testDir: "./tests",
   // Overridable because Playwright clears outputDir on every run. The MCP
   // server check seeds its own evidence in a temporary directory and must not

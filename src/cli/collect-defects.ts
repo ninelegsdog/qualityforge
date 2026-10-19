@@ -42,6 +42,26 @@ const DEFAULT_API_DIRECTORY = "artifacts/api";
 const DEFAULT_PERF_DIRECTORY = "artifacts/perf";
 
 /**
+ * Where a run's appearance audit is written.
+ *
+ * The fifth sibling root. A measurement gets its own directory for the reason the
+ * other four do: nothing of one kind lives inside another kind's tree, so a reader
+ * of one is never shown another's files.
+ */
+const DEFAULT_VISUAL_DIRECTORY = "artifacts/visual";
+
+/**
+ * Where the committed baseline images live.
+ *
+ * **In the repository, on purpose.** The issue for #41 asks that a reviewer see the
+ * change in the diff, and an approval a reviewer cannot see is not an approval —
+ * it is a fact buried in a run's artifacts. So the images are source, and the
+ * `*.png` ignore rule that keeps stray screenshots out of commits has an exception
+ * for exactly this directory.
+ */
+const DEFAULT_VISUAL_BASELINE_DIRECTORY = "tests/visual-baselines";
+
+/**
  * The pages this repository's own budget holds: `/`, `/docs` and `/contact`.
  *
  * **Not `/heavy`, and the omission is the design.** The demo server keeps that page
@@ -199,6 +219,19 @@ async function main(): Promise<number> {
       // Omitted when the project inherits nothing, so the summary carries no
       // `policy` at all rather than an empty chain claiming a check nobody made.
       ...(policyChain === undefined ? {} : { policyChain }),
+      // The appearance budget, when the project declared one. Omitted entirely
+      // otherwise, so a project that has not opted in writes no audit at all.
+      ...(config.visual === undefined
+        ? {}
+        : {
+            visual: {
+              directory: DEFAULT_VISUAL_DIRECTORY,
+              baselineDirectory: config.visual.directory ?? DEFAULT_VISUAL_BASELINE_DIRECTORY,
+              project: config.visual.project,
+              pages: config.visual.pages,
+            },
+          }),
+
       // The transfer budget, when one is declared. Omitted entirely otherwise, so a
       // project that has not opted in writes no audit at all rather than an empty one.
       ...(config.thresholds.maxTransferredBytes === undefined
@@ -272,6 +305,21 @@ async function main(): Promise<number> {
       // The API verdict is printed beside the gate, never inside it. `gate` still
       // answers one question — did the tests hold the thresholds — and the two are
       // combined only where a caller needs one answer, which is the exit code below.
+      if (summary.visual !== undefined) {
+        const visual = summary.visual;
+        if (!visual.ran) {
+          console.log(
+            `  appearance NOT RUN (${visual.counts.pages} declared, no test rendered a page)`,
+          );
+        } else {
+          console.log(
+            visual.violations.length === 0
+              ? `  appearance PASSED (${visual.counts.pages} page(s), ${visual.counts.matched} matched, ${visual.counts.tests} test(s))`
+              : `  appearance FAILED (${visual.counts.violations} finding(s))\n${visual.violations.map((v) => `    - ${v}`).join("\n")}`,
+          );
+        }
+      }
+
       if (summary.perf !== undefined) {
         const perf = summary.perf;
         if (!perf.ran) {

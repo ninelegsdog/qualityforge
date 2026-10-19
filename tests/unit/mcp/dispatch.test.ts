@@ -54,6 +54,29 @@ async function makeContext() {
       defects: [`${RUN_ID}/demo-shows-the-status.v1.json`],
       thresholds: { maxFailureRate: 0.05, maxAttemptsPerTest: 2, maxDurationMs: 900000 },
       gate: { passed: true, violations: [] },
+      // The dimension verdicts and the policy chain the collector writes into a
+      // real summary. `quality_get_latest_run` must pass all four through: it is
+      // the documented first call, and an agent that reads only it would otherwise
+      // report that they do not exist.
+      api: {
+        audit: `${RUN_ID}/api-audit.v1.json`,
+        counts: { expectations: 2, tests: 3, violations: 1, passed: 1 },
+        ran: true,
+        violations: ["GET /api/items: application/json — observed content type text/html"],
+      },
+      perf: {
+        audit: `${RUN_ID}/perf-audit.v1.json`,
+        counts: { budgets: 3, tests: 3, pages: 2, violations: 1, passed: 2 },
+        ran: true,
+        violations: ["/heavy: at most 20,000 bytes — observed 526,538 bytes, 506,538 over"],
+      },
+      visual: {
+        audit: `${RUN_ID}/visual-audit.v1.json`,
+        counts: { pages: 2, tests: 3, matched: 1, withoutBaseline: 0, violations: 1 },
+        ran: true,
+        violations: ["/docs: sha256 a — observed sha256 b"],
+      },
+      policy: { chain: ["../../quality-policy.json"] },
     }),
     "utf8",
   );
@@ -823,6 +846,53 @@ test.describe("tools", () => {
     const structured = payload.structuredContent as Record<string, unknown>;
     expect(structured.runId).toBe(RUN_ID);
     expect((structured.gate as Record<string, unknown>).passed).toBe(true);
+
+    // The summary's dimension verdicts reach the client, not only the per-dimension
+    // tools. Dropping them made a live agent report that the verdicts and the policy
+    // chain did not exist.
+    expect(structured.api).toMatchObject({
+      counts: { expectations: 2, passed: 1, violations: 1 },
+      ran: true,
+    });
+    expect(structured.perf).toMatchObject({ counts: { budgets: 3, violations: 1 }, ran: true });
+    expect(structured.visual).toMatchObject({ counts: { pages: 2, matched: 1 }, ran: true });
+    expect(structured.policy).toEqual({ chain: ["../../quality-policy.json"] });
+
+    const rendered = JSON.stringify(payload.content);
+    expect(rendered).toContain("api: FAILED (1 of 2 contracts passed), 1 violation(s)");
+    expect(rendered).toContain("perf: FAILED (2 of 3 budgets passed), 1 violation(s)");
+    expect(rendered).toContain("appearance: FAILED (1 of 2 pages matched), 1 violation(s)");
+    expect(rendered).toContain("policy: 1 shared file(s) — ../../quality-policy.json");
+  });
+
+  test("get_latest_run says NOT RUN for a dimension that never executed", async () => {
+    const context = await makeContext();
+    // Rewrite the summary with one dimension that never ran. "0 violations" and
+    // "never measured" are different claims, and the entry-point line must not
+    // render the second as the first.
+    await writeFile(
+      path.join(context.root, RUN_ID, "quality-summary.v1.json"),
+      JSON.stringify({
+        runId: RUN_ID,
+        counts: { specs: 1, passed: 0, failed: 1 },
+        gate: { passed: false, violations: ["boom"] },
+        perf: {
+          counts: { budgets: 1, tests: 0, pages: 0, violations: 0, passed: 0 },
+          ran: false,
+          violations: [],
+        },
+      }),
+      "utf8",
+    );
+    const payload = result(
+      await dispatch(context, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "quality_get_latest_run", arguments: {} },
+      }),
+    );
+    expect(JSON.stringify(payload.content)).toContain("perf: NOT RUN");
   });
 
   test("list_failures returns compact records, not full artifacts", async () => {

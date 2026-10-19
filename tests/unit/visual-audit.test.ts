@@ -39,12 +39,28 @@ function baseline(sha256: string, file: string): VisualBaseline {
  * Absent rather than false when the test does not care: silence about stubbing is
  * read as "not declared", which is the honest reading of it.
  */
-type Captured = { path: string; sha256: string; bytes: number; stubbed?: true };
+type Captured = {
+  path: string;
+  sha256: string;
+  bytes: number;
+  stubbed?: true;
+  /**
+   * The engine, defaulting to the one this dimension approves.
+   *
+   * Not noise: the producer judges only the approving engine, so a test that omits
+   * this would be asserting about a capture the collector is told to ignore.
+   */
+  browser?: string;
+};
 
 function capture(...pages: Captured[]): VisualCapturePayload {
   return {
     schemaVersion: "1.0.0",
-    pages: pages.map((page) => ({ ...page, viewport: VIEWPORT })),
+    pages: pages.map((page) => ({
+      ...page,
+      browser: page.browser ?? "chromium",
+      viewport: VIEWPORT,
+    })),
   };
 }
 
@@ -217,6 +233,58 @@ test.describe("the appearance verdict", () => {
     // And the command that produces it, so the message is an instruction and not a
     // complaint.
     expect(audit.pages[0]?.violations[0]?.observed).toContain("npm run visual:baselines");
+  });
+
+  test("another engine's capture is not judged against this engine's baseline", () => {
+    // What CI reported: on the firefox leg, `/docs` came out as `ad87d6051c1b` against
+    // a chromium baseline of `109c1cec65a4`, and the home page came out three ways.
+    // FireFox is not gated — it is *unmeasurable*, because it renders two stable states
+    // 253 pixels apart. So a capture from it is not evidence about the approved
+    // appearance, and reporting it as `changed` sent a reader to diff two pictures from
+    // two engines.
+    const audit = build(
+      [capture({ path: "/", sha256: "ad87d6051c1b", bytes: 41450, browser: "firefox" })],
+      { "/": baseline(HOME, "home-chromium-linux.png") },
+    );
+
+    expect(audit.pages[0]?.violations.map((violation) => violation.kind)).toEqual([
+      "no-observation",
+    ]);
+    // Not counted either: it was not an observation of the approved engine.
+    expect(audit.pages[0]?.observations).toBe(0);
+  });
+
+  test("an unnamed engine is not the approving engine", () => {
+    // Silence is not consent. A capture that does not say which engine made it cannot
+    // be said to match the one engine the project approved.
+    const payload = {
+      schemaVersion: "1.0.0" as const,
+      pages: [{ path: "/", sha256: HOME, bytes: 35444, viewport: VIEWPORT }],
+    };
+    const audit = buildVisualAudit({
+      payloads: [payload],
+      declarations: [{ path: "/" }],
+      lookup: {
+        baseline: () => baseline(HOME, "home-chromium-linux.png"),
+        path: () => "tests/visual-baselines/home-chromium-linux.png",
+      },
+      project: "chromium",
+      createdAt: "2026-10-18T10:00:00.000Z",
+    });
+
+    expect(audit.pages[0]?.violations.map((violation) => violation.kind)).toEqual([
+      "no-observation",
+    ]);
+  });
+
+  test("the approving engine is judged, whichever leg produced it", () => {
+    // The half that must stay true: on the chromium leg the same capture is a match.
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444, browser: "chromium" })], {
+      "/": baseline(HOME, "home-chromium-linux.png"),
+    });
+
+    expect(audit.pages[0]?.violations).toEqual([]);
+    expect(audit.pages[0]?.observations).toBe(1);
   });
 
   test("a page a test broke on purpose is not judged", () => {

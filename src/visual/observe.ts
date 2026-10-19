@@ -54,6 +54,19 @@ export interface VisualPageObservation {
    * dimension, and the same marker says so — one convention, two dimensions.
    */
   stubbed?: boolean;
+  /**
+   * The engine that rendered this page.
+   *
+   * Not decoration. The dimension approves one engine, and without this the collector
+   * judged every capture against that engine's baseline — so CI's firefox and webkit
+   * legs reported `changed` on pages they are not gating at all. Measured: firefox gave
+   * `/docs` as `ad87d6051c1b` against a chromium baseline of `109c1cec65a4`, and
+   * reported the home page three ways.
+   *
+   * Absent means an engine nobody named, and the producer treats an unnamed engine as
+   * **not** the approving one: silence is not consent.
+   */
+  browser?: string;
 }
 
 export interface VisualCapturePayload {
@@ -68,7 +81,14 @@ export class VisualObserver {
   /** Whether the current test declared its page deliberately wrong. */
   #stubbed = false;
 
-  constructor(page: Page) {
+  /**
+   * @param page the page to photograph.
+   * @param browserName the engine's own name, recorded with every capture.
+   */
+  constructor(
+    page: Page,
+    private readonly browserName: string = "",
+  ) {
     this.#page = page;
   }
 
@@ -140,6 +160,7 @@ export class VisualObserver {
         deviceScaleFactor: reading.deviceScaleFactor,
       },
       stubbed: this.#stubbed,
+      browser: this.browserName,
     };
     this.#pages.push(observation);
     return observation;

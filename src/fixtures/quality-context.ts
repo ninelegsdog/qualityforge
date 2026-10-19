@@ -211,9 +211,11 @@ export const test = base.extend<QualityFixtures>({
   ],
 
   visual: [
-    async ({ page }, use, testInfo) => {
+    async ({ page, browserName }, use, testInfo) => {
       const project = await declaredVisualProject();
-      const observer = new VisualObserver(page);
+      // The engine's own name, so the collector knows which captures it is allowed to
+      // judge. Playwright knows it and this is the only place it can be told.
+      const observer = new VisualObserver(page, browserName);
 
       await use(observer);
 

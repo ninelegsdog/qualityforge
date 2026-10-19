@@ -94,7 +94,15 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
       // and for the same reason: without it a green run cannot be told from a
       // deliberately broken one.
       const captured = payload.pages.filter(
-        (page) => page.path === declaration.path && page.stubbed !== true,
+        (page) =>
+          page.path === declaration.path &&
+          page.stubbed !== true &&
+          // **Only the approving engine.** The dimension approves one, and judging
+          // every engine against its baseline made CI's firefox and webkit legs report
+          // `changed` on pages they do not gate. An absent engine is not the approving
+          // one: silence is not consent, and treating it as consent would judge a
+          // capture against a baseline that never claimed it.
+          (page.browser ?? undefined) === input.project,
       );
       if (captured.length === 0) continue;
       observations += captured.length;

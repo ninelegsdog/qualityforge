@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { loadConfig } from "../../src/config/load-config.js";
+
 /**
  * The appearance baseline, generated rather than asserted.
  *
@@ -20,14 +22,17 @@ import { expect, test } from "@playwright/test";
  * This file is the *generator*. The check that matters is the collector's audit,
  * which runs on every suite run and is not here.
  */
+/**
+ * **Only the declared pages.** `/heavy` is absent for the same reason it is absent from
+ * the transfer budget: it exists to be wrong, and a baseline would approve it. The
+ * generator is not the place to decide that, the configuration is — which is why this
+ * list has to keep agreeing with `visual.pages` in `config/project.json`.
+ */
 const PAGES = [
   { path: "/", name: "home" },
   { path: "/docs", name: "docs" },
   { path: "/contact", name: "contact" },
 ];
-
-/** The one page that exists to be wrong, and is therefore never approved. */
-const HEAVY = { path: "/heavy", name: "heavy" };
 
 test.describe("the appearance baseline", () => {
   // **Chromium only, and the skip is stated rather than assumed.**
@@ -38,8 +43,20 @@ test.describe("the appearance baseline", () => {
   // firefox renders two stable states for this page, 253 pixels apart, on three runs
   // of ten — an approval made from one of those states is an approval of a coin flip.
   test.skip(({ browserName }) => browserName !== "chromium", "only chromium is gated");
+  // The list above is a second copy of `visual.pages` in `config/project.json`, and two
+  // copies of one fact are two things to drift. Rather than read the configuration at
+  // module load — which would mean duplicating the loader — the copy is **checked**,
+  // which is the same bargain `tests/unit/stubbed-endpoints.test.ts` makes.
+  //
+  // Without this the failure is silent and expensive in the worst way: a page added to
+  // the configuration gets no baseline, the generator never photographs it, and the
+  // collector reports `no-baseline` for a page nobody ever wrote a test for.
+  test("this generator covers exactly the pages the configuration declares", async () => {
+    const config = await loadConfig(process.cwd());
+    expect(config.visual?.pages ?? []).toEqual(PAGES.map((page) => page.path));
+  });
 
-  for (const page of [...PAGES, HEAVY]) {
+  for (const page of PAGES) {
     test(`${page.path} looks the way it is approved to look`, async ({ page: target }) => {
       await target.goto(page.path);
       // The same two conditions the fixture waits for before it photographs a page.

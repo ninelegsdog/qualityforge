@@ -576,6 +576,24 @@ function baselineFileFor(page: string, project: string, platform: string): strin
 }
 
 /**
+ * The path of a baseline, directory and all — for the reader **and** for the message a
+ * missing one prints.
+ *
+ * One function, because the two were written separately and CI showed what that costs:
+ * the finding said `home-chromium-linux.png` while the collector looked in
+ * `tests/visual-baselines/`. A filename is not a place, and the unit test could not see
+ * it either — it supplied its own lookup, so the two spellings never met.
+ */
+export function baselinePathFor(
+  directory: string,
+  page: string,
+  project: string,
+  platform: string = process.platform,
+): string {
+  return path.join(directory, baselineFileFor(page, project, platform));
+}
+
+/**
  * Read the committed baseline for each declared page.
  *
  * **The image is the baseline.** Its hash is computed from the file on every run
@@ -595,10 +613,10 @@ async function readBaselines(
 ): Promise<Map<string, VisualBaseline>> {
   const found = new Map<string, VisualBaseline>();
   for (const page of pages) {
-    const file = path.join(
-      baselineDirectory,
-      `${path.basename(baselineFileFor(page, project, process.platform))}`,
-    );
+    // The same two calls, in the same order, as the message a missing baseline
+    // prints: one rule for the place, and a reader is never told a different one
+    // than the collector looked in.
+    const file = baselinePathFor(baselineDirectory, page, project);
     try {
       const bytes = await readFile(path.join(projectRoot, file));
       found.set(page, {
@@ -669,7 +687,11 @@ async function writeVisualAudit(input: {
     declarations: input.pages.map((page) => ({ path: page })),
     lookup: {
       baseline: lookup,
-      path: (page) => baselineFileFor(page, input.project, process.platform),
+      // **With** the directory, not just the file name. A bare
+      // `home-chromium-linux.png` is a filename and not a place: CI printed exactly
+      // that, because the naming rule has no idea which directory the project keeps
+      // its baselines in. A reader was left to guess where the image belonged.
+      path: (page) => baselinePathFor(input.baselineDirectory, page, input.project),
     },
     ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
     project: input.project,

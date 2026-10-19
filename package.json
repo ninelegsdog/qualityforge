@@ -61,6 +61,7 @@
     "report:clean": "node scripts/clean.mjs",
     "defects:collect": "tsx src/cli/collect-defects.ts",
     "a11y:audit": "tsx src/cli/a11y-audit.ts",
+    "visual:baselines": "playwright test tests/smoke/visual-baseline.spec.ts --project=chromium --update-snapshots=missing",
     "defects:check": "python3 scripts/report-check.py .",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",

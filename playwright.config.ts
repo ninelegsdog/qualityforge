@@ -51,6 +51,23 @@ export default defineConfig({
    */
   snapshotPathTemplate: "{testDir}/visual-baselines/{arg}{-projectName}{-snapshotSuffix}{ext}",
 
+  /**
+   * A missing screenshot **fails** the run, and this is the difference between a
+   * review and a rubber stamp.
+   *
+   * Playwright's default is `missing`: a suite run writes any snapshot it does not
+   * have and passes. Left alone, that means the first run of any new page approves its
+   * own appearance — nobody looked at the picture, and the run is green anyway. That
+   * is the exact hole `no-baseline` exists to close, opened again by the framework's
+   * own convenience.
+   *
+   * So the default here is `none`, and the only thing allowed to write a baseline is
+   * `npm run visual:baselines`, which passes `--update-snapshots=missing` explicitly.
+   * It writes what is absent and never overwrites what exists, so it cannot re-approve
+   * a page after a real change either.
+   */
+  updateSnapshots: "none",
+
   testDir: "./tests",
   // Overridable because Playwright clears outputDir on every run. The MCP
   // server check seeds its own evidence in a temporary directory and must not

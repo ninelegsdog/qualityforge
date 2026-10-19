@@ -56,7 +56,15 @@ function build(
   return buildVisualAudit({
     payloads,
     declarations: paths.map((path) => ({ path })),
-    lookup: { baseline: (path) => baselines[path] },
+    lookup: {
+      baseline: (path) => baselines[path],
+      // The collector owns the naming rule, so the test owns its own copy too.
+      // What is being checked is that the producer *reports* the path it is handed,
+      // not that it guesses correctly — so this deliberately does not borrow the
+      // real rule, and a test that passed for the wrong reason would show here.
+      path: (page) =>
+        `tests/visual-baselines/${page === "/" ? "home" : page.slice(1)}-chromium-linux.png`,
+    },
     baseUrl: "http://127.0.0.1:4311",
     project: "chromium",
     createdAt: "2026-10-18T10:00:00.000Z",
@@ -194,6 +202,21 @@ test.describe("the appearance verdict", () => {
     // who does not know which engine approved a baseline cannot interpret a change
     // to it.
     expect(audit.project).toBe("chromium");
+  });
+
+  test("a page with no baseline says which file to commit", () => {
+    // A finding a reader can act on names the file. "no baseline is committed" is a
+    // true sentence and leaves the next step to whoever reads it at three in the
+    // morning, which is not a step.
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {}, ["/"]);
+
+    expect(audit.pages[0]?.violations.map((violation) => violation.kind)).toEqual(["no-baseline"]);
+    expect(audit.pages[0]?.violations[0]?.observed).toContain(
+      "tests/visual-baselines/home-chromium-linux.png",
+    );
+    // And the command that produces it, so the message is an instruction and not a
+    // complaint.
+    expect(audit.pages[0]?.violations[0]?.observed).toContain("npm run visual:baselines");
   });
 
   test("a page a test broke on purpose is not judged", () => {

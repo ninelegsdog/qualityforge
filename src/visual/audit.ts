@@ -38,6 +38,19 @@ export interface VisualDeclaration {
 export interface BaselineLookup {
   /** The committed baseline, or `undefined` when the file is not there. */
   baseline: (path: string) => VisualBaseline | undefined;
+  /**
+   * Where the baseline for this page belongs, whether or not it is there.
+   *
+   * Asked of the collector rather than worked out here, and that is the point: the
+   * naming rule — path, project and platform folded into one filename — has exactly
+   * one owner. A second spelling inside the producer is two places to disagree, and
+   * when they disagree the reader is told to commit a file under a name nothing
+   * reads.
+   *
+   * It is needed at all only for `no-baseline`, where the file does not exist and so
+   * cannot be named by the lookup that found it.
+   */
+  path: (path: string) => string;
 }
 
 export interface BuildVisualAuditInput {
@@ -128,7 +141,11 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
       violations.push({
         kind: "no-baseline",
         expected: "an approved appearance in the repository",
-        observed: "no baseline is committed for this page",
+        // Naming the file is the whole difference between a finding a reader can act
+        // on and one they can only note. The path comes from the declaration and the
+        // baseline lookup, so it is the same string the writer would have used — not a
+        // second place spelling out where a baseline lives.
+        observed: `no baseline is committed at ${input.lookup.path(declaration.path)}; run \`npm run visual:baselines\` and commit the image it writes`,
         observations,
         tests: tests.size,
       });

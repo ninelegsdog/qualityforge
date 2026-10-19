@@ -562,6 +562,20 @@ async function writePerfAudit(input: {
 }
 
 /**
+ * The one rule that names a baseline: page, approving engine and platform.
+ *
+ * Both the reader and the `no-baseline` message go through here, so a finding can
+ * never name a file the collector would not have read.
+ *
+ * `/` becomes `home` rather than an empty slug — a filename of `-chromium-linux.png`
+ * is a name, but it is a name nobody would guess.
+ */
+function baselineFileFor(page: string, project: string, platform: string): string {
+  const slug = page === "/" ? "home" : page.replace(/^\//, "").replace(/\//g, "-");
+  return `${slug}-${project}-${platform}.png`;
+}
+
+/**
  * Read the committed baseline for each declared page.
  *
  * **The image is the baseline.** Its hash is computed from the file on every run
@@ -581,8 +595,10 @@ async function readBaselines(
 ): Promise<Map<string, VisualBaseline>> {
   const found = new Map<string, VisualBaseline>();
   for (const page of pages) {
-    const slug = page === "/" ? "home" : page.replace(/^\//, "").replace(/\//g, "-");
-    const file = path.join(baselineDirectory, `${slug}-${project}-${process.platform}.png`);
+    const file = path.join(
+      baselineDirectory,
+      `${path.basename(baselineFileFor(page, project, process.platform))}`,
+    );
     try {
       const bytes = await readFile(path.join(projectRoot, file));
       found.set(page, {
@@ -651,7 +667,10 @@ async function writeVisualAudit(input: {
   const audit = buildVisualAudit({
     payloads,
     declarations: input.pages.map((page) => ({ path: page })),
-    lookup: { baseline: lookup },
+    lookup: {
+      baseline: lookup,
+      path: (page) => baselineFileFor(page, input.project, process.platform),
+    },
     ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
     project: input.project,
     createdAt: input.createdAt,

@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Appearance as a fourth evidence dimension, compared against committed baseline
+  images.** Each declared page is photographed and hashed, and the collector writes
+  `visual-audit.v1` under `artifacts/visual/<runId>/`. Chromium only, zero tolerance,
+  and the verdict is a SHA-256 of the screenshot bytes — which makes zero tolerance a
+  property of the comparison rather than a number somebody chose, because there is no
+  threshold to tune and so no size of change quietly decided not to look for.
+
+  Measured on 2026-10-18: chromium produced byte-identical screenshots across five runs
+  in fresh contexts, but **no two engines or viewports shared a hash**, and firefox
+  rendered the home page in **two stable states exactly 253 pixels apart on three runs of
+  ten** — not noise, and waiting does not settle it. That is why one engine is named and
+  why a page seen two ways is `unstable`, its own kind: calling it a change would send a
+  reader to diff two pictures when the real question is which of them is the page.
+
+  **Baselines are born in the CI image**, on the owner's decision of 2026-10-19. The same
+  commit differs by **269–1898 pixels** between a GitHub runner and a laptop, against a
+  real CSS change worth 3 315, so the 13-fold separation measured on one machine is gone
+  across two. `updateSnapshots` is `"none"` — Playwright's default of `missing` would let
+  a plain suite run write any snapshot it lacks and pass, approving an appearance nobody
+  looked at — and the CI step runs **after** the collector, so a page with no baseline
+  stays red until a human commits the image the run produced.
+
+  There is **no manifest of expected hashes**: the committed PNG is the baseline and its
+  hash is computed from the file, because a manifest beside the images would be a second
+  copy of one fact. Three gaps recorded as **G23**–**G25**; the contract is in
+  `docs/visual-audit-schema.md`.
+
+  Two read-only MCP tools, `quality_list_visual_audits` and
+  `quality_get_visual_audit`, read them over a fifth root, `--visual-root`. The wire
+  check seeds a **changed** page rather than a clean one: what must survive the wire is
+  both hashes and the committed file that approved the other one.
+
 - **API contracts, declared and audited, as their own dimension.** A project
   declares its contracts in `config/project.json` — method, path, and what the
   exchange must carry: a status, a media type, field paths in the request body,

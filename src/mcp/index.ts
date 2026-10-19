@@ -81,6 +81,16 @@ const DEFAULT_API_ROOT = "artifacts/api";
  */
 const DEFAULT_PERF_ROOT = "artifacts/perf";
 
+/**
+ * Where appearance audits live: `artifacts/visual`.
+ *
+ * A fifth sibling root, for the reason the other four are. The comment above
+ * `DEFAULT_PERF_ROOT` states it once and it applies here unchanged: each holds a
+ * different measurement with a different contract, and nesting one inside another would
+ * make a listing tool read a tree holding nothing of the kind it claims to list.
+ */
+const DEFAULT_VISUAL_ROOT = "artifacts/visual";
+
 /** Root of this checkout, used to resolve a relative root when cwd has none. */
 const PACKAGE_ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
@@ -89,7 +99,7 @@ function usage(): string {
     `${SERVER_NAME} ${SERVER_VERSION}`,
     "",
     "Usage:",
-    "  this repository     npm run mcp -- [--root <dir>] [--history <dir>] [--audit-root <dir>] [--api-root <dir>] [--perf-root <dir>]",
+    "  this repository     npm run mcp -- [--root <dir>] [--history <dir>] [--audit-root <dir>] [--api-root <dir>] [--perf-root <dir>] [--visual-root <dir>]",
     "  a consuming project npx --no-install qualityforge-mcp [--root <dir>] [--history <dir>]",
     "",
     "  --root <dir>    artifacts root to serve (default: " + DEFAULT_ROOT + ")",
@@ -99,7 +109,9 @@ function usage(): string {
     "                  (default: " + DEFAULT_AUDIT_ROOT + ", when that directory exists)",
     "  --api-root <dir> API contract audits to serve, if the project declares contracts",
     "  --perf-root <dir> transfer-budget audits to serve, if the project declares a budget",
-    "                  (default: " + DEFAULT_API_ROOT + ", when that directory exists)",
+    "                  (default: " + DEFAULT_PERF_ROOT + ", when that directory exists)",
+    "  --visual-root <dir> appearance audits to serve, if the project compares appearances",
+    "                  (default: " + DEFAULT_VISUAL_ROOT + ", when that directory exists)",
     "  --help          this message",
     "",
     "Reads only. Writes nothing.",
@@ -112,6 +124,7 @@ function parseArgs(argv: string[]): {
   auditRoot: string | undefined;
   apiRoot: string | undefined;
   perfRoot: string | undefined;
+  visualRoot: string | undefined;
   help: boolean;
 } {
   let root: string | undefined;
@@ -119,6 +132,7 @@ function parseArgs(argv: string[]): {
   let auditRoot: string | undefined;
   let apiRoot: string | undefined;
   let perfRoot: string | undefined;
+  let visualRoot: string | undefined;
   let help = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -129,7 +143,8 @@ function parseArgs(argv: string[]): {
       arg === "--history" ||
       arg === "--audit-root" ||
       arg === "--api-root" ||
-      arg === "--perf-root"
+      arg === "--perf-root" ||
+      arg === "--visual-root"
     ) {
       const value = argv[i + 1];
       i += 1;
@@ -146,6 +161,8 @@ function parseArgs(argv: string[]): {
         apiRoot = value;
       } else if (arg === "--perf-root") {
         perfRoot = value;
+      } else if (arg === "--visual-root") {
+        visualRoot = value;
       } else {
         history = value;
       }
@@ -155,11 +172,13 @@ function parseArgs(argv: string[]): {
       process.exit(1);
     }
   }
-  return { root, history, auditRoot, apiRoot, perfRoot, help };
+  return { root, history, auditRoot, apiRoot, perfRoot, visualRoot, help };
 }
 
 async function main(): Promise<number> {
-  const { root, history, auditRoot, apiRoot, perfRoot, help } = parseArgs(process.argv.slice(2));
+  const { root, history, auditRoot, apiRoot, perfRoot, visualRoot, help } = parseArgs(
+    process.argv.slice(2),
+  );
 
   if (help) {
     console.error(usage());
@@ -210,6 +229,11 @@ async function main(): Promise<number> {
   // no `artifacts/perf`, and the tools answer "nobody has declared a budget".
   const perfDir =
     perfRoot ?? [DEFAULT_PERF_ROOT].find((candidate) => existsSync(path.resolve(cwd, candidate)));
+  // Only when it exists, for the same reason again: a project that compares no
+  // appearance has no `artifacts/visual`, and the tools answer "nobody has asked".
+  const visualDir =
+    visualRoot ??
+    [DEFAULT_VISUAL_ROOT].find((candidate) => existsSync(path.resolve(cwd, candidate)));
   const store = new ArtifactStore({
     root: absoluteRoot,
     ...(historyDir === undefined ? {} : { historyRoot: path.resolve(cwd, historyDir) }),
@@ -219,6 +243,7 @@ async function main(): Promise<number> {
     ...(auditDir === undefined ? {} : { auditRoot: path.resolve(cwd, auditDir) }),
     ...(apiDir === undefined ? {} : { apiRoot: path.resolve(cwd, apiDir) }),
     ...(perfDir === undefined ? {} : { perfRoot: path.resolve(cwd, perfDir) }),
+    ...(visualDir === undefined ? {} : { visualRoot: path.resolve(cwd, visualDir) }),
   });
   try {
     await store.init();

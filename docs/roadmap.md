@@ -66,7 +66,7 @@ work that _is_ outstanding invisible.
   [`perf-audit-schema.md`](perf-audit-schema.md).
 
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
-  confinement. Eleven tools — five over defects and run history, two over
+  confinement. Thirteen tools — five over defects and run history, two over
   accessibility audits, two over API contract audits, two over transfer budgets —
   plus resources and a `triage_failure` prompt.
   Verified

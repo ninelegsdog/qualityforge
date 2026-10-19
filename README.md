@@ -60,7 +60,7 @@ reader the ability to act.
 - **Signal capture.** Console errors, uncaught page errors, failed requests and
   HTTP errors above 400 — redacted at the source, bounded per category, with a
   `signals.dropped` count so a truncated capture never looks complete.
-- **A read-only MCP server.** Protocol 2026-07-28, eleven tools, resources and a
+- **A read-only MCP server.** Protocol 2026-07-28, thirteen tools, resources and a
   `triage_failure` prompt, verified against OpenCode v2.0.16 over real stdio.
 - **Run history.** One compact file per run, so “is this a regression or has
   it always been this way” has an answer.

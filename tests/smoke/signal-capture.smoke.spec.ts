@@ -144,10 +144,16 @@ test.describe("signal capture", () => {
     if (own !== undefined) expect(own.origin).toBe(new URL(page.url()).host);
   });
 
-  test("captures a 5xx response with its method and status", async ({ page, signals, api }) => {
+  test("captures a 5xx response with its method and status", async ({
+    page,
+    signals,
+    api,
+    visual,
+  }) => {
     // This test breaks a declared endpoint on purpose, so its exchange is evidence
     // about the stub and not about the application's contract.
     api.markStubbed();
+    visual.markStubbed();
     await page.route(
       (url) => url.pathname === "/api/items",
       (route) =>

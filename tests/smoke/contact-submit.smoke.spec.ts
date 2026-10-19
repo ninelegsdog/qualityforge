@@ -18,10 +18,11 @@ import { ContactPage } from "./pages/base-page.js";
  * check only what a user sees.
  */
 test.describe("contact form delivery", () => {
-  test("does not confirm a message the server rejected", async ({ page, api }) => {
+  test("does not confirm a message the server rejected", async ({ page, api, visual }) => {
     // This test breaks a declared endpoint on purpose, so its exchange is evidence
     // about the stub and not about the application's contract.
     api.markStubbed();
+    visual.markStubbed();
     await page.route("**/api/contact", (route) =>
       route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
     );
@@ -36,8 +37,9 @@ test.describe("contact form delivery", () => {
     await expect(contact.message).toHaveValue("Interested in the evidence layer.");
   });
 
-  test("does not confirm a message that never reached a server", async ({ page, api }) => {
+  test("does not confirm a message that never reached a server", async ({ page, api, visual }) => {
     api.markStubbed();
+    visual.markStubbed();
     await page.route("**/api/contact", (route) => route.abort("failed"));
 
     const contact = new ContactPage(page);

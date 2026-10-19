@@ -1,0 +1,187 @@
+/**
+ * Turn captured screenshots into a verdict against the committed baselines.
+ *
+ * ## Three states, and none of them is "fine"
+ *
+ * A page whose appearance matched its baseline, a page that changed, and a page
+ * nobody has ever reviewed are three different facts. Only the first is a pass, and
+ * `no-baseline` is a violation rather than an absence: **an appearance nobody
+ * approved is not an approved appearance.** Writing a baseline is therefore a
+ * separate, explicit action rather than something a run does on the way past — a
+ * collector that silently blessed whatever it saw would approve its own baseline.
+ *
+ * ## The verdict is a hash comparison, which is zero tolerance by construction
+ *
+ * Byte equality is a real measurement here, not an approximation: chromium produced
+ * byte-identical screenshots across five runs in fresh contexts. Comparing hashes
+ * needs no threshold, so there is no size of change that was quietly decided not to
+ * look for.
+ */
+
+import {
+  VISUAL_AUDIT_SCHEMA_VERSION,
+  VISUAL_VIOLATION_KINDS,
+  type VisualAudit,
+  type VisualBaseline,
+  type VisualPageResult,
+  type VisualViolation,
+} from "./types.js";
+import type { VisualCapturePayload } from "./observe.js";
+
+/** A declared page, as the configuration states it. */
+export interface VisualDeclaration {
+  /** The page path to hold to its baseline. */
+  path: string;
+}
+
+/** What the collector found on disk for one declared page. */
+export interface BaselineLookup {
+  /** The committed baseline, or `undefined` when the file is not there. */
+  baseline: (path: string) => VisualBaseline | undefined;
+}
+
+export interface BuildVisualAuditInput {
+  payloads: VisualCapturePayload[];
+  declarations: VisualDeclaration[];
+  lookup: BaselineLookup;
+  baseUrl?: string;
+  /** The engine project this run gated on. */
+  project?: string;
+  createdAt: string;
+}
+
+function short(hash: string): string {
+  return hash.slice(0, 12);
+}
+
+/**
+ * Build one run's audit.
+ *
+ * @param input The captures, the declared pages, and what is on disk.
+ * @returns The audit, with one entry per declared page.
+ */
+export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
+  const ran = input.payloads.length > 0;
+
+  const pages: VisualPageResult[] = input.declarations.map((declaration) => {
+    let sha256: string | null = null;
+    let bytes: number | null = null;
+    let viewport: VisualPageResult["viewport"] = null;
+    let observations = 0;
+    const tests = new Set<number>();
+    const distinct = new Set<string>();
+
+    // A plain loop, not `forEach`, and that is not a style preference: TypeScript does
+    // not track assignments made inside a callback, so every value written in one
+    // stayed narrowed to its initialiser — `null` — and every `!== null` branch below
+    // was typed `never`. The linter was right about the code it was shown.
+    for (const [index, payload] of input.payloads.entries()) {
+      // A test that broke this page on purpose is evidence about its own stub. Counted,
+      // recorded, and **not judged** — the same separation the API dimension makes,
+      // and for the same reason: without it a green run cannot be told from a
+      // deliberately broken one.
+      const captured = payload.pages.filter(
+        (page) => page.path === declaration.path && page.stubbed !== true,
+      );
+      if (captured.length === 0) continue;
+      observations += captured.length;
+      tests.add(index);
+      for (const page of captured) {
+        // **Every** capture is kept and judged, not just the first. Written after a
+        // run reported a change that was not one: the producer kept the first capture
+        // of `/` it happened to see, and the baseline had been generated from a clean
+        // single-page load — so which test ran first decided the verdict. A page that
+        // changed is changed whichever load noticed, and a page seen two ways is a
+        // different finding again.
+        distinct.add(page.sha256);
+        if (sha256 === null) {
+          sha256 = page.sha256;
+          bytes = page.bytes;
+          viewport = page.viewport;
+        }
+      }
+    }
+
+    const baseline = input.lookup.baseline(declaration.path) ?? null;
+    const violations: VisualViolation[] = [];
+
+    // Built here, while the values are still `number | null`: further down, the
+    // control flow has already proved `sha256` is a string, and describing the
+    // viewport from a proven-non-null sibling is the kind of narrowing that turns a
+    // real value into `never` without anybody noticing.
+    const captured = sha256 === null ? "no screenshot" : `sha256 ${short(sha256)}`;
+    const shape =
+      viewport === null
+        ? "unknown viewport"
+        : `${viewport.width}×${viewport.height} dpr${viewport.deviceScaleFactor}`;
+    const size = bytes === null ? "" : `, ${bytes} bytes`;
+
+    if (!ran || observations === 0) {
+      violations.push({
+        kind: "no-observation",
+        expected: "the approved appearance",
+        observed: "no screenshot was captured",
+        observations: 0,
+        tests: ran ? tests.size : 0,
+      });
+    } else if (baseline === null) {
+      violations.push({
+        kind: "no-baseline",
+        expected: "an approved appearance in the repository",
+        observed: "no baseline is committed for this page",
+        observations,
+        tests: tests.size,
+      });
+    } else if (distinct.size > 1) {
+      violations.push({
+        kind: "unstable",
+        expected: `one appearance, as committed in ${baseline.file}`,
+        // How many ways, and the one that was approved, so a reader knows whether
+        // they are looking at a disagreement about the page or about the capture.
+        observed: `the page rendered ${distinct.size} different ways across ${observations} capture(s)`,
+        observations,
+        tests: tests.size,
+      });
+    } else if (sha256 !== null && sha256 !== baseline.sha256) {
+      violations.push({
+        kind: "changed",
+        expected: `sha256 ${short(baseline.sha256)} as committed in ${baseline.file}`,
+        // Both hashes, and the byte count beside them: two hashes tell a reader the
+        // picture moved, and the sizes tell them whether it moved a little or a lot.
+        observed: `${captured} at ${shape}${size}`,
+        observations,
+        tests: tests.size,
+      });
+    }
+
+    return {
+      path: declaration.path,
+      sha256,
+      bytes,
+      viewport,
+      baseline,
+      observations,
+      tests: tests.size,
+      violations,
+    };
+  });
+
+  const violations = pages.reduce((total, page) => total + page.violations.length, 0);
+
+  return {
+    schemaVersion: VISUAL_AUDIT_SCHEMA_VERSION,
+    createdAt: input.createdAt,
+    ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
+    ...(input.project === undefined ? {} : { project: input.project }),
+    counts: {
+      pages: pages.length,
+      tests: input.payloads.length,
+      matched: pages.filter((page) => page.violations.length === 0).length,
+      withoutBaseline: pages.filter((page) => page.baseline === null).length,
+      violations,
+    },
+    pages,
+  };
+}
+
+export { VISUAL_VIOLATION_KINDS };

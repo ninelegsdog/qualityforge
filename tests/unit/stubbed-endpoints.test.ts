@@ -78,7 +78,22 @@ test.describe("stubbing a declared endpoint", () => {
           (declaredPath) => block.body.includes(`page.route`) && block.body.includes(declaredPath),
         );
         if (stubs.length === 0) continue;
-        if (block.body.includes("markStubbed")) continue;
+        if (block.body.includes("markStubbed")) {
+          // Both markers, because the same stub is visible to two dimensions: the API
+          // audit reads the exchange, and the appearance audit photographs the page the
+          // stub left behind. A test that marks one has marked its own evidence as
+          // deliberate for one dimension and left the other counting it as a
+          // regression — which is how the home page came to be seen four ways.
+          const missing = ["api", "visual"].filter(
+            (fixture) => !block.body.includes(`${fixture}.markStubbed()`),
+          );
+          if (missing.length > 0) {
+            offenders.push(
+              `${file}: "${block.title}" stubs ${stubs.join(", ")} and marks ${missing.join(" and ")} only`,
+            );
+          }
+          continue;
+        }
         offenders.push(`${file}: "${block.title}" stubs ${stubs.join(", ")} without markStubbed()`);
       }
     }

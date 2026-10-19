@@ -32,6 +32,14 @@ import type { ApiCapturePayload } from "../api/observe.js";
 import { API_AUDIT_FILE_NAME, validateApiAudit, type ApiAudit } from "../api/types.js";
 import { buildPerfAudit } from "../perf/audit.js";
 import { PERF_AUDIT_FILE_NAME, validatePerfAudit, type PerfAudit } from "../perf/types.js";
+import { buildVisualAudit } from "../visual/audit.js";
+import {
+  VISUAL_AUDIT_FILE_NAME,
+  validateVisualAudit,
+  type VisualAudit,
+  type VisualBaseline,
+} from "../visual/types.js";
+import type { VisualCapturePayload } from "../visual/observe.js";
 import type { PerfCapturePayload } from "../perf/observe.js";
 import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import {
@@ -365,7 +373,12 @@ export function runExitCode(summary: RunSummary): 0 | 1 {
   // asked to be caught.
   const perfHeld =
     summary.perf === undefined || !summary.perf.ran || summary.perf.violations.length === 0;
-  return summary.gate.passed && apiHeld && perfHeld ? 0 : 1;
+  // An appearance nobody approved is not an approved appearance, and an appearance
+  // nobody looked at has not held. Both stop the run: a page can look wrong while
+  // every behavioural assertion holds, which is the case this dimension exists for.
+  const visualHeld =
+    summary.visual === undefined || !summary.visual.ran || summary.visual.violations.length === 0;
+  return summary.gate.passed && apiHeld && perfHeld && visualHeld ? 0 : 1;
 }
 
 export function makeRunId(now: Date): string {
@@ -457,6 +470,7 @@ const SIGNALS_ATTACHMENT = "quality-context";
  */
 const API_ATTACHMENT = "quality-api";
 const PERF_ATTACHMENT = "quality-perf";
+const VISUAL_ATTACHMENT = "quality-visual";
 
 /** The API audit's own filename. */
 
@@ -542,6 +556,117 @@ async function writePerfAudit(input: {
   const runDir = path.join(input.projectRoot, input.directory, input.runId);
   await mkdir(runDir, { recursive: true });
   const target = path.join(runDir, PERF_AUDIT_FILE_NAME);
+  await writeFile(target, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+
+  return { path: path.relative(input.projectRoot, target), audit };
+}
+
+/**
+ * Read the committed baseline for each declared page.
+ *
+ * **The image is the baseline.** Its hash is computed from the file on every run
+ * rather than read from a manifest beside it: a manifest would be a second copy of
+ * one fact, and two copies of one fact are two things to drift — the failure this
+ * repository has already paid for in tool counts and version numbers.
+ *
+ * A missing file is **not** an error here. It becomes a `no-baseline` violation in
+ * the audit, which is the fact worth recording: nobody has approved this page's
+ * appearance, and a reader should see that rather than an exception.
+ */
+async function readBaselines(
+  projectRoot: string,
+  baselineDirectory: string,
+  project: string,
+  pages: string[],
+): Promise<Map<string, VisualBaseline>> {
+  const found = new Map<string, VisualBaseline>();
+  for (const page of pages) {
+    const slug = page === "/" ? "home" : page.replace(/^\//, "").replace(/\//g, "-");
+    const file = path.join(baselineDirectory, `${slug}-${project}-${process.platform}.png`);
+    try {
+      const bytes = await readFile(path.join(projectRoot, file));
+      found.set(page, {
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        // The viewport the baseline was taken at is not stored beside it: it is in the
+        // capture that produced it, and a reader who needs it opens the image. Writing
+        // it here would be a second fact that could disagree with the pixels.
+        viewport: { width: 0, height: 0, deviceScaleFactor: 0 },
+        file,
+      });
+    } catch {
+      // Left absent, on purpose. See the note above.
+    }
+  }
+  return found;
+}
+
+/**
+ * Write one run's appearance audit, or refuse to.
+ *
+ * The baseline is read **from the committed image**, and its hash computed from the
+ * file: there is no manifest of expected hashes, because a manifest beside the
+ * images would be a second copy of one fact and two copies of one fact drift.
+ */
+async function writeVisualAudit(input: {
+  projectRoot: string;
+  report: PwJsonReport;
+  directory: string;
+  baselineDirectory: string;
+  project: string;
+  pages: string[];
+  baseUrl?: string;
+  runId: string;
+  createdAt: string;
+}): Promise<{ path: string; audit: VisualAudit }> {
+  const payloads: VisualCapturePayload[] = [];
+  for (const spec of walkSpecs(input.report.suites)) {
+    for (const pwTest of spec.tests ?? []) {
+      const attempts = pwTest.results ?? [];
+      const lastAttempt = attempts[attempts.length - 1];
+      if (lastAttempt === undefined) continue;
+      for (const attachment of lastAttempt.attachments ?? []) {
+        if (attachment.name !== VISUAL_ATTACHMENT) continue;
+        const text = await readAttachmentText(attachment);
+        if (text === undefined) continue;
+        try {
+          payloads.push(JSON.parse(text) as VisualCapturePayload);
+        } catch (error) {
+          throw new Error(
+            `the ${VISUAL_ATTACHMENT} attachment on ${spec.title ?? "an untitled spec"} is not JSON`,
+            { cause: error },
+          );
+        }
+      }
+    }
+  }
+
+  const baselines = await readBaselines(
+    input.projectRoot,
+    input.baselineDirectory,
+    input.project,
+    input.pages,
+  );
+  const lookup = (page: string): VisualBaseline | undefined => baselines.get(page);
+
+  const audit = buildVisualAudit({
+    payloads,
+    declarations: input.pages.map((page) => ({ path: page })),
+    lookup: { baseline: lookup },
+    ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
+    project: input.project,
+    createdAt: input.createdAt,
+  });
+
+  const verdict = validateVisualAudit(audit);
+  if (!verdict.valid) {
+    throw new Error(
+      `the produced ${VISUAL_AUDIT_FILE_NAME} is invalid: ${verdict.problems.join("; ")}`,
+    );
+  }
+
+  const runDir = path.join(input.projectRoot, input.directory, input.runId);
+  await mkdir(runDir, { recursive: true });
+  const target = path.join(runDir, VISUAL_AUDIT_FILE_NAME);
   await writeFile(target, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
 
   return { path: path.relative(input.projectRoot, target), audit };
@@ -814,6 +939,16 @@ export interface CollectOptions {
    * nothing in it. A project that has not opted in should not be handed an artifact
    * claiming it was measured.
    */
+  visual?: {
+    /** Directory, relative to the project root, for `visual-audit.v1.json`. */
+    directory: string;
+    /** Where the committed baseline images live, relative to the project root. */
+    baselineDirectory: string;
+    /** The engine project whose appearance is approved. */
+    project: string;
+    /** The pages held to their baselines. */
+    pages: string[];
+  };
   perf?: {
     /** Directory, relative to the project root, for `perf-audit.v1.json`. */
     directory: string;
@@ -923,6 +1058,28 @@ export interface RunSummary {
    * from where: a chain of two files and a threshold that matches neither is still
    * readable, but only by opening the files.
    */
+  /**
+   * The appearance this run held pages to, when the project declared it.
+   *
+   * **Separate from `gate`, for the reason `api` and `perf` are separate:** folding
+   * appearance into the test thresholds would change the *meaning* of an existing
+   * field, which the versioning rule calls a major change and a `v2` file.
+   */
+  visual?: {
+    /** Run-prefixed path to `visual-audit.v1.json`, in the same form as `defects`. */
+    audit: string;
+    counts: VisualAudit["counts"];
+    /**
+     * Whether any test produced a capture.
+     *
+     * `0` means the dimension never ran, which is neither a clean audit nor a failed
+     * one — a run of pure logic tests never renders a page.
+     */
+    ran: boolean;
+    /** One line per violation, naming the page and what was seen. */
+    violations: string[];
+  };
+
   /**
    * The transfer budgets this run held pages to, when the project declared one.
    *
@@ -1311,6 +1468,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
     referenceErrorContext = false,
     history,
     api,
+    visual,
     perf,
     tags = [],
     thresholds,
@@ -1828,6 +1986,21 @@ export async function collectDefects(options: CollectOptions): Promise<{
   // Written before the summary, so a producer that produced an invalid audit stops
   // the run rather than being reported alongside a summary claiming the run was
   // collected. Rule 6: fix the producer, do not relax the contract.
+  const visualAuditResult =
+    visual === undefined
+      ? undefined
+      : await writeVisualAudit({
+          projectRoot,
+          report,
+          directory: visual.directory,
+          baselineDirectory: visual.baselineDirectory,
+          project: visual.project,
+          pages: visual.pages,
+          ...(origin === undefined ? {} : { baseUrl: origin }),
+          runId,
+          createdAt,
+        });
+
   const perfAuditResult =
     perf === undefined
       ? undefined
@@ -1891,6 +2064,22 @@ export async function collectDefects(options: CollectOptions): Promise<{
     // Absent rather than present-and-clean when nothing is declared: "no
     // expectations were declared" and "every declared expectation held" are
     // different facts, and only one of them is true of an unaudited run.
+    ...(visualAuditResult === undefined
+      ? {}
+      : {
+          visual: {
+            audit: `${runId}/${VISUAL_AUDIT_FILE_NAME}`,
+            counts: visualAuditResult.audit.counts,
+            ran: visualAuditResult.audit.counts.tests > 0,
+            violations: visualAuditResult.audit.pages.flatMap((page) =>
+              page.violations.map(
+                (violation) =>
+                  `${page.path}: ${violation.expected} — observed ${violation.observed}`,
+              ),
+            ),
+          },
+        }),
+
     ...(perfAuditResult === undefined
       ? {}
       : {

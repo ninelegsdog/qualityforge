@@ -1,6 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 import { ApiObserver } from "../api/observe.js";
 import { PerfObserver } from "../perf/observe.js";
+import { VisualObserver } from "../visual/observe.js";
 import { loadConfig } from "../config/load-config.js";
 import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import { capturePageContext, shouldAttachContext } from "../defect/page-context.js";
@@ -28,6 +29,16 @@ export const API_ATTACHMENT_NAME = "quality-api";
  */
 export const PERF_ATTACHMENT_NAME = "quality-perf";
 
+/**
+ * The appearance capture, attached on the same rule as the other two and for the same
+ * reason: a page can look wrong while every behavioural assertion holds, which is the
+ * case this dimension exists to catch.
+ *
+ * It carries **hashes, never images** — a screenshot is tens of kilobytes a language
+ * model cannot read usefully, while its hash answers the only question a gate asks.
+ */
+export const VISUAL_ATTACHMENT_NAME = "quality-visual";
+
 export interface QualityFixtures {
   /** Captured console, page-error and network signals for this test. */
   signals: SignalCollector;
@@ -35,6 +46,8 @@ export interface QualityFixtures {
   api: ApiObserver;
   /** What each page the test loaded cost to transfer. */
   perf: PerfObserver;
+  /** What each page the test looked like. */
+  visual: VisualObserver;
 }
 
 /**
@@ -61,6 +74,18 @@ async function declaredExpectations(): Promise<ApiExpectation[]> {
 async function hasPerfBudget(): Promise<boolean> {
   const config = await projectConfig();
   return config.thresholds.maxTransferredBytes !== undefined;
+}
+
+/**
+ * Whether appearance is gated at all, and on which engine project.
+ *
+ * Absence means the dimension is off. When it is on, the project is named rather
+ * than derived: measured, firefox and chromium share no screenshot hash for the
+ * same page, so a baseline means nothing without saying which engine approved it.
+ */
+async function declaredVisualProject(): Promise<string | undefined> {
+  const config = await projectConfig();
+  return config.visual === undefined ? undefined : config.visual.project;
 }
 
 /**
@@ -117,7 +142,15 @@ export const test = base.extend<QualityFixtures>({
   ],
 
   api: [
-    async ({ page }, use, testInfo) => {
+    // `_visual` is requested and not used, and that is the whole point of it.
+    //
+    // Playwright tears fixtures down in the **reverse** of the order they were
+    // requested, so taking `visual` here makes it set up first and tear down last.
+    // That ordering is load-bearing: `visual` reloads the page before photographing
+    // it, and a reload navigates away from a response whose body the API capture is
+    // still reading — which showed up as `too-late` on `/api/items` and two
+    // violations against a run that had changed nothing.
+    async ({ page, visual: _visual }, use, testInfo) => {
       const expectations = await declaredExpectations();
       const config = await projectConfig();
       const observer = new ApiObserver(page, expectations, config.baseUrl);
@@ -170,6 +203,61 @@ export const test = base.extend<QualityFixtures>({
       await observer.measureNow();
 
       await testInfo.attach(PERF_ATTACHMENT_NAME, {
+        body: `${JSON.stringify(observer.toPayload(), null, 2)}\n`,
+        contentType: "application/json",
+      });
+    },
+    { auto: true },
+  ],
+
+  visual: [
+    async ({ page }, use, testInfo) => {
+      const project = await declaredVisualProject();
+      const observer = new VisualObserver(page);
+
+      await use(observer);
+
+      if (project === undefined) {
+        return;
+      }
+
+      // **Photograph only a page that went quiet**, and the bound is not a hope about
+      // timing — it is measured. A screenshot of a page whose list is still being
+      // fetched is a photograph of a half-rendered page, and the collector then
+      // reports a change nobody made. That is how this rule was found: with only
+      // `fonts.ready`, the home page hashed differently between the baseline generator
+      // and the suite run at the same viewport.
+      //
+      // **Bounded, and a timeout is not an error.** `networkidle` never arrives on a
+      // test that deliberately holds a request open — which is a whole category here,
+      // the API capture tests among them — and waiting out twenty seconds on each of
+      // them would be both slow and wrong. So a page that does not settle within the
+      // bound contributes no visual observation, and says nothing.
+      //
+      // The declared pages are still measured: every test that settles contributes,
+      // and one unsettled test does not make a page unmeasurable.
+      // **Reload before photographing, and this is the meaning of an appearance.**
+      //
+      // Measured: `/contact` was seen five ways across nine captures — because tests
+      // fill the form, submit it, and leave error states behind. Those are not five
+      // appearances of the page, they are one page and five things a test did to it.
+      // A baseline approved from a clean load means *the page at rest*, and the only
+      // way to compare like with like is to photograph the same thing.
+      //
+      // Safe because the test body has finished: nothing downstream still needs the
+      // state the test left, so reloading costs nothing but a request.
+      const resting = page.url();
+      await page.goto(resting, { waitUntil: "load" }).catch(() => undefined);
+      try {
+        await page.waitForLoadState("networkidle", { timeout: 2000 });
+      } catch {
+        // A page that never goes quiet — one holding a request open on purpose — is
+        // not photographed. Silence about a picture is better than a wrong one.
+        return;
+      }
+      await observer.captureNow();
+
+      await testInfo.attach(VISUAL_ATTACHMENT_NAME, {
         body: `${JSON.stringify(observer.toPayload(), null, 2)}\n`,
         contentType: "application/json",
       });

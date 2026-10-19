@@ -145,6 +145,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`quality_get_latest_run` dropped the run summary's declared-dimension verdicts
+  and the policy chain.** The collector writes `api`, `perf`, `visual` and `policy`
+  into `quality-summary.v1.json`, but the documented first tool passed through only
+  counts, gate, defects and flakiness. A live external run found it: an agent that
+  started where the server instructions say to start reported that the API,
+  transfer-budget and appearance verdicts did not exist and that no tool exposed the
+  policy chain — while the file held all four. The blocks now travel in
+  `structuredContent` and in the tool's text, and a dimension with `ran: false`
+  reads `NOT RUN` rather than as a clean one. Asserted on the wire against a real
+  seeded run (`mcp:check:tools`), not only against a hand-written summary.
+
 - **A token with no key beside it was not redacted.** `redactAssignments` matched
   secrets by the name of the key next to them, which cannot work for a token
   Playwright quotes out of the page into `Received:` — measured, the token

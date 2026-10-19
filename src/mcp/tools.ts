@@ -54,8 +54,10 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Return the most recent run's summary: pass and fail counts, duration, " +
       "whether the configured quality gate passed, the defect files it produced, " +
-      "and what earlier runs say about this run's failures — flaky, always " +
-      "failing, or a new regression. Start here. Read-only.",
+      "what earlier runs say about this run's failures — flaky, always failing, " +
+      "or a new regression — and the verdicts the summary carries for every " +
+      "declared dimension (API contracts, transfer budgets, appearance) plus the " +
+      "shared policy chain the run inherited. Start here. Read-only.",
     inputSchema: NO_PROPERTIES,
     outputSchema: {
       type: "object",
@@ -66,6 +68,10 @@ export const TOOLS: ToolDefinition[] = [
         gate: { type: "object" },
         defectCount: { type: "number" },
         flakiness: { type: "object" },
+        api: { type: "object" },
+        perf: { type: "object" },
+        visual: { type: "object" },
+        policy: { type: "object" },
       },
       required: ["runId", "counts", "gate"],
       additionalProperties: true,
@@ -550,6 +556,13 @@ function num(record: Record<string, unknown>, key: string): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** A JSON object, or `undefined` for anything else — including arrays and `null`. */
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function show(value: string | number | undefined, fallback = "unknown"): string {
   return value === undefined ? fallback : String(value);
 }
@@ -603,17 +616,56 @@ export async function callTool(
   }
 }
 
+/**
+ * One line for one declared dimension, read from the summary block that already
+ * carries the verdict.
+ *
+ * `ran: false` is its own sentence rather than "0 violations": a dimension that
+ * never executed has not passed, and a client that reads only this tool must be
+ * able to tell the two apart.
+ */
+function dimensionLine(
+  label: string,
+  block: Record<string, unknown> | undefined,
+  totalKey: string,
+  passedKey: string,
+  noun: string,
+): string | undefined {
+  if (block === undefined) return undefined;
+  if (block.ran === false) return `${label}: NOT RUN`;
+  const counts = asObject(block.counts) ?? {};
+  const violations = num(counts, "violations") ?? 0;
+  const total = num(counts, totalKey);
+  const passed = num(counts, passedKey);
+  const detail = total === undefined ? "" : ` (${show(passed, "0")} of ${total} ${noun})`;
+  const tail = violations > 0 ? `, ${violations} violation(s)` : "";
+  return `${label}: ${violations === 0 ? "PASSED" : "FAILED"}${detail}${tail}`;
+}
+
 async function getLatestRun(store: ArtifactStore): Promise<ToolCallResult> {
   const summary = await store.readLatestSummary();
   const runId = str(summary, "runId") ?? "";
-  const counts =
-    typeof summary.counts === "object" && summary.counts !== null
-      ? (summary.counts as Record<string, unknown>)
-      : {};
-  const gate =
-    typeof summary.gate === "object" && summary.gate !== null
-      ? (summary.gate as Record<string, unknown>)
-      : {};
+  const counts = asObject(summary.counts) ?? {};
+  const gate = asObject(summary.gate) ?? {};
+
+  /**
+   * The dimension blocks and the policy chain travel with the summary, and this
+   * tool is the documented first call. Dropping them here made an agent that read
+   * only the entry point report that the API, transfer-budget and appearance
+   * verdicts did not exist, and that no tool exposed the policy chain — while the
+   * file held all four. The separate audit tools are for reading one audit in
+   * full; they are not a reason for the summary to withhold its own verdicts.
+   *
+   * Absent on an older summary or a project that declared no such dimension, and
+   * then the key is omitted rather than sent as an empty verdict.
+   */
+  const api = asObject(summary.api);
+  const perf = asObject(summary.perf);
+  const visual = asObject(summary.visual);
+  const policy = asObject(summary.policy);
+  const policyChain = Array.isArray(policy?.chain)
+    ? policy.chain.filter((entry): entry is string => typeof entry === "string")
+    : [];
 
   const structured = {
     runId,
@@ -630,7 +682,22 @@ async function getLatestRun(store: ArtifactStore): Promise<ToolCallResult> {
     ...(typeof summary.flakiness === "object" && summary.flakiness !== null
       ? { flakiness: summary.flakiness as Record<string, unknown> }
       : {}),
+    ...(api === undefined ? {} : { api }),
+    ...(perf === undefined ? {} : { perf }),
+    ...(visual === undefined ? {} : { visual }),
+    ...(policy === undefined ? {} : { policy }),
   };
+
+  const dimensions = [
+    dimensionLine("api", api, "expectations", "passed", "contracts passed"),
+    dimensionLine("perf", perf, "budgets", "passed", "budgets passed"),
+    dimensionLine("appearance", visual, "pages", "matched", "pages matched"),
+    policy === undefined
+      ? undefined
+      : `policy: ${policyChain.length} shared file(s)${
+          policyChain.length === 0 ? "" : ` — ${policyChain.join(" → ")}`
+        }`,
+  ].filter((line): line is string => line !== undefined);
 
   return {
     content: text(
@@ -644,6 +711,7 @@ async function getLatestRun(store: ArtifactStore): Promise<ToolCallResult> {
               `violations: ${gate.violations.filter((v): v is string => typeof v === "string").join("; ")}`,
             ]
           : []),
+        ...(dimensions.length === 0 ? [] : ["", ...dimensions]),
         "",
         `Next: call quality_list_failures to see what failed.`,
       ].join("\n"),

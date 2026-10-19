@@ -878,6 +878,7 @@ def main() -> int:
             problems.append(
                 f"flakiness.direction={flakiness.get('direction')!r}, expected 'unknown'"
             )
+
         counts = flakiness.get("counts")
         if not isinstance(counts, dict) or sorted(counts) != [
             "failing",
@@ -890,6 +891,26 @@ def main() -> int:
                 f"{sorted(counts) if isinstance(counts, dict) else counts!r}, "
                 "expected the four buckets"
             )
+
+    # The run summary carries the declared dimensions' verdicts. The first tool an
+    # agent calls must pass them through; a live external run found that it did not,
+    # and an agent that read only the entry point reported the dimensions absent
+    # while the file held all three. The seeded run is a real collector run, so the
+    # presence here is the producer's, not a hand-written fixture's.
+    for key in ("api", "perf", "visual"):
+        block = s1.get(key)
+        if not isinstance(block, dict):
+            problems.append(
+                f"get_latest_run carries no {key} block (structuredContent keys: "
+                f"{sorted(s1)}) - the summary's {key} verdict never reached the client"
+            )
+        else:
+            print(f"{key}: {json.dumps(block.get('counts'), sort_keys=True)}")
+            if block.get("ran") is not True:
+                problems.append(
+                    f"get_latest_run {key}.ran={block.get('ran')!r}, expected True "
+                    "(the seeded run declared the dimension and wrote its audit)"
+                )
 
     s2 = (frames.get(2, {}).get("result", {}) or {}).get("structuredContent") or {}
     defects = s2.get("defects") or []

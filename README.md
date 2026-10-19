@@ -260,7 +260,7 @@ connection still forming, not a verdict.
 
 | Tool                     | What it answers                                                          |
 | ------------------------ | ------------------------------------------------------------------------ |
-| `quality_get_latest_run` | Pass and fail counts, duration, whether the quality gate passed          |
+| `quality_get_latest_run` | Counts, gate, every dimension's verdict, policy chain, history verdict   |
 | `quality_list_failures`  | Compact records: id, status, test location, flakiness                    |
 | `quality_get_defect`     | One defect in full, including console, network and page-error signals    |
 | `quality_flaky_tests`    | Which specs failed across runs: flaky, failing, new, or gone             |

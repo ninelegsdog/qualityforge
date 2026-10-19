@@ -13,6 +13,7 @@ import { flakinessReport, trendReport } from "../defect/flakiness.js";
 import { PathAccessError, type ArtifactStore } from "./store.js";
 import type { ApiAudit } from "../api/types.js";
 import type { PerfAudit } from "../perf/types.js";
+import type { VisualAudit } from "../visual/types.js";
 import type { A11yAudit } from "../a11y/types.js";
 
 export const SERVER_INSTRUCTIONS = [
@@ -440,6 +441,87 @@ export const TOOLS: ToolDefinition[] = [
       openWorldHint: false,
     },
   },
+
+  // **Appended, never inserted.** The order of `TOOLS` is part of this project's
+  // contract: a client asking for the list by index, and a documentation page listing
+  // them in order, would both be reading something a reordering silently changed.
+  // Two dimensions have now been added this way and neither moved an existing entry.
+  {
+    name: "quality_list_visual_audits",
+    title: "List appearance audits",
+    description:
+      "List the appearance audits a project has written: one entry per run, with the " +
+      "engine whose appearance was approved and how many pages matched it. A page that " +
+      "does not look the way its committed baseline says is a violation, and a page " +
+      "nobody ever approved is a violation of its own kind — an appearance nobody " +
+      "reviewed is not an approved appearance. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          description: "Maximum audits to return, newest first.",
+          minimum: 1,
+        },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        total: { type: "integer" },
+        audits: { type: "array" },
+      },
+      required: ["total", "audits"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "quality_get_visual_audit",
+    title: "Read one appearance audit",
+    description:
+      "Read one appearance audit in full: every declared page, the hash it produced, " +
+      "and its violations with what was approved against what was seen. Baselines are " +
+      "committed images, so 'what was approved' is a file in the repository rather than " +
+      "a number somebody typed once. A page seen two ways is reported as unstable " +
+      "rather than changed: that is a disagreement about which of them is the page, not " +
+      "a picture that moved. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        auditPath: {
+          type: "string",
+          description: "Run-relative audit path, as listed by quality_list_visual_audits.",
+        },
+      },
+      required: ["auditPath"],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string" },
+        baseUrl: { type: "string" },
+        project: { type: "string" },
+        counts: { type: "object" },
+        pages: { type: "array" },
+      },
+      required: ["counts", "pages"],
+      additionalProperties: true,
+    },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 export interface ToolCallResult {
@@ -503,6 +585,10 @@ export async function callTool(
       return listApiAudits(store, args);
     case "quality_get_api_audit":
       return getApiAudit(store, args);
+    case "quality_list_visual_audits":
+      return listVisualAudits(store, args);
+    case "quality_get_visual_audit":
+      return getVisualAudit(store, args);
     case "quality_list_perf_audits":
       return listPerfAudits(store, args);
     case "quality_get_perf_audit":
@@ -1082,6 +1168,110 @@ async function listPerfAudits(
       ].join("\n"),
     ),
     structuredContent: { total: audits.length, audits: selected },
+  };
+}
+
+async function listVisualAudits(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const audits = await store.listVisualAudits();
+  if (audits.length === 0) {
+    return {
+      content: text(
+        "No appearance audits found. Declare visual in config/project.json, commit " +
+          "baselines with npm run visual:baselines, and run the suite — this says " +
+          "nothing about whether pages still look right, only that nobody has asked.",
+      ),
+      structuredContent: { total: 0, audits: [] },
+    };
+  }
+
+  const limit = num(args, "limit");
+  const selected = limit === undefined ? audits : audits.slice(0, limit);
+
+  return {
+    content: text(
+      [
+        `${audits.length} appearance audit(s)` +
+          (selected.length < audits.length ? `, showing ${selected.length}` : ""),
+        ...selected.map((audit) => {
+          const state =
+            audit.tests === 0
+              ? "NOT RUN (this leg is not the approved engine)"
+              : `${audit.violations ?? 0} finding(s), ${audit.matched ?? 0} matched`;
+          const engine = audit.project === undefined ? "" : ` on ${audit.project}`;
+          return `- ${audit.runId}: ${audit.pages ?? 0} page(s),${engine} ${state}`;
+        }),
+        "",
+        "Next: call quality_get_visual_audit with an auditPath to read one in full.",
+      ].join("\n"),
+    ),
+    structuredContent: { total: audits.length, audits: selected },
+  };
+}
+
+async function getVisualAudit(
+  store: ArtifactStore,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult & { isError?: boolean }> {
+  const auditPath = args.auditPath;
+  if (typeof auditPath !== "string" || auditPath === "") {
+    return {
+      content: text(
+        "auditPath is required; list the audits first with quality_list_visual_audits.",
+      ),
+      isError: true,
+    };
+  }
+
+  // A refusal is a readable answer, not a crash: the project may compare no appearance
+  // at all. `PathAccessError` still escapes, because the server logs it and answers
+  // "Path is not readable" — swallowing that would lose the log line.
+  let audit: VisualAudit;
+  try {
+    audit = await store.readVisualAudit(auditPath);
+  } catch (error) {
+    if (error instanceof PathAccessError) throw error;
+    return { content: text((error as Error).message), isError: true };
+  }
+  const runId = auditPath.split("/")[0] ?? auditPath;
+  const { counts } = audit;
+
+  return {
+    content: text(
+      [
+        `appearance audit ${runId}${audit.baseUrl === undefined ? "" : ` · ${audit.baseUrl}`}` +
+          (audit.project === undefined ? "" : ` · ${audit.project}`),
+        counts.tests === 0
+          ? `NOT RUN · ${counts.pages} page(s) declared, this leg is not the approved engine`
+          : `${counts.violations} finding(s), ${counts.matched} matched, ` +
+            `${counts.pages} page(s) across ${counts.tests} test(s)`,
+        ...audit.pages.map((page) => {
+          const header =
+            `- ${page.path}: ` +
+            (page.sha256 === null ? "no screenshot" : `sha256 ${page.sha256.slice(0, 12)}`);
+          if (page.violations.length === 0) return `${header}, as approved`;
+          return (
+            header +
+            "\n    " +
+            page.violations
+              .map(
+                (violation) =>
+                  `${violation.kind}: ${violation.expected} — observed ${violation.observed}`,
+              )
+              .join("\n    ")
+          );
+        }),
+      ].join("\n"),
+    ),
+    structuredContent: {
+      runId,
+      counts,
+      pages: audit.pages,
+      ...(audit.baseUrl === undefined ? {} : { baseUrl: audit.baseUrl }),
+      ...(audit.project === undefined ? {} : { project: audit.project }),
+    },
   };
 }
 

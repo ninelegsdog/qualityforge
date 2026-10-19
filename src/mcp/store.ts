@@ -25,6 +25,7 @@ import { validateDefect, type DefectV1 } from "../defect/types.js";
 import { validateAudit, type A11yAudit } from "../a11y/types.js";
 import { API_AUDIT_FILE_NAME, validateApiAudit, type ApiAudit } from "../api/types.js";
 import { PERF_AUDIT_FILE_NAME, validatePerfAudit, type PerfAudit } from "../perf/types.js";
+import { VISUAL_AUDIT_FILE_NAME, validateVisualAudit, type VisualAudit } from "../visual/types.js";
 import {
   readHistory,
   readHistoryRecords,
@@ -80,6 +81,19 @@ export interface StoreOptions {
   apiRoot?: string;
   /** Transfer-budget audits, `artifacts/perf` by the project's configuration. */
   perfRoot?: string;
+
+  /**
+   * Appearance audits, `artifacts/visual` by the project's configuration.
+   *
+   * A fifth sibling root, for the reason the other four are: each holds a different
+   * measurement with a different contract, and nesting one inside another would make a
+   * listing tool read a tree holding nothing of the kind it claims to list.
+   *
+   * Confinement is the same as everywhere else and resolves against *this* root, so a
+   * client path that walks out of it is refused against the appearance root rather than
+   * quietly reaching the defect tree the server also has open.
+   */
+  visualRoot?: string;
 }
 
 /** One run directory inside the root. */
@@ -90,6 +104,25 @@ export interface RunSummaryRef {
   createdAt?: string;
   passed?: number;
   failed?: number;
+}
+
+/** One appearance audit, as the list tool reports it. */
+export interface VisualAuditRunRef {
+  runId: string;
+  /** Relative POSIX path, safe to hand to a client. */
+  path: string;
+  baseUrl?: string;
+  /**
+   * The engine whose appearance was approved.
+   *
+   * Reported because a baseline means nothing without it: measured 2026-10-18, no two
+   * engines or viewports shared a screenshot hash for the same page.
+   */
+  project?: string;
+  pages?: number;
+  tests?: number;
+  violations?: number;
+  matched?: number;
 }
 
 /** One transfer-budget audit, as the list tool reports it. */
@@ -153,10 +186,12 @@ export class ArtifactStore {
   readonly #auditRoot: string | undefined;
   readonly #apiRoot: string | undefined;
   readonly #perfRoot: string | undefined;
+  readonly #visualRoot: string | undefined;
   /** Realpath of the audit root, empty when there is none or it is unreadable. */
   #realAuditRoot = "";
   #realApiRoot = "";
   #realPerfRoot = "";
+  #realVisualRoot = "";
 
   constructor(options: StoreOptions) {
     this.#root = path.resolve(options.root);
@@ -165,6 +200,12 @@ export class ArtifactStore {
     this.#auditRoot = options.auditRoot === undefined ? undefined : path.resolve(options.auditRoot);
     this.#apiRoot = options.apiRoot === undefined ? undefined : path.resolve(options.apiRoot);
     this.#perfRoot = options.perfRoot === undefined ? undefined : path.resolve(options.perfRoot);
+    // Assigned here or nowhere. This line was missing for two hours while the option
+    // existed, the field existed, and `resolveVisual` read it — a private field with an
+    // initialiser is defined either way, so the compiler had nothing to say and the
+    // fifth root was permanently "not there".
+    this.#visualRoot =
+      options.visualRoot === undefined ? undefined : path.resolve(options.visualRoot);
   }
 
   /**
@@ -252,6 +293,20 @@ export class ArtifactStore {
         this.#realPerfRoot = "";
       }
     }
+
+    // The fifth root, probed exactly like the other four. Written out separately rather
+    // than folded into a loop over the roots: a loop would have put one missing probe
+    // in reach of a silent miss, and that is what this was — the field existed, the
+    // constructor assigned it, `resolveVisual` read it, and nothing ever filled it, so
+    // every appearance root was silently "not there" and the code compiled throughout.
+    if (this.#visualRoot !== undefined) {
+      try {
+        const visualReal = await realpath(this.#visualRoot);
+        this.#realVisualRoot = visualReal.endsWith(path.sep) ? visualReal : visualReal + path.sep;
+      } catch {
+        this.#realVisualRoot = "";
+      }
+    }
   }
 
   get root(): string {
@@ -316,6 +371,29 @@ export class ArtifactStore {
       );
     }
     return this.#resolveIn(this.#perfRoot, this.#realPerfRoot, relative);
+  }
+
+  /**
+   * Resolve a client-supplied relative path inside the appearance root.
+   *
+   * Refuses when the project declares no appearance comparison, for the reason the
+   * others refuse: "nobody declared one" must not read as "every page still looks the
+   * way it did".
+   */
+  async resolveVisual(relative: string): Promise<string> {
+    if (this.#visualRoot === undefined || this.#realVisualRoot === "") {
+      throw new Error(
+        "No appearance audits found. Declare visual in config/project.json and run the " +
+          "suite — without that, nobody has asked whether a page still looks the way it " +
+          "was approved to look.",
+      );
+    }
+    return this.#resolveIn(this.#visualRoot, this.#realVisualRoot, relative);
+  }
+
+  /** True when the project has an appearance root that exists. */
+  get hasVisualRoot(): boolean {
+    return this.#visualRoot !== undefined && this.#realVisualRoot !== "";
   }
 
   /** True when the project has a transfer-budget root that exists. */
@@ -592,6 +670,65 @@ export class ArtifactStore {
       });
     }
     return audits.sort((a, b) => b.runId.localeCompare(a.runId));
+  }
+
+  /**
+   * Every appearance audit in the root, newest run first.
+   *
+   * Skips a directory with no artifact, the same as every other listing here: a
+   * half-written run directory is not a finding about appearance.
+   */
+  async listVisualAudits(): Promise<VisualAuditRunRef[]> {
+    if (!this.hasVisualRoot || this.#visualRoot === undefined) return [];
+
+    const entries = await readdir(this.#visualRoot, { withFileTypes: true });
+    const audits: VisualAuditRunRef[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const relative = `${entry.name}/${VISUAL_AUDIT_FILE_NAME}`;
+      const parsed = await this.readVisualAudit(relative).catch(() => null);
+      if (parsed === null) continue;
+      const counts = parsed.counts;
+      audits.push({
+        runId: entry.name,
+        path: relative,
+        ...(typeof parsed.baseUrl === "string" ? { baseUrl: parsed.baseUrl } : {}),
+        ...(typeof parsed.project === "string" ? { project: parsed.project } : {}),
+        ...(typeof counts.pages === "number" ? { pages: counts.pages } : {}),
+        ...(typeof counts.tests === "number" ? { tests: counts.tests } : {}),
+        ...(typeof counts.violations === "number" ? { violations: counts.violations } : {}),
+        ...(typeof counts.matched === "number" ? { matched: counts.matched } : {}),
+      });
+    }
+    return audits.sort((a, b) => b.runId.localeCompare(a.runId));
+  }
+
+  /**
+   * Read one appearance audit in full.
+   *
+   * Every declared page, what it hashed to, and its violations: what was approved
+   * against what was seen. The baseline's hash is recomputed from the committed image
+   * on every run, so what is compared here is a file a reviewer can open — not a number
+   * somebody typed once.
+   */
+  async readVisualAudit(relativePath: string): Promise<VisualAudit> {
+    const absolute = await this.resolveVisual(relativePath);
+    const text = await readFile(absolute, "utf8");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`Appearance artifact is not valid JSON: ${relativePath}`, { cause: error });
+    }
+
+    const verdict = validateVisualAudit(parsed);
+    if (!verdict.valid) {
+      throw new Error(
+        `Appearance artifact violates the visual-audit.v1 contract: ${relativePath}\n  - ${verdict.problems.join("\n  - ")}`,
+      );
+    }
+    return parsed as VisualAudit;
   }
 
   /**

@@ -65,6 +65,7 @@ def run(
     audit_root: pathlib.Path | None = None,
     api_root: pathlib.Path | None = None,
     perf_root: pathlib.Path | None = None,
+    visual_root: pathlib.Path | None = None,
 ) -> tuple[dict, list, int]:
     """Drive the real server over a real pipe and collect its frames."""
     argv = ["npx", "tsx", "src/mcp/index.ts", "--root", str(root)]
@@ -73,9 +74,20 @@ def run(
         # must not depend on this repository happening to contain an API audit, and
         # it should exercise the flag rather than the default.
         argv += ["--api-root", str(api_root)]
-        if perf_root is not None:
-            # The fourth root, explicit for the same reason as the other three.
-            argv += ["--perf-root", str(perf_root)]
+    # **Each root on its own `if`, never nested inside another root's.**
+    #
+    # `--perf-root` used to be nested inside `if api_root is not None`, which meant the
+    # fourth root was passed only when the third happened to be. Nothing failed: the
+    # seed always supplies both, so the check was green and the coupling invisible —
+    # until the fifth root arrived and the call passed one without the other.
+    #
+    # A root that exists must not depend on a sibling existing. That is the same
+    # independence the five sibling directories have in `store.ts`, and a check that
+    # quietly violates it stops testing what it claims to.
+    if perf_root is not None:
+        argv += ["--perf-root", str(perf_root)]
+    if visual_root is not None:
+        argv += ["--visual-root", str(visual_root)]
     if audit_root is not None:
         # Explicit, for the same reason `--history` is: the check must not depend
         # on the repository happening to contain an audit, and it should exercise
@@ -306,12 +318,82 @@ def seed_perf_audit(scratch: pathlib.Path) -> pathlib.Path:
 
 
 
+def seed_visual_audit(scratch: pathlib.Path) -> pathlib.Path:
+    """Seed one appearance audit, over the fifth root.
+
+    **The seeded page is changed, not clean.** A seeded run with no finding would
+    prove the wire works and nothing about the wire's most valuable sentence — that a
+    changed appearance arrives with *both* hashes and the committed file that approved
+    the other one. That sentence is what a model acts on, and it is exactly the one a
+    well-behaved fixture would drop.
+
+    The numbers are the measured ones from CI on 2026-10-19: the CI-born baseline of
+    `/` hashes `f77c79ea41eb`, and a deliberate one-pixel border change moved the page
+    to `a1b0d3c8eb7c`. Neither was invented.
+    """
+    visual_root = scratch / "visual"
+    run_dir = visual_root / "2026-10-19T09-30-00-000Z-seeded"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    audit = {
+        "schemaVersion": "1.0.0",
+        "createdAt": "2026-10-19T09:30:00.000Z",
+        "baseUrl": "http://127.0.0.1:4311",
+        "project": "chromium",
+        "counts": {"pages": 2, "tests": 7, "matched": 1, "violations": 1},
+        "pages": [
+            {
+                "path": "/",
+                "sha256": "a1b0d3c8eb7c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                "bytes": 34984,
+                "viewport": {"width": 1280, "height": 720, "deviceScaleFactor": 1},
+                "baseline": {
+                    "sha256": "f77c79ea41eb2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6",
+                    "file": "tests/visual-baselines/home-chromium-linux.png",
+                    "viewport": {"width": 1280, "height": 720, "deviceScaleFactor": 1},
+                },
+                "observations": 5,
+                "tests": 5,
+                "violations": [
+                    {
+                        "kind": "changed",
+                        "expected": (
+                            "sha256 f77c79ea41eb as committed in "
+                            "tests/visual-baselines/home-chromium-linux.png"
+                        ),
+                        "observed": "sha256 a1b0d3c8eb7c at 1280×720 dpr1, 34984 bytes",
+                        "observations": 5,
+                        "tests": 5,
+                    }
+                ],
+            },
+            {
+                "path": "/docs",
+                "sha256": "109c1cec65a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6",
+                "bytes": 34421,
+                "viewport": {"width": 1280, "height": 720, "deviceScaleFactor": 1},
+                "baseline": {
+                    "sha256": "109c1cec65a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6",
+                    "file": "tests/visual-baselines/docs-chromium-linux.png",
+                    "viewport": {"width": 1280, "height": 720, "deviceScaleFactor": 1},
+                },
+                "observations": 2,
+                "tests": 2,
+                "violations": [],
+            },
+        ],
+    }
+    (run_dir / "visual-audit.v1.json").write_text(json.dumps(audit, indent=2) + "\n", encoding="utf-8")
+    return visual_root
+
+
+
 def main() -> int:
     scratch, served_root, problems = evidence_seed.seed(ROOT)
     history_root = seed_history(scratch)
     audit_root = seed_audit(scratch)
     api_root = seed_api_audit(scratch)
     perf_root = seed_perf_audit(scratch)
+    visual_root = seed_visual_audit(scratch)
     if not os.environ.get(evidence_seed.SHARED_SCRATCH_ENV):
         print(evidence_seed.describe(scratch, served_root))
 
@@ -502,12 +584,48 @@ def main() -> int:
                       "_meta": envelope(),
                   },
               },
+              # The appearance audits, against the seeded CHANGE, over the fifth root.
+              {
+                  "jsonrpc": "2.0",
+                  "id": 50,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "quality_list_visual_audits",
+                      "arguments": {},
+                      "_meta": envelope(),
+                  },
+              },
+              {
+                  "jsonrpc": "2.0",
+                  "id": 51,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "quality_get_visual_audit",
+                      "arguments": {"auditPath": "2026-10-19T09-30-00-000Z-seeded/visual-audit.v1.json"},
+                      "_meta": envelope(),
+                  },
+              },
+              # The escape a fifth root makes possible: out of `artifacts/visual` and
+              # into the defect tree, which the same process has open and serving.
+              {
+                  "jsonrpc": "2.0",
+                  "id": 52,
+                  "method": "tools/call",
+                  "params": {
+                      "name": "quality_get_visual_audit",
+                      "arguments": {
+                          "auditPath": "../defects/2026-10-17T09-30-00-000Z-seeded/defects.v1.json"
+                      },
+                      "_meta": envelope(),
+                  },
+              },
         ],
         served_root,
         history_root,
         audit_root,
         api_root,
         perf_root,
+        visual_root,
     )
 
     # --- accessibility audits, over the wire ---------------------------------
@@ -660,6 +778,66 @@ def main() -> int:
         )
     else:
         print("perf audit path refused: -32602")
+
+    # --- appearance, over the wire -------------------------------------------
+    #
+    # The seeded run has a CHANGED page, and what matters here is that the sentence a
+    # model acts on survives the wire: both hashes, and the committed file that approved
+    # the other one. A fixture that seeded only a clean run would pass this check while
+    # proving nothing about the part that matters.
+    visual_audits = (frames.get(50, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not visual_audits.get("total"):
+        problems.append("list_visual_audits returned no audits against the seeded visual root")
+    else:
+        print(f"visual audits: {visual_audits.get('total')}")
+        listed = (visual_audits.get("audits") or [{}])[0]
+        if listed.get("violations") != 1 or listed.get("pages") != 2 or listed.get("tests") != 7:
+            problems.append(
+                f"list_visual_audits counts={listed!r}, expected 1 finding across 2 pages and 7 tests"
+            )
+        # The approving engine travels with the finding. A baseline that does not say
+        # which engine approved it says nothing, and measured 2026-10-18 no two engines
+        # or viewports shared a screenshot hash for the same page.
+        if listed.get("project") != "chromium":
+            problems.append(f"list_visual_audits lost the approving engine: {listed!r}")
+
+    visual_sc = (frames.get(51, {}).get("result", {}) or {}).get("structuredContent") or {}
+    if not visual_sc.get("counts"):
+        problems.append("get_visual_audit returned no counts - the artifact never reached the client")
+    else:
+        print(f"visual audit: {visual_sc.get('runId')} {json.dumps(visual_sc.get('counts'), sort_keys=True)}")
+        pages = visual_sc.get("pages") or []
+        changed = [p for p in pages if p.get("violations")]
+        if not changed:
+            problems.append("get_visual_audit returned no finding - the change did not survive")
+        else:
+            finding = changed[0]["violations"][0]
+            # Both hashes and the committed file. Drop any one of the three and a model
+            # cannot act: it would not know what changed, or what it is being compared
+            # against, or where to look.
+            if (
+                finding.get("kind") != "changed"
+                or "f77c79ea41eb" not in str(finding.get("expected"))
+                or "a1b0d3c8eb7c" not in str(finding.get("observed"))
+                or "tests/visual-baselines/home-chromium-linux.png" not in str(finding.get("expected"))
+            ):
+                problems.append(f"get_visual_audit lost the change: {json.dumps(finding, sort_keys=True)}")
+            # The baseline's own hash reaches the client too, from the committed file.
+            if not changed[0].get("baseline"):
+                problems.append("get_visual_audit returned the change without its baseline")
+        # A clean page must travel beside the changed one, or a client cannot tell which
+        # of the declared pages were examined at all.
+        if not [p for p in pages if not p.get("violations")]:
+            problems.append("get_visual_audit returned only the changed page, not the whole audit")
+
+    visual_escape = frames.get(52, {}).get("error", {})
+    if visual_escape.get("code") != -32602:
+        problems.append(
+            f"an appearance audit path escaping into the defect tree was not refused with "
+            f"-32602: {json.dumps(visual_escape)}"
+        )
+    else:
+        print("appearance audit path refused: -32602")
 
 
 

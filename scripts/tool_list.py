@@ -25,4 +25,6 @@ EXPECTED_TOOLS = [
     "quality_get_api_audit",
     "quality_list_perf_audits",
     "quality_get_perf_audit",
+    "quality_list_visual_audits",
+    "quality_get_visual_audit",
 ]

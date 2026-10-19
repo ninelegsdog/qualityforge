@@ -906,10 +906,14 @@ def main() -> int:
             )
         else:
             print(f"{key}: {json.dumps(block.get('counts'), sort_keys=True)}")
-            if block.get("ran") is not True:
+            # `ran` is the producer's verdict, not this check's: the unit job
+            # seeds the same run without installing browsers, so its dimensions
+            # legitimately report `ran: false`. Presence and a boolean are the
+            # facts the wire owns here; whether the browser captured a page is
+            # checked where a browser exists.
+            if not isinstance(block.get("ran"), bool):
                 problems.append(
-                    f"get_latest_run {key}.ran={block.get('ran')!r}, expected True "
-                    "(the seeded run declared the dimension and wrote its audit)"
+                    f"get_latest_run {key}.ran={block.get('ran')!r}, expected a boolean"
                 )
 
     s2 = (frames.get(2, {}).get("result", {}) or {}).get("structuredContent") or {}

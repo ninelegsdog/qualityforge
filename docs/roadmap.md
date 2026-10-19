@@ -65,10 +65,32 @@ work that _is_ outstanding invisible.
   Two gaps recorded as **G21** and **G22**; the contract is in
   [`perf-audit-schema.md`](perf-audit-schema.md).
 
+- **Appearance as a fourth evidence dimension.** Each declared page is photographed and
+  compared against a **committed baseline image** — chromium only, zero tolerance, and
+  the verdict is a SHA-256 of the screenshot bytes, which makes zero tolerance a property
+  of the comparison rather than a number somebody chose.
+
+  The measurement forced three things I had not planned. A screenshot is only comparable
+  if the page **settled**, so both sides wait for the network, bounded, because
+  `networkidle` never arrives on a test that deliberately holds a request open. An
+  appearance is the page **at rest**, so the fixture reloads before photographing —
+  `/contact` was seen five ways across nine captures because tests fill the form. And
+  **every** capture is judged, not the first, because keeping the first let whichever test
+  ran first decide the verdict; a page seen two ways is now `unstable`, its own kind.
+
+  Baselines are **born in the CI image**, on the owner's decision of 2026-10-19: the same
+  commit differs by 269–1898 pixels between a runner and a laptop, against a real CSS
+  change worth 3 315, so a baseline captured elsewhere cannot gate here. `updateSnapshots`
+  is `"none"` so a plain run cannot approve an appearance nobody looked at, and the CI
+  step runs **after** the collector so the verdict stands until a human commits the image.
+
+  Three gaps recorded as **G23**–**G25**; the contract is in
+  [`visual-audit-schema.md`](visual-audit-schema.md).
+
 - **Read-only MCP server** on stdio, protocol 2026-07-28, with server-side path
   confinement. Thirteen tools — five over defects and run history, two over
-  accessibility audits, two over API contract audits, two over transfer budgets —
-  plus resources and a `triage_failure` prompt.
+  accessibility audits, two over API contract audits, two over transfer budgets, two
+  over appearance audits — plus resources and a `triage_failure` prompt.
   Verified
   against a real third-party application's artifacts as well: the installed
   binary, driven by the real client from a directory outside both projects,

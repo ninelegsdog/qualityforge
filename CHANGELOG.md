@@ -33,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   There is **no manifest of expected hashes**: the committed PNG is the baseline and its
   hash is computed from the file, because a manifest beside the images would be a second
-  copy of one fact. Three gaps recorded as **G23**–**G25**; the contract is in
+  copy of one fact. Three gaps recorded as **G23**–**G25**, and **G24 is decided**:
+  no rendered diff overlay and no stored observed image in v1, because a screenshot is
+  page content that field-level redaction cannot sanitise. The contract is in
   `docs/visual-audit-schema.md`.
 
   Two read-only MCP tools, `quality_list_visual_audits` and

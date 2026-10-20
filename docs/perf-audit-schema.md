@@ -79,6 +79,10 @@ change and a `v2` file.
    carry tokens.
 9. **No gate lives here.** The artifact is evidence; the verdict is a run-level
    statement and belongs to the run summary, which already has one.
+10. **`counts.pages` is observed paths; `counts.budgets` is pages held.** They differ
+    when a declared page was never measured: the page still has a budget and a
+    `no-observation` finding, but it is not in the observed set. `counts.passed`
+    counts budgets without a violation, so it never includes a missing page.
 
 ## Which pages a budget holds
 

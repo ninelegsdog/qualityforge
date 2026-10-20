@@ -299,6 +299,9 @@ reads, and what this repository now enforces on itself.
   repeat a route list it was never asked for. The external live run on 2026-10-19
   found the hard-coded alternative: a project outside this repository set only
   `maxTransferredBytes` and got `no-observation` for pages it had never declared.
+  The counts now say what they measure: `counts.pages` is observed paths while
+  `counts.budgets` is pages held, and the two differ for a declared page nobody
+  loaded.
 
   The demo server gains `/heavy`, a page that exists to breach a budget and is linked
   from nowhere, so the red half of "a heavy page goes red" is checkable rather than

@@ -25,7 +25,8 @@
  *   stats  -> startTime, duration, expected, skipped, unexpected, flaky
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import path from "node:path";
 import { buildApiAudit } from "../api/audit.js";
 import type { ApiCapturePayload } from "../api/observe.js";
@@ -38,8 +39,10 @@ import {
   validateVisualAudit,
   type VisualAudit,
   type VisualBaseline,
+  type VisualObservedImage,
 } from "../visual/types.js";
 import type { VisualCapturePayload } from "../visual/observe.js";
+import { VISUAL_IMAGE_ATTACHMENT_PREFIX } from "../visual/observe.js";
 import type { PerfCapturePayload } from "../perf/observe.js";
 import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import {
@@ -643,11 +646,63 @@ async function readBaselines(
 }
 
 /**
+ * The directory a run's stored observed images live under.
+ *
+ * **Inside the run's own directory**, under the visual root: the pictures are
+ * evidence about that run, they are not committed anywhere, and the retention
+ * rule can then treat the whole run tree the same way — audits stay, the extra
+ * copies of page content are what gets freed.
+ */
+const OBSERVED_DIRECTORY = "observed";
+
+/**
+ * Free the observed-image copies of the runs nobody wants anymore.
+ *
+ * Retention, spelled as the rule the owner's decision set: the audit JSON of every
+ * run stays (it is small, and it is the contract), and only `observed/` — extra
+ * copies of page content — is deleted in every run but the newest `keep` that hold
+ * one. Run ids sort lexicographically into chronological order by design of
+ * `makeRunId`, so the sort needs the format and nothing else.
+ *
+ * A missing visual root, or run directories with no observed images in them, leave
+ * nothing to free; the function takes whatever it finds rather than assuming what
+ * was written in the same process it is pruning for.
+ */
+async function pruneObservedImages(visualRoot: string, keep: number): Promise<void> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(visualRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const holders: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const observed = await stat(path.join(visualRoot, entry.name, OBSERVED_DIRECTORY));
+      if (observed.isDirectory()) holders.push(entry.name);
+    } catch {
+      // A run without observed images is the common case and keeps nothing to prune.
+    }
+  }
+  // Newest first; everything the newest `keep` does not need is trimmed.
+  holders.sort().reverse();
+  for (const name of holders.slice(keep)) {
+    await rm(path.join(visualRoot, name, OBSERVED_DIRECTORY), { recursive: true, force: true });
+  }
+}
+
+/**
  * Write one run's appearance audit, or refuse to.
  *
  * The baseline is read **from the committed image**, and its hash computed from the
  * file: there is no manifest of expected hashes, because a manifest beside the
  * images would be a second copy of one fact and two copies of one fact drift.
+ *
+ * When the project opts in, the **judged** captures' bytes are stored beside the
+ * audit as well, one file per distinct appearance at a name that carries its hash —
+ * and the bytes are re-hashed on arrival, so the name a reader opens the file under
+ * is answerable against its content.
  */
 async function writeVisualAudit(input: {
   projectRoot: string;
@@ -659,24 +714,63 @@ async function writeVisualAudit(input: {
   baseUrl?: string;
   runId: string;
   createdAt: string;
+  /**
+   * Where the observed images are kept, when the project opted in.
+   *
+   * `keep` is the retention bound; see `pruneObservedImages`.
+   */
+  observedImages?: { keep: number };
 }): Promise<{ path: string; audit: VisualAudit }> {
   const payloads: VisualCapturePayload[] = [];
+  // Bound before the loop so TypeScript keeps the narrowing a captured constant
+  // gives it: a lookup read back through `input.` twice collapses the union.
+  const observedOptions = input.observedImages;
+  // Attachment bytes, keyed by the hash the content actually produces.
+  const imageBytes = new Map<string, Buffer>();
   for (const spec of walkSpecs(input.report.suites)) {
     for (const pwTest of spec.tests ?? []) {
       const attempts = pwTest.results ?? [];
       const lastAttempt = attempts[attempts.length - 1];
       if (lastAttempt === undefined) continue;
       for (const attachment of lastAttempt.attachments ?? []) {
-        if (attachment.name !== VISUAL_ATTACHMENT) continue;
-        const text = await readAttachmentText(attachment);
-        if (text === undefined) continue;
-        try {
-          payloads.push(JSON.parse(text) as VisualCapturePayload);
-        } catch (error) {
-          throw new Error(
-            `the ${VISUAL_ATTACHMENT} attachment on ${spec.title ?? "an untitled spec"} is not JSON`,
-            { cause: error },
-          );
+        if (attachment.name === VISUAL_ATTACHMENT) {
+          const text = await readAttachmentText(attachment);
+          if (text === undefined) continue;
+          try {
+            payloads.push(JSON.parse(text) as VisualCapturePayload);
+          } catch (error) {
+            throw new Error(
+              `the ${VISUAL_ATTACHMENT} attachment on ${spec.title ?? "an untitled spec"} is not JSON`,
+              { cause: error },
+            );
+          }
+          continue;
+        }
+        // The images ride along only on an opt-in, under a name that claims their
+        // hash. A name that does not match its content is not a mismatch to warn
+        // about: an audit whose pointed-to file opens as different bytes is exactly
+        // the draft-this-repository-does-not-keep reading again.
+        if (
+          observedOptions !== undefined &&
+          attachment.name.startsWith(VISUAL_IMAGE_ATTACHMENT_PREFIX)
+        ) {
+          const claimed = attachment.name.slice(VISUAL_IMAGE_ATTACHMENT_PREFIX.length);
+          const bytes = await readAttachmentBytes(attachment);
+          if (bytes === undefined) {
+            throw new Error(
+              `the ${attachment.name} attachment on ${spec.title ?? "an untitled spec"} ` +
+                "could not be read, and the appearance audit would point at bytes nobody has",
+            );
+          }
+          const actual = createHash("sha256").update(bytes).digest("hex");
+          if (actual !== claimed) {
+            throw new Error(
+              `the ${VISUAL_IMAGE_ATTACHMENT_PREFIX}* attachment on ${
+                spec.title ?? "an untitled spec"
+              } is named ${claimed} but its bytes hash to ${actual}`,
+            );
+          }
+          imageBytes.set(actual, bytes);
         }
       }
     }
@@ -690,6 +784,24 @@ async function writeVisualAudit(input: {
   );
   const lookup = (page: string): VisualBaseline | undefined => baselines.get(page);
 
+  // Bound to a local so the optional read reaches `buildVisualAudit` as a defined
+  // function or nothing, rather than as a narrowing TypeScript has to re-derive.
+  let observedLookup: ((sha256: string) => { file: string; bytes: number } | undefined) | undefined;
+  if (observedOptions !== undefined) {
+    const observedDir = path.join(
+      input.projectRoot,
+      input.directory,
+      input.runId,
+      OBSERVED_DIRECTORY,
+    );
+    observedLookup = (sha256: string) => {
+      const bytes = imageBytes.get(sha256);
+      if (bytes === undefined) return undefined;
+      const absolute = path.join(observedDir, `${sha256}.png`);
+      return { file: relativize(input.projectRoot, absolute), bytes: bytes.byteLength };
+    };
+  }
+
   const audit = buildVisualAudit({
     payloads,
     declarations: input.pages.map((page) => ({ path: page })),
@@ -702,6 +814,7 @@ async function writeVisualAudit(input: {
       path: (page) => baselinePathFor(input.baselineDirectory, page, input.project),
     },
     ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
+    ...(observedLookup === undefined ? {} : { observedImage: observedLookup }),
     project: input.project,
     createdAt: input.createdAt,
   });
@@ -717,6 +830,34 @@ async function writeVisualAudit(input: {
   await mkdir(runDir, { recursive: true });
   const target = path.join(runDir, VISUAL_AUDIT_FILE_NAME);
   await writeFile(target, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+
+  // Only pages the **run judged** carry `observed`, so the storage loop writes
+  // exactly the appearances the verdict was made from — and each distinct
+  // appearance once, however many pages or tests produced the same bytes.
+  // Guarded on the **options** rather than the lookup, so TypeScript sees the
+  // same constant that proves `keep` exists.
+  if (observedOptions !== undefined) {
+    const stored = new Set<string>();
+    for (const page of audit.pages) {
+      const listed: VisualObservedImage[] = page.observed ?? [];
+      for (const image of listed) {
+        if (stored.has(image.sha256)) continue;
+        const bytes = imageBytes.get(image.sha256);
+        if (bytes === undefined) {
+          throw new Error(
+            `the audit lists sha256 ${image.sha256} as a stored observed image, ` +
+              "but its bytes were never carried into this run",
+          );
+        }
+        await mkdir(path.join(runDir, OBSERVED_DIRECTORY), { recursive: true });
+        await writeFile(path.join(runDir, OBSERVED_DIRECTORY, `${image.sha256}.png`), bytes);
+        stored.add(image.sha256);
+      }
+    }
+    // Retention runs on whatever is in the visual root after this run stored its
+    // copy, so the bound counts this run too.
+    await pruneObservedImages(path.join(input.projectRoot, input.directory), observedOptions.keep);
+  }
 
   return { path: path.relative(input.projectRoot, target), audit };
 }
@@ -872,6 +1013,31 @@ async function readAttachmentText(attachment: PwAttachment): Promise<string | un
 }
 
 /**
+ * Read an attachment's **bytes**, supporting the same two shapes as the text read.
+ *
+ * The observed-image attachments ride on the same mechanics (inline `body`, or a
+ * `path` when the runner wrote a file), so one rule serves both: the content of an
+ * attachment is whatever produced it, in whichever shape the runner chose.
+ */
+async function readAttachmentBytes(attachment: PwAttachment): Promise<Buffer | undefined> {
+  if (attachment.body !== undefined) {
+    try {
+      return Buffer.from(attachment.body, "base64");
+    } catch {
+      return undefined;
+    }
+  }
+  if (attachment.path !== undefined && (await isFile(attachment.path))) {
+    try {
+      return await readFile(attachment.path);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The fixture's context payload: captured signals plus the page.
  *
  * Split from `readSignals` because the two blocks have genuinely different
@@ -997,6 +1163,16 @@ export interface CollectOptions {
     project: string;
     /** The pages held to their baselines. */
     pages: string[];
+    /**
+     * Store the judged captures' bytes beside the audit, and how many runs to keep.
+     *
+     * Declared is the whole opt-in: a project that names nothing stores no observed
+     * picture, and stays with the hash-plus-viewport contract G24 made the default.
+     * `keep` is bounded rather than unbounded because stored observed images are
+     * page content — the thing no field-level redaction can sanitise — so the copy
+     * exists for as long as a reviewer can need the newest runs, and no longer.
+     */
+    observedImages?: { keep: number };
   };
   perf?: {
     /** Directory, relative to the project root, for `perf-audit.v1.json`. */
@@ -2051,6 +2227,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
           baselineDirectory: visual.baselineDirectory,
           project: visual.project,
           pages: visual.pages,
+          ...(visual.observedImages === undefined ? {} : { observedImages: visual.observedImages }),
           ...(origin === undefined ? {} : { baseUrl: origin }),
           runId,
           createdAt,

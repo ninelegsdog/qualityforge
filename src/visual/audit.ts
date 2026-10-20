@@ -23,6 +23,7 @@ import {
   VISUAL_VIOLATION_KINDS,
   type VisualAudit,
   type VisualBaseline,
+  type VisualObservedImage,
   type VisualPageResult,
   type VisualViolation,
 } from "./types.js";
@@ -61,6 +62,17 @@ export interface BuildVisualAuditInput {
   /** The engine project this run gated on. */
   project?: string;
   createdAt: string;
+  /**
+   * Where each judged capture's bytes are, when the project opted in.
+   *
+   * Given as a lookup over **content**: a hash in, the file it is stored at and its
+   * byte count out. Absent means the project did not opt in, and the audit then
+   * carries no observed images at all. Present but unable to answer for a judged
+   * appearance is a producer bug — the fixture was asked to carry every judged
+   * capture's bytes, so missing bytes stop the run rather than being recorded as
+   * an absence, which a reader could not tell from "gone on purpose".
+   */
+  observedImage?: (sha256: string) => { file: string; bytes: number } | undefined;
 }
 
 function short(hash: string): string {
@@ -122,7 +134,11 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
     let viewport: VisualPageResult["viewport"] = null;
     let observations = 0;
     const tests = new Set<number>();
-    const distinct = new Set<string>();
+    // Kept in first-appearance order, because the stored list of observed images
+    // is read the same way as the verdict text: the picture the oldest capture saw
+    // first, then each new way the page turned out to render.
+    const appearances: string[] = [];
+    const seenAppearance = new Set<string>();
 
     // A plain loop, not `forEach`, and that is not a style preference: TypeScript does
     // not track assignments made inside a callback, so every value written in one
@@ -159,7 +175,10 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
         // single-page load — so which test ran first decided the verdict. A page that
         // changed is changed whichever load noticed, and a page seen two ways is a
         // different finding again.
-        distinct.add(page.sha256);
+        if (!seenAppearance.has(page.sha256)) {
+          seenAppearance.add(page.sha256);
+          appearances.push(page.sha256);
+        }
         if (sha256 === null) {
           sha256 = page.sha256;
           bytes = page.bytes;
@@ -169,6 +188,9 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
     }
 
     const baseline = input.lookup.baseline(declaration.path) ?? null;
+    // Bound outside the spread so TypeScript keeps the narrowing: a lookup read
+    // back through `input.` twice collapses the union instead of keeping it.
+    const observedLookup = input.observedImage;
     const violations: VisualViolation[] = [];
 
     // Built here, while the values are still `number | null`: further down, the
@@ -202,13 +224,13 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
         observations,
         tests: tests.size,
       });
-    } else if (distinct.size > 1) {
+    } else if (appearances.length > 1) {
       violations.push({
         kind: "unstable",
         expected: `one appearance, as committed in ${baseline.file}`,
         // How many ways, and the one that was approved, so a reader knows whether
         // they are looking at a disagreement about the page or about the capture.
-        observed: `the page rendered ${distinct.size} different ways across ${observations} capture(s)`,
+        observed: `the page rendered ${appearances.length} different ways across ${observations} capture(s)`,
         observations,
         tests: tests.size,
       });
@@ -230,6 +252,28 @@ export function buildVisualAudit(input: BuildVisualAuditInput): VisualAudit {
       bytes,
       viewport,
       baseline,
+      // Stored observed images only exist on an opt-in, and only for pages the run
+      // judged: a page never looked at stores nothing, because there is nothing to
+      // show — "no pixel ever captured" must not become "a picture of nothing".
+      ...(observedLookup === undefined || observations === 0
+        ? {}
+        : {
+            observed: appearances.map((appearance) => {
+              const stored = observedLookup(appearance);
+              if (stored === undefined) {
+                throw new Error(
+                  `the appearance audit judged sha256 ${short(appearance)} on ${declaration.path}, ` +
+                    "but the fixture did not carry its bytes; " +
+                    "the producer must attach every judged capture's image when the project opts in",
+                );
+              }
+              return {
+                sha256: appearance,
+                bytes: stored.bytes,
+                file: stored.file,
+              } satisfies VisualObservedImage;
+            }),
+          }),
       observations,
       tests: tests.size,
       violations,

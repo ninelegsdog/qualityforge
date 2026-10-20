@@ -452,10 +452,42 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
     if (!isRecord(raw.visual)) {
       problems.push("visual must be an object");
     } else {
-      rejectUnknownKeys(raw.visual, ["project", "directory", "pages"], "visual", problems);
+      rejectUnknownKeys(
+        raw.visual,
+        ["project", "directory", "pages", "observedImages"],
+        "visual",
+        problems,
+      );
       requireString(raw.visual.project, "visual.project", problems);
       requireString(raw.visual.directory, "visual.directory", problems);
       requireStringArray(raw.visual.pages, "visual.pages", problems);
+      // The observed-image store: declared is completely on. `keep` is required
+      // rather than defaulted, because the default a caller did not choose is the
+      // default nobody can defend.
+      if (raw.visual.observedImages !== undefined) {
+        if (!isRecord(raw.visual.observedImages)) {
+          problems.push(
+            `visual.observedImages must be an object, got ${describe(raw.visual.observedImages)}`,
+          );
+        } else {
+          rejectUnknownKeys(raw.visual.observedImages, ["keep"], "visual.observedImages", problems);
+          requireNumberInRange(
+            raw.visual.observedImages.keep,
+            "visual.observedImages.keep",
+            1,
+            100000,
+            problems,
+          );
+          if (
+            typeof raw.visual.observedImages.keep === "number" &&
+            !Number.isInteger(raw.visual.observedImages.keep)
+          ) {
+            problems.push(
+              `visual.observedImages.keep must be a whole number, got ${raw.visual.observedImages.keep}`,
+            );
+          }
+        }
+      }
       // Every declared page must be an absolute path, for the same reason an
       // expectation's path is: a relative one would be matched against whatever the
       // browser happened to put in front of it.

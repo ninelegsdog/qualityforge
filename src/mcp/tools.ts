@@ -498,7 +498,10 @@ export const TOOLS: ToolDefinition[] = [
       "committed images, so 'what was approved' is a file in the repository rather than " +
       "a number somebody typed once. A page seen two ways is reported as unstable " +
       "rather than changed: that is a disagreement about which of them is the page, not " +
-      "a picture that moved. Read-only.",
+      "a picture that moved. When a project opted in (visual.observedImages), each " +
+      "judged page also lists the observed images stored beside the audit — extra " +
+      "copies of page content under bounded retention, on an explicit decision; open " +
+      "them beside the baseline rather than expecting a diff overlay. Read-only.",
     inputSchema: {
       type: "object",
       properties: {

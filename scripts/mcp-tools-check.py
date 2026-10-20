@@ -335,7 +335,7 @@ def seed_visual_audit(scratch: pathlib.Path) -> pathlib.Path:
     run_dir = visual_root / "2026-10-19T09-30-00-000Z-seeded"
     run_dir.mkdir(parents=True, exist_ok=True)
     audit = {
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "1.1.0",
         "createdAt": "2026-10-19T09:30:00.000Z",
         "baseUrl": "http://127.0.0.1:4311",
         "project": "chromium",

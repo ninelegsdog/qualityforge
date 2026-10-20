@@ -154,6 +154,28 @@ export interface VisualConfig {
   directory: string;
   /** The pages held to their baselines. */
   pages: string[];
+  /**
+   * Keep the judged captures as images beside the audit, for the newest runs.
+   *
+   * Declaring the block **is** the opt-in, in the same shape `history` uses: a
+   * project without the block stores no observed picture at all, and the audit
+   * stays with hashes, byte counts and the capture viewport — the owner's decision
+   * recorded as G24. When the block is present, the collector writes each distinct
+   * judged appearance under `artifacts/visual/<runId>/observed/<sha256>.png` and
+   * points at it from the audit; nothing else ever needs to discover the name,
+   * which is why the block carries no directory of its own.
+   *
+   * `keep` bounds the storage rather than leaving it unbounded, because a stored
+   * observed image is page content — the thing no field-level redaction can
+   * sanitise — so the copy exists for as long as a reviewer can need the newest
+   * runs, and no longer. The audits themselves are never pruned by this rule.
+   * There is no diff overlay either way: a reviewer opens the two pictures side
+   * by side, or reproduces the page at the recorded viewport.
+   */
+  observedImages?: {
+    /** How many of the newest runs may hold stored observed images. */
+    keep: number;
+  };
 }
 
 /**

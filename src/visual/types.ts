@@ -28,7 +28,7 @@
 
 import type { VisualCapturePayload } from "./observe.js";
 
-export const VISUAL_AUDIT_SCHEMA_VERSION = "1.0.0" as const;
+export const VISUAL_AUDIT_SCHEMA_VERSION = "1.1.0" as const;
 
 /**
  * The file name a run's audit is written under.
@@ -111,9 +111,35 @@ export interface VisualPageResult {
   viewport: VisualViewport | null;
   /** What the committed baseline says, or `null` when there is none. */
   baseline: VisualBaseline | null;
+  /**
+   * The judged captures, stored, when the project opted in.
+   *
+   * One entry per **distinct** appearance this audit judged, in first-appearance
+   * order: a matched page stores the one picture it compared against, and an
+   * `unstable` page stores every way it rendered, because the reviewer's question
+   * there is exactly *which of them is the page*. Judged means the same captures
+   * the verdict was built from — never a stubbed one and never a foreign engine's,
+   * since those are evidence about something else and storing them would dress a
+   * unrelated picture up as the page's appearance.
+   *
+   * Present only when the project declared `visual.observedImages`; by default the
+   * audit carries hashes and byte counts and no observed picture at all, which is
+   * the owner's decision recorded as [G24](../../docs/defect-schema.md#g24--a-rendered-difference-is-not-stored-as-a-picture).
+   */
+  observed?: VisualObservedImage[];
   observations: number;
   tests: number;
   violations: VisualViolation[];
+}
+
+/** One stored observed image, as the audit points at it. */
+export interface VisualObservedImage {
+  /** SHA-256 of the image bytes, lowercase hex — also the stored file's name. */
+  sha256: string;
+  /** Size of the stored image in bytes. */
+  bytes: number;
+  /** Where the image lives, relative to the project root. */
+  file: string;
 }
 
 export interface VisualAuditCounts {
@@ -253,6 +279,51 @@ export function validateVisualAudit(value: unknown): ValidationResult {
         problems.push(`${where}.baseline must be an object or null`);
       } else {
         checkViewport(entry.baseline.viewport, `${where}.baseline.viewport`, problems);
+      }
+    }
+    // Optional, and meaningful only when present: a project that has not opted in
+    // carries no observed pictures at all. An empty list is refused rather than
+    // read as "nothing", because a page that stores its appearance stores at least
+    // one picture, and an empty array would be a claim with nothing behind it.
+    if (entry.observed !== undefined) {
+      if (!Array.isArray(entry.observed)) {
+        problems.push(
+          `${where}.observed must be an array or absent, got ${describeValue(entry.observed)}`,
+        );
+      } else if (entry.observed.length === 0) {
+        problems.push(`${where}.observed must not be empty; absence means nothing was stored`);
+      } else {
+        const seen = new Set<string>();
+        entry.observed.forEach((image, imageIndex) => {
+          const imageWhere = `${where}.observed[${imageIndex}]`;
+          if (!isRecord(image)) {
+            problems.push(`${imageWhere} must be an object`);
+            return;
+          }
+          if (typeof image.sha256 !== "string" || image.sha256 === "") {
+            problems.push(
+              `${imageWhere}.sha256 must be a non-empty string, got ${describeValue(image.sha256)}`,
+            );
+          } else if (seen.has(image.sha256)) {
+            problems.push(`${imageWhere} repeats sha256 ${describeValue(image.sha256)}`);
+          } else {
+            seen.add(image.sha256);
+          }
+          if (
+            typeof image.bytes !== "number" ||
+            !Number.isFinite(image.bytes) ||
+            image.bytes <= 0
+          ) {
+            problems.push(
+              `${imageWhere}.bytes must be a positive number, got ${describeValue(image.bytes)}`,
+            );
+          }
+          if (typeof image.file !== "string" || image.file === "") {
+            problems.push(
+              `${imageWhere}.file must be a non-empty string, got ${describeValue(image.file)}`,
+            );
+          }
+        });
       }
     }
     if (!Array.isArray(entry.violations)) {

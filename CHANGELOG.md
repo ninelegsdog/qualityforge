@@ -163,7 +163,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `runId` and exit code, and the collector never calls it. The schema now states
   that independence and the way to correlate the two by origin and `createdAt`;
   both MCP tools say it too, rather than leaving an agent to infer a relationship
-  from two similar-looking ids.
+  from two similar-looking ids. The rules now state that `counts.nodes` and
+  `counts.truncatedRules` cover `violations` **and** `incomplete`; the live run's
+  24 nodes were 21 + 3, and the document did not say so.
 
 - **A token with no key beside it was not redacted.** `redactAssignments` matched
   secrets by the name of the key next to them, which cannot work for a token

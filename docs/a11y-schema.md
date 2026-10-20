@@ -191,6 +191,10 @@ intact while `html` beside it is reduced.
    artifact does not pretend otherwise.
 7. **An audit is not a gate result.** Exit `1` means violations were found on the
    pages you chose. It says nothing about whether your tests pass.
+8. **`counts.nodes` is kept nodes across both arrays.** It includes `incomplete`,
+   not only `violations`: on the live external run, 24 was 21 violation nodes plus
+   3 incomplete nodes. `counts.truncatedRules` counts truncation in both arrays too.
+   Read the arrays when the difference matters; the scalar is a size, not a verdict.
 
 ## What the JSON Schema cannot express, and where that check lives instead
 

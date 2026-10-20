@@ -512,7 +512,13 @@ async function writePerfAudit(input: {
   report: PwJsonReport;
   directory: string;
   maxBytes: number;
-  paths: string[];
+  /**
+   * Declared pages, or omitted to hold every page the run loaded.
+   *
+   * The distinction is made in `buildPerfAudit`, which also refuses an empty list;
+   * this layer only passes it through.
+   */
+  paths?: string[];
   baseUrl?: string;
   runId: string;
   createdAt: string;
@@ -541,7 +547,8 @@ async function writePerfAudit(input: {
 
   const audit = buildPerfAudit({
     payloads,
-    budgets: input.paths.map((pagePath) => ({ path: pagePath, maxBytes: input.maxBytes })),
+    ...(input.paths === undefined ? {} : { paths: input.paths }),
+    maxBytes: input.maxBytes,
     ...(input.baseUrl === undefined ? {} : { baseUrl: input.baseUrl }),
     createdAt: input.createdAt,
   });
@@ -995,8 +1002,14 @@ export interface CollectOptions {
     directory: string;
     /** Largest transfer any page may cost, in bytes. */
     maxBytes: number;
-    /** The page paths the budget holds. */
-    paths: string[];
+    /**
+     * The page paths the budget holds, or omitted to hold every page the run loaded.
+     *
+     * Declared is the fail-closed mode: a page nobody measured is `no-observation`.
+     * Omitted is the convenient mode: the budget applies to what the run actually
+     * loaded, and a run that loaded nothing is `ran: false`.
+     */
+    paths?: string[];
   };
   /** Gate thresholds from configuration. */
   thresholds: ProjectConfig["thresholds"];
@@ -2050,7 +2063,7 @@ export async function collectDefects(options: CollectOptions): Promise<{
           report,
           directory: perf.directory,
           maxBytes: perf.maxBytes,
-          paths: perf.paths,
+          ...(perf.paths === undefined ? {} : { paths: perf.paths }),
           ...(origin === undefined ? {} : { baseUrl: origin }),
           runId,
           createdAt,

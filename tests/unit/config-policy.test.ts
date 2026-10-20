@@ -211,6 +211,19 @@ test.describe("a policy that cannot be shared", () => {
     expect(said(error)).toContain('policy must not set "api.expectations"');
   });
 
+  test("refuses perf.pages, which name this application's own routes", async () => {
+    // A shared list would hold another project to pages it does not serve, and an
+    // unobserved declared page is a violation. The list is project data, not policy.
+    const root = tree({ perf: { pages: ["/", "/shared"] } }, { extends: "../policy.json" });
+
+    const error = await load(root).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(said(error)).toContain('policy must not set "perf.pages"');
+  });
+
   test("an unknown key in a policy is refused rather than ignored", async () => {
     const root = tree({ threshold: { maxFailureRate: 0.02 } }, { extends: "../policy.json" });
 

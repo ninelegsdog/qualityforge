@@ -23,6 +23,9 @@
     "directory": "quality-history",
     "keep": 200
   },
+  "perf": {
+    "pages": ["/", "/docs", "/contact"]
+  },
   "api": {
     "expectations": [
       {

@@ -156,6 +156,30 @@ export interface VisualConfig {
   pages: string[];
 }
 
+/**
+ * The pages a transfer budget holds.
+ *
+ * Optional, and the choice matters. A project that names pages is held to exactly
+ * those: a page nobody measured is `no-observation`, because the project said the
+ * budget applied there. A project that names none is held to every page the run
+ * actually loaded, so enabling the dimension cannot produce a false absence just
+ * because nobody wrote the page list twice.
+ *
+ * This repository names three and omits `/heavy`: the demo server keeps that page
+ * to breach a budget, and a fixture cannot both contain an over-budget page and pass
+ * its own budget.
+ */
+export interface PerfConfig {
+  /**
+   * Absolute page paths the budget holds, in configuration order.
+   *
+   * Empty is refused rather than read as "no pages": if a project wanted no pages it
+   * should omit the block, and an empty list would otherwise mean two opposite things
+   * depending on which code path read it.
+   */
+  pages?: string[];
+}
+
 export interface ApiConfig {
   /**
    * Directory, relative to the project root, for `api-audit.v1.json`.
@@ -185,6 +209,8 @@ export interface ProjectConfig {
   api?: ApiConfig;
   /** Appearance comparison. Omitted means the dimension is off. */
   visual?: VisualConfig;
+  /** Pages a transfer budget holds, when `thresholds.maxTransferredBytes` is set. */
+  perf?: PerfConfig;
   /** Labels copied onto every produced defect artifact. */
   tags: string[];
 }

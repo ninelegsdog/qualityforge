@@ -7,7 +7,7 @@ written so that an agent can read it without measuring a page first.
   [`../src/perf/types.ts`](../src/perf/types.ts)
 - Producer: [`../src/perf/audit.ts`](../src/perf/audit.ts)
 - Capture: [`../src/perf/observe.ts`](../src/perf/observe.ts)
-- Configuration: `thresholds.maxTransferredBytes`
+- Configuration: `thresholds.maxTransferredBytes`, and optionally `perf.pages`
 
 ## The design rule
 
@@ -19,8 +19,14 @@ every measurement look like a failure.
 ## Producing artifacts
 
 ```json
-"thresholds": { "maxTransferredBytes": 20000 }
+"thresholds": { "maxTransferredBytes": 20000 },
+"perf": { "pages": ["/", "/docs", "/contact"] }
 ```
+
+`thresholds.maxTransferredBytes` turns the dimension on. `perf.pages` is optional:
+naming pages holds the budget against exactly those, and omitting it holds the budget
+against every page the run actually loaded. Empty is refused, because omitting the
+list already means "every page" and one spelling must not mean two things.
 
 The fixture is declared `auto`, so no test has to ask for the measurement: every test
 that loads a page records what the page cost, and the collector writes
@@ -49,13 +55,18 @@ change and a `v2` file.
 2. **The verdict is the largest load, never an average.** A page that is usually fine
    is what a regression looks like, and a mean would pass four small loads and one
    enormous one.
-3. **A budget nothing loaded is a violation** of its own kind, `no-observation`.
-   Fail-closed, on the same principle as the API dimension: a budget never held has
-   not been passed. Kept separate from `over-budget` because the reader's next
-   question differs — _did it get heavier, or did nobody look_.
+3. **A declared page nothing loaded is a violation** of its own kind,
+   `no-observation`. Fail-closed, on the same principle as the API dimension: a page
+   the project said the budget held, and nobody measured, has not been passed. Kept
+   separate from `over-budget` because the reader's next question differs — _did it
+   get heavier, or did nobody look_. A page list the project omitted has no declared
+   pages, so it cannot produce this violation; its budgets are the pages the run
+   actually loaded.
 4. **A run with no capture at all is neither clean nor failed.** `summary.perf.ran`
    is false and the collector prints `NOT RUN`; fail-closed applies from the first
-   capture onward.
+   capture onward. With no page list the audit then holds no budgets at all; with a
+   declared list it records `no-observation` for each, but `NOT RUN` is the verdict
+   because no claim about a page was ever made.
 5. **A reading is of the page as it stands, not of the history.** Once the browser
    has navigated away, it can no longer say what the previous page cost, so a test
    that visits two pages measures at each.
@@ -68,6 +79,35 @@ change and a `v2` file.
    carry tokens.
 9. **No gate lives here.** The artifact is evidence; the verdict is a run-level
    statement and belongs to the run summary, which already has one.
+
+## Which pages a budget holds
+
+There are two modes, and the difference is what a missing measurement means.
+
+| `perf.pages` | Pages held                | A page nobody measured                      |
+| ------------ | ------------------------- | ------------------------------------------- |
+| named        | exactly the named pages   | `no-observation`, a violation               |
+| omitted      | every page the run loaded | cannot arise: the budget is what was loaded |
+
+**Named is the fail-closed mode.** The project has said the budget applies to `/`,
+`/docs` and `/contact`; if a test stops visiting one, that is a finding, not a
+smaller audit.
+
+**Omitted is the dimension's declaration.** Setting
+`thresholds.maxTransferredBytes` is already a statement that page weight matters.
+Requiring a second list of routes would make an application's first budget fail
+because the consumer did not repeat a list the tool never asked for — measured on
+2026-10-19 in the external live run, where a project outside this repository got
+`no-observation` for three hard-coded pages it had never declared.
+
+**An empty list is refused**, not treated as either mode. `"pages": []` would
+otherwise mean "nothing is held" and "everything is held" depending on which code
+path read it, and a configuration error should be visible at load.
+
+**This repository names three pages and omits `/heavy`.** The demo server keeps that
+page to breach a budget, and a fixture cannot both contain an over-budget page and
+pass its own budget. The heavy page is proved by the test that measures it; the
+three real pages are gated.
 
 ## What is deliberately not in this artifact
 
@@ -93,11 +133,11 @@ than printing a zero.
 - **This repository's own CI does not exercise a real breach end to end.** The demo
   server keeps `/heavy` precisely to breach a budget, so a budget that held it could
   only ever fail — proved by CI going red on all three browser legs when the budget
-  was switched on. The heavy page is therefore excluded from this repository's
-  enforced set and proved by the test that measures it, which means the collector runs
-  against a genuine breach only in `tests/unit/api-gate.test.ts`, with a synthetic
-  report. A fixture that quietly sat under its own budget would have made the red half
-  of the criterion untestable.
+  was switched on. `/heavy` is therefore excluded by `perf.pages` in
+  `config/project.json` and proved by the test that measures it, which means the
+  collector runs against a genuine breach only in `tests/unit/api-gate.test.ts`, with
+  a synthetic report. A fixture that quietly sat under its own budget would have made
+  the red half of the criterion untestable.
 - **Timing was measured and not budgeted.** It separates a real regression 5.7-fold
   (70 ms → 401 ms), but its noise grows with the machine — spread 4 ms idle, 39 ms
   with four CPUs busy. A budget there would need a wide margin, and the margin would

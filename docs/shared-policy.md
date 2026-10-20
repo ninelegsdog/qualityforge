@@ -50,17 +50,18 @@ project  >  policy named first  >  policy it extends  >  …
 
 Each of these is **refused with its reason**, not ignored:
 
-| Key                 | Why                                                                                                                                                       |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`              | it names the project under test, which is the one thing a policy cannot know                                                                              |
-| `baseUrl`           | a shared origin would point every project's artifacts at somebody else's server                                                                           |
-| `projects`          | these are this repository's Playwright project names; another's do not exist here                                                                         |
-| `tags`              | artifact labels mix this project's release marks with organisation-wide ones, and one filter pulls the wrong one                                          |
-| `defects.directory` | where a repository keeps its artifacts is its own arrangement                                                                                             |
-| `history.directory` | likewise for history                                                                                                                                      |
-| `history`           | a history section needs `directory`, and the directory is the project's — so `keep` could only be shared by shipping a section that is invalid on its own |
-| `api.directory`     | where a repository keeps its API audits is its own arrangement                                                                                            |
-| `api.expectations`  | contracts describe **this** application's endpoints; shared ones would be checked against an address that does not exist here                             |
+| Key                 | Why                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`              | it names the project under test, which is the one thing a policy cannot know                                                                                 |
+| `baseUrl`           | a shared origin would point every project's artifacts at somebody else's server                                                                              |
+| `projects`          | these are this repository's Playwright project names; another's do not exist here                                                                            |
+| `tags`              | artifact labels mix this project's release marks with organisation-wide ones, and one filter pulls the wrong one                                             |
+| `defects.directory` | where a repository keeps its artifacts is its own arrangement                                                                                                |
+| `history.directory` | likewise for history                                                                                                                                         |
+| `history`           | a history section needs `directory`, and the directory is the project's — so `keep` could only be shared by shipping a section that is invalid on its own    |
+| `api.directory`     | where a repository keeps its API audits is its own arrangement                                                                                               |
+| `api.expectations`  | contracts describe **this** application's endpoints; shared ones would be checked against an address that does not exist here                                |
+| `perf.pages`        | the pages a budget holds are this application's routes; a shared list would name pages another project does not serve, and an unobserved page is a violation |
 
 **A policy contains no arrays at all.** Everything shareable — `evidence`,
 `thresholds`, `defects.writeSummary`, `defects.referenceErrorContext`,

@@ -293,9 +293,16 @@ reads, and what this repository now enforces on itself.
   nobody made. `summary.perf` is a field of its own: folding budget breaches into the
   test thresholds would change the meaning of an existing field, which is a `v2` file.
 
+  **A project may declare `perf.pages`, or leave it out.** Named pages are held
+  exactly: one nobody measured is `no-observation`. Omitted means every page the run
+  actually loaded, so enabling the dimension cannot fail because a consumer did not
+  repeat a route list it was never asked for. The external live run on 2026-10-19
+  found the hard-coded alternative: a project outside this repository set only
+  `maxTransferredBytes` and got `no-observation` for pages it had never declared.
+
   The demo server gains `/heavy`, a page that exists to breach a budget and is linked
   from nowhere, so the red half of "a heavy page goes red" is checkable rather than
-  assumed.
+  assumed. `/heavy` is excluded from this repository's `perf.pages` for that reason.
 
 ### Changed
 
@@ -309,9 +316,9 @@ reads, and what this repository now enforces on itself.
 
   **What may not be shared is refused rather than ignored**, and the error says why:
   `name`, `baseUrl`, `projects`, `tags`, `defects.directory`, `history.directory`,
-  `api.directory` and `api.expectations` all belong to the project that runs the
-  application. A policy carrying any of them would look authoritative and mean
-  nothing — or worse, mean the wrong thing, since a shared `baseUrl` would point
+  `api.directory`, `api.expectations` and `perf.pages` all belong to the project that
+  runs the application. A policy carrying any of them would look authoritative and
+  mean nothing — or worse, mean the wrong thing, since a shared `baseUrl` would point
   every project's artifacts at somebody else's server.
 
   **After those refusals a policy contains no arrays at all**, which removes the one

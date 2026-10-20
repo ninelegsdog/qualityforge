@@ -45,7 +45,7 @@ clone is green with no configuration and no third-party network access.
 
 | Count                                       | Number |
 | ------------------------------------------- | ------ |
-| Specs, all four projects                    | 721    |
+| Specs, all four projects                    | 724    |
 | Skipped without any configuration           | 60     |
 | — of those, `evidence-pipeline.spec.ts`     | 6      |
 | — of those, `quotes-toscrape.smoke.spec.ts` | 30     |
@@ -53,7 +53,7 @@ clone is green with no configuration and no third-party network access.
 
 Those skips are deliberate and all of them are described below: the evidence
 pipeline fails on purpose, and the third-party suite needs an application this
-repository did not build. The remaining 661 run.
+repository did not build. The remaining 664 run.
 
 Every number in that table — and the `The remaining N run.` sentence above
 it — is checked against the suite by

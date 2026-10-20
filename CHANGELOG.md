@@ -33,8 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   There is **no manifest of expected hashes**: the committed PNG is the baseline and its
   hash is computed from the file, because a manifest beside the images would be a second
-  copy of one fact. Three gaps recorded as **G23**–**G25**; the contract is in
-  `docs/visual-audit-schema.md`.
+  copy of one fact. A baseline's **viewport is `null`**, because the image does not
+  record one; the live external run found the producer claiming `0×0×0`, which read as a
+  real measurement of a page nobody rendered. Three gaps recorded as **G23**–**G25**;
+  the contract is in `docs/visual-audit-schema.md`.
 
   Two read-only MCP tools, `quality_list_visual_audits` and
   `quality_get_visual_audit`, read them over a fifth root, `--visual-root`. The wire

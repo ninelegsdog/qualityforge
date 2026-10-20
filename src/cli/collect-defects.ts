@@ -61,22 +61,6 @@ const DEFAULT_VISUAL_DIRECTORY = "artifacts/visual";
  */
 const DEFAULT_VISUAL_BASELINE_DIRECTORY = "tests/visual-baselines";
 
-/**
- * The pages this repository's own budget holds: `/`, `/docs` and `/contact`.
- *
- * **Not `/heavy`, and the omission is the design.** The demo server keeps that page
- * precisely to breach a budget, and a fixture application cannot both contain a
- * deliberately over-budget page and pass its own budget — CI proved it by going red
- * on all three browser legs the first time the budget was switched on.
- *
- * So the heavy page is proved by the test that measures it, and the three real pages
- * are gated. That leaves one thing this repository's CI does not exercise end to
- * end: the collector with a **real** breach, which `tests/unit/api-gate.test.ts`
- * covers with a synthetic report instead. Recorded as a limitation rather than papered
- * over, because the alternative — a fixture that quietly sits under its own budget —
- * would make the red half of the criterion untestable.
- */
-const PERF_BUDGET_PATHS = ["/", "/docs", "/contact"];
 const DEFAULT_TEST_DIR = "tests";
 
 /**
@@ -240,10 +224,11 @@ async function main(): Promise<number> {
             perf: {
               directory: DEFAULT_PERF_DIRECTORY,
               maxBytes: config.thresholds.maxTransferredBytes,
-              // Every page the project's own pages resolve to. One number, held
-              // against each of them: a budget is a statement about the application
-              // as a whole, not about one route.
-              paths: PERF_BUDGET_PATHS,
+              // The pages the project named, or every page the run loads when it
+              // named none. Omitted rather than passed as an empty list, because
+              // those are two different statements and `buildPerfAudit` refuses the
+              // one that means nothing.
+              ...(config.perf?.pages === undefined ? {} : { paths: config.perf.pages }),
             },
           }),
 

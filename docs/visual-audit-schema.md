@@ -168,5 +168,16 @@ seed would prove the wire works and nothing about the part a model acts on.
 
 ## What this does not do
 
-Rendered diffs, and cross-environment comparison, are written up as
+**There is no rendered diff overlay in v1, and the observed screenshot is not stored.**
+The owner's decision of 2026-10-20 is recorded as
+[G24](defect-schema.md#g24--a-rendered-difference-is-not-stored-as-a-picture): a
+screenshot is page content, not a measurement, and it could carry a token or a
+personalised list that no field-level redaction can remove. The artifact gives the
+baseline's hash and path, the observed hash and byte size, and the viewport the capture
+used; a human who needs more reproduces the page at that viewport.
+
+There are no two images in the artifact to open or diff. A reader who wants the observed
+page has to reproduce it; the baseline is the one picture the repository keeps.
+
+Cross-environment comparison is written up with the rendered-diff decision as
 [G23–G25 in the defect schema](defect-schema.md#g23--a-screenshot-cannot-say-which-way-a-page-looks-right).

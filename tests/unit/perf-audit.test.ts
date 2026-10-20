@@ -29,10 +29,11 @@ function capture(...pages: { path: string; transferredBytes: number }[]): PerfCa
   };
 }
 
-function build(payloads: PerfCapturePayload[], paths: string[] = ["/"]) {
+function build(payloads: PerfCapturePayload[], paths?: string[]) {
   return buildPerfAudit({
     payloads,
-    budgets: paths.map((path) => ({ path, maxBytes: BUDGET })),
+    ...(paths === undefined ? {} : { paths }),
+    maxBytes: BUDGET,
     baseUrl: "http://127.0.0.1:4311",
     createdAt: "2026-10-18T09:00:00.000Z",
   });
@@ -95,8 +96,8 @@ test.describe("the verdict", () => {
     expect(audit.budgets[0]?.observations).toBe(2);
   });
 
-  test("a budget nothing loaded is a violation, not an absence", () => {
-    const audit = build([capture({ path: "/contact", transferredBytes: CONTACT })]);
+  test("a declared page nothing loaded is a violation, not an absence", () => {
+    const audit = build([capture({ path: "/contact", transferredBytes: CONTACT })], ["/"]);
 
     // Fail-closed, on the same principle as the API dimension, and kept separate from
     // `over-budget` because the reader's next question differs: did it get heavier,
@@ -105,11 +106,47 @@ test.describe("the verdict", () => {
     expect(audit.budgets[0]?.violations[0]?.kind).toBe("no-observation");
   });
 
-  test("a run with no capture at all says the dimension did not run", () => {
-    const audit = build([]);
+  test("a declared budget with no capture at all says the dimension did not run", () => {
+    const audit = build([], ["/"]);
 
     expect(audit.counts.tests).toBe(0);
     expect(audit.budgets[0]?.violations[0]?.kind).toBe("no-observation");
+  });
+
+  test("without a declaration, a run that loaded nothing holds nothing", () => {
+    // The other half of rule 4: `ran` comes from the capture count, not from a list
+    // the project never wrote. An empty budget list is the honest artifact here;
+    // inventing budgets for pages nobody named would turn "not run" into a failure.
+    const audit = build([]);
+
+    expect(audit.counts.tests).toBe(0);
+    expect(audit.counts.budgets).toBe(0);
+    expect(audit.budgets).toEqual([]);
+    expect(audit.counts.violations).toBe(0);
+  });
+
+  test("an unspecified list holds every page the run loaded, in first-seen order", () => {
+    // The live external run's finding: a consumer set a budget but never wrote a
+    // page list, and the collector invented `no-observation` for a hard-coded set
+    // the consumer had never heard of. Enabling the dimension is the declaration.
+    const audit = build([
+      capture(
+        { path: "/", transferredBytes: HOME },
+        { path: "/contact", transferredBytes: CONTACT },
+      ),
+      capture({ path: "/", transferredBytes: HOME }),
+    ]);
+
+    expect(audit.budgets.map((budget) => budget.path)).toEqual(["/", "/contact"]);
+    expect(audit.counts.budgets).toBe(2);
+    expect(audit.counts.pages).toBe(2);
+    expect(audit.counts.violations).toBe(0);
+  });
+
+  test("an empty declared list is refused rather than read as every page", () => {
+    expect(() => build([capture({ path: "/", transferredBytes: HOME })], [])).toThrow(
+      /must name at least one page/,
+    );
   });
 
   test("each declared path is judged on its own measurements", () => {

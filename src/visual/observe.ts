@@ -15,9 +15,13 @@
  * pixels on 3 runs of 10 — which is why the dimension gates on one engine, on the
  * owner's decision, and why no pixel threshold was needed to make it safe.
  *
- * The image itself is still available: the baseline lives in the repository and the
- * fixture keeps the current screenshot beside the artifact, so a reviewer opens two
- * files rather than reading a number.
+ * **The observed image is deliberately not kept.** The baseline lives in the
+ * repository, but the current screenshot is page content and could carry a token or a
+ * personalised list that field-level redaction cannot remove. What crosses the artifact
+ * boundary is the hash, the byte size and the viewport; a reviewer who needs the picture
+ * reproduces it at that viewport. The earlier comment here claimed the fixture kept the
+ * current screenshot beside the artifact, and it never did. The decision is recorded as
+ * G24 in `docs/defect-schema.md`.
  */
 
 import { createHash } from "node:crypto";

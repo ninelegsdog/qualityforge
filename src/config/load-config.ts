@@ -297,6 +297,7 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
       "history",
       "api",
       "visual",
+      "perf",
       "tags",
       "extends",
     ],
@@ -464,6 +465,47 @@ export function parseConfig(raw: unknown, source = "<inline>"): ProjectConfig {
             problems.push(`visual.pages[${index}] must begin with "/", got ${describe(page)}`);
           }
         }
+      }
+    }
+  }
+
+  // Optional in the same way as `visual`: setting a budget turns the dimension on,
+  // and naming pages refines it. Refusing an empty list is the fail-closed part:
+  // omitting `pages` means "every page the run loaded", while an empty list would
+  // otherwise mean either that or "no page at all", and one spelling cannot mean
+  // both.
+  if (raw.perf !== undefined) {
+    if (!isRecord(raw.perf)) {
+      problems.push("perf must be an object");
+    } else {
+      rejectUnknownKeys(raw.perf, ["pages"], "perf", problems);
+      if (raw.perf.pages !== undefined) {
+        requireStringArray(raw.perf.pages, "perf.pages", problems);
+        if (Array.isArray(raw.perf.pages)) {
+          if (raw.perf.pages.length === 0) {
+            problems.push(
+              "perf.pages must name at least one page; omit the list to hold every page the run loads",
+            );
+          }
+          const seen = new Set<string>();
+          raw.perf.pages.forEach((page, index) => {
+            if (typeof page !== "string") return;
+            if (!page.startsWith("/")) {
+              problems.push(`perf.pages[${index}] must begin with "/", got ${describe(page)}`);
+            } else if (seen.has(page)) {
+              problems.push(
+                `perf.pages[${index}] is ${JSON.stringify(page)}, already named by an earlier entry`,
+              );
+            } else {
+              seen.add(page);
+            }
+          });
+        }
+      }
+      if (isRecord(raw.thresholds) && raw.thresholds.maxTransferredBytes === undefined) {
+        problems.push(
+          "perf is declared but thresholds.maxTransferredBytes is not; without a budget there is nothing for the pages to hold",
+        );
       }
     }
   }

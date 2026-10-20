@@ -167,6 +167,11 @@ test.describe("the audit tools", () => {
 
     const list = await callTool(instance, "quality_list_audits", {});
     expect(list.content[0]?.text).toContain("1 accessibility audit(s)");
+    // The live external agent could not tell whether a11y was missing, clean, or
+    // simply another command. The list says which one, so an agent does not have to
+    // infer a relationship from two similar-looking run ids.
+    expect(list.content[0]?.text).toContain("independent of defect runs");
+    expect(list.content[0]?.text).toContain("Correlate by origin and createdAt");
 
     const one = await callTool(instance, "quality_get_audit", {
       auditPath: "2026-10-16T01-29-31-810Z-abcdef/audit.v1.json",

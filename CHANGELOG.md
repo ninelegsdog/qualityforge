@@ -35,8 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hash is computed from the file, because a manifest beside the images would be a second
   copy of one fact. A baseline's **viewport is `null`**, because the image does not
   record one; the live external run found the producer claiming `0×0×0`, which read as a
-  real measurement of a page nobody rendered. Three gaps recorded as **G23**–**G25**;
-  the contract is in `docs/visual-audit-schema.md`.
+  real measurement of a page nobody rendered. Three gaps recorded as **G23**–**G25**,
+  and **G24 is decided**: no rendered diff overlay and no stored observed image in v1,
+  because a screenshot is page content that field-level redaction cannot sanitise.
+  The contract is in `docs/visual-audit-schema.md`.
 
   Two read-only MCP tools, `quality_list_visual_audits` and
   `quality_get_visual_audit`, read them over a fifth root, `--visual-root`. The wire
@@ -157,6 +159,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `structuredContent` and in the tool's text, and a dimension with `ran: false`
   reads `NOT RUN` rather than as a clean one. Asserted on the wire against a real
   seeded run (`mcp:check:tools`), not only against a hand-written summary.
+
+- **Accessibility looked like a missing block in the run summary.** The live
+  external agent read `quality-summary.v1.json`, found no accessibility field and
+  could not tell whether the dimension was absent, clean or run by another command.
+  It is the last one: `qualityforge-a11y` is a separate gate with its own artifact,
+  `runId` and exit code, and the collector never calls it. The schema now states
+  that independence and the way to correlate the two by origin and `createdAt`;
+  both MCP tools say it too, rather than leaving an agent to infer a relationship
+  from two similar-looking ids. The rules now state that `counts.nodes` and
+  `counts.truncatedRules` cover `violations` **and** `incomplete`; the live run's
+  24 nodes were 21 + 3, and the document did not say so.
 
 - **A token with no key beside it was not redacted.** `redactAssignments` matched
   secrets by the name of the key next to them, which cannot work for a token
@@ -295,9 +308,19 @@ reads, and what this repository now enforces on itself.
   nobody made. `summary.perf` is a field of its own: folding budget breaches into the
   test thresholds would change the meaning of an existing field, which is a `v2` file.
 
+  **A project may declare `perf.pages`, or leave it out.** Named pages are held
+  exactly: one nobody measured is `no-observation`. Omitted means every page the run
+  actually loaded, so enabling the dimension cannot fail because a consumer did not
+  repeat a route list it was never asked for. The external live run on 2026-10-19
+  found the hard-coded alternative: a project outside this repository set only
+  `maxTransferredBytes` and got `no-observation` for pages it had never declared.
+  The counts now say what they measure: `counts.pages` is observed paths while
+  `counts.budgets` is pages held, and the two differ for a declared page nobody
+  loaded.
+
   The demo server gains `/heavy`, a page that exists to breach a budget and is linked
   from nowhere, so the red half of "a heavy page goes red" is checkable rather than
-  assumed.
+  assumed. `/heavy` is excluded from this repository's `perf.pages` for that reason.
 
 ### Changed
 
@@ -311,9 +334,9 @@ reads, and what this repository now enforces on itself.
 
   **What may not be shared is refused rather than ignored**, and the error says why:
   `name`, `baseUrl`, `projects`, `tags`, `defects.directory`, `history.directory`,
-  `api.directory` and `api.expectations` all belong to the project that runs the
-  application. A policy carrying any of them would look authoritative and mean
-  nothing — or worse, mean the wrong thing, since a shared `baseUrl` would point
+  `api.directory`, `api.expectations` and `perf.pages` all belong to the project that
+  runs the application. A policy carrying any of them would look authoritative and
+  mean nothing — or worse, mean the wrong thing, since a shared `baseUrl` would point
   every project's artifacts at somebody else's server.
 
   **After those refusals a policy contains no arrays at all**, which removes the one

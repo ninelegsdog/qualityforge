@@ -26,10 +26,11 @@
  * that is a consequence of what was forbidden rather than a convenience.
  *
  * **What may not be shared is refused, not ignored.** `name`, `baseUrl`,
- * `projects`, `tags`, the three artifact directories, and `api.expectations` all
- * belong to the project that runs the application. A policy that carries them would
- * look authoritative and mean nothing, or worse, mean the wrong thing: a shared
- * `baseUrl` would send every project's artifacts to somebody else's origin.
+ * `projects`, `tags`, the three artifact directories, `api.expectations` and
+ * `perf.pages` all belong to the project that runs the application. A policy that
+ * carries them would look authoritative and mean nothing, or worse, mean the wrong
+ * thing: a shared `baseUrl` would send every project's artifacts to somebody else's
+ * origin.
  */
 
 import path from "node:path";
@@ -74,6 +75,8 @@ export const FORBIDDEN_IN_POLICY: Record<string, string> = {
     "a history section needs `directory`, and the directory is this project's own arrangement — so a policy could set `keep` only by shipping a section that is invalid on its own, and 'keep 50 runs' is not worth a configuration that fails to load",
   "api.expectations":
     "contracts describe this application's own endpoints; shared ones would be checked against an address that does not exist here",
+  "perf.pages":
+    "the pages a budget holds are this application's routes; a shared list would name pages another project does not serve, and an unobserved page is a violation",
 };
 
 /** How many `extends` links may be followed before the chain is called a loop. */

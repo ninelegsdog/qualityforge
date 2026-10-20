@@ -67,7 +67,8 @@ function capture(status: number, observed: number): string {
 interface PerfDeclaration {
   directory: string;
   maxBytes: number;
-  paths: string[];
+  /** Declared pages, or omitted to hold every page the captures name. */
+  paths?: string[];
   /** The pages the captures claim were loaded, when any. */
   pages?: { path: string; transferredBytes: number; resources: number }[];
 }
@@ -158,7 +159,7 @@ async function collect(
           perf: {
             directory: perf.directory,
             maxBytes: perf.maxBytes,
-            paths: perf.paths,
+            ...(perf.paths === undefined ? {} : { paths: perf.paths }),
           },
         }),
   });
@@ -269,6 +270,27 @@ test.describe("the two verdicts", () => {
       pages: [{ path: "/", transferredBytes: 3922, resources: 3 }],
     });
 
+    expect(summary.perf?.violations).toEqual([]);
+    expect(runExitCode(summary)).toBe(0);
+  });
+
+  test("with no page list, the budget holds what the run loaded", async () => {
+    // The live external run's false absence: a consumer set only
+    // `thresholds.maxTransferredBytes`, and the collector invented budgets for a
+    // hard-coded set of this repository's pages. A project that enables the
+    // dimension has declared the application; the run declares which pages it saw.
+    const root = mkdtempSync(path.join(tmpdir(), "qf-perf-derived-"));
+    const summary = await collect(root, [capture(200, 1)], [ITEMS], {
+      directory: "artifacts/perf",
+      maxBytes: 20000,
+      pages: [
+        { path: "/", transferredBytes: 3922, resources: 3 },
+        { path: "/login", transferredBytes: 5266, resources: 2 },
+      ],
+    });
+
+    expect(summary.perf?.counts.budgets).toBe(2);
+    expect(summary.perf?.counts.pages).toBe(2);
     expect(summary.perf?.violations).toEqual([]);
     expect(runExitCode(summary)).toBe(0);
   });

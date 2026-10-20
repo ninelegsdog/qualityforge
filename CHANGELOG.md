@@ -38,12 +38,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   real measurement of a page nobody rendered. Three gaps recorded as **G23**–**G25**,
   and **G24 is decided**: no rendered diff overlay and no stored observed image in v1,
   because a screenshot is page content that field-level redaction cannot sanitise.
-  The contract is in `docs/visual-audit-schema.md`.
+  The contract is in `docs/visual-audit-schema.md`. (G24's escalation was resolved the
+  same day it was raised, without moving the default: see the observed-image entry
+  below, and the resolution recorded at the decision itself.)
 
   Two read-only MCP tools, `quality_list_visual_audits` and
   `quality_get_visual_audit`, read them over a fifth root, `--visual-root`. The wire
   check seeds a **changed** page rather than a clean one: what must survive the wire is
   both hashes and the committed file that approved the other one.
+
+- **`visual.observedImages`, the opt-in store for the judged captures.** A project
+  that wants to see what a finding _looks_ like declares the block in its own
+  configuration and the collector keeps the images beside the audit — the reviewer's
+  question "what did the header lose?" stopped needing a re-derivation of the page the
+  run already photographed. The decision that made it possible is the one above: the
+  default behaviour was not moved, and a project without the block writes artifacts
+  whose pages carry no observed picture at all.
+
+  Three honest controls instead of a redaction that cannot exist for pixels: the
+  declaration itself, a **judged-only** filter (stubs and foreign engines store
+  nothing), and a `keep` bound — after every opted-in run, older runs' `observed/`
+  copies are freed while their audits stay. Storage is
+  `artifacts/visual/<runId>/observed/<sha256>.png`, named by the hash of its own
+  bytes and re-hashed on arrival, so the audit's hash, the file's name and the file's
+  content are one fact; an appearance whose bytes never arrived stops the collection
+  rather than being pointed at. Every judged page gains an optional
+  `observed: [{sha256, bytes, file}]` pointer list in first-appearance order, which
+  is a **minor** schema bump — `visual-audit.v1.json` is at `1.1.0`.
 
 - **API contracts, declared and audited, as their own dimension.** A project
   declares its contracts in `config/project.json` — method, path, and what the

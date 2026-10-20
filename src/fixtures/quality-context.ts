@@ -1,7 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 import { ApiObserver } from "../api/observe.js";
 import { PerfObserver } from "../perf/observe.js";
-import { VisualObserver } from "../visual/observe.js";
+import { VisualObserver, VISUAL_IMAGE_ATTACHMENT_PREFIX } from "../visual/observe.js";
 import { loadConfig } from "../config/load-config.js";
 import type { ApiExpectation, ProjectConfig } from "../config/types.js";
 import { capturePageContext, shouldAttachContext } from "../defect/page-context.js";
@@ -83,11 +83,6 @@ async function hasPerfBudget(): Promise<boolean> {
  * than derived: measured, firefox and chromium share no screenshot hash for the
  * same page, so a baseline means nothing without saying which engine approved it.
  */
-async function declaredVisualProject(): Promise<string | undefined> {
-  const config = await projectConfig();
-  return config.visual === undefined ? undefined : config.visual.project;
-}
-
 /**
  * `test` and `expect` to import in a browser test.
  *
@@ -212,16 +207,17 @@ export const test = base.extend<QualityFixtures>({
 
   visual: [
     async ({ page, browserName }, use, testInfo) => {
-      const project = await declaredVisualProject();
+      const config = await projectConfig();
       // The engine's own name, so the collector knows which captures it is allowed to
       // judge. Playwright knows it and this is the only place it can be told.
       const observer = new VisualObserver(page, browserName);
 
       await use(observer);
 
-      if (project === undefined) {
+      if (config.visual === undefined) {
         return;
       }
+      const project = config.visual.project;
 
       // **Photograph only a page that went quiet**, and the bound is not a hope about
       // timing — it is measured. A screenshot of a page whose list is still being
@@ -257,11 +253,37 @@ export const test = base.extend<QualityFixtures>({
         // not photographed. Silence about a picture is better than a wrong one.
         return;
       }
-      await observer.captureNow();
+      const captured = await observer.captureNow();
 
       await testInfo.attach(VISUAL_ATTACHMENT_NAME, {
         body: `${JSON.stringify(observer.toPayload(), null, 2)}\n`,
         contentType: "application/json",
+      });
+
+      // The stored-observed-image opt-in. Two gates, both about not paying for
+      // what nobody asked for: the config may not declare the block, and a leg may
+      // not be the approving engine — a firefox capture the collector sets up to
+      // ignore would be bytes paid for and never read.
+      if (config.visual.observedImages === undefined || browserName !== project) {
+        return;
+      }
+      const image = observer.lastImage();
+      if (image === undefined) {
+        // The capture above produced the hash, so this cannot happen in a fixture
+        // run where the screenshot succeeded — and refusing loudly here beats an
+        // audit whose opt-in silently points at nothing.
+        throw new Error(
+          "the visual capture produced a hash but no image bytes, " +
+            "so the opted-in observed image could not be attached",
+        );
+      }
+      // The name carries the hash, and the collector re-hashes the bytes against
+      // it: pairing a payload page with its image is a fact about the bytes, not
+      // about attachment order. Inline `body` rather than a temp file, so no path
+      // contract with a cleanup run has to hold.
+      await testInfo.attach(`${VISUAL_IMAGE_ATTACHMENT_PREFIX}${captured.sha256}`, {
+        body: image,
+        contentType: "image/png",
       });
     },
     { auto: true },

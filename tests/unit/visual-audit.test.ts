@@ -68,6 +68,7 @@ function build(
   payloads: VisualCapturePayload[],
   baselines: Record<string, VisualBaseline>,
   paths = Object.keys(baselines),
+  observedImage?: (sha256: string) => { file: string; bytes: number } | undefined,
 ) {
   return buildVisualAudit({
     payloads,
@@ -81,6 +82,8 @@ function build(
       path: (page) =>
         `tests/visual-baselines/${page === "/" ? "home" : page.slice(1)}-chromium-linux.png`,
     },
+    // Present only on an opt-in; absent spelling is what the default tests read.
+    ...(observedImage === undefined ? {} : { observedImage }),
     baseUrl: "http://127.0.0.1:4311",
     project: "chromium",
     createdAt: "2026-10-18T10:00:00.000Z",
@@ -420,5 +423,205 @@ test.describe("the appearance verdict", () => {
 
     expect(verdict.valid).toBe(false);
     expect(verdict.problems.join(" ")).toContain("looks-odd");
+  });
+
+  test("the schema version is pinned, so the next addition is a conscious decision", () => {
+    // "1.1.0" because `pages[].observed` arrived after "1.0.0" and is optional:
+    // an addition the versioning rule calls minor, and the default behaviour was
+    // not moved an inch — a project without the block stores nothing, exactly as
+    // before. A `v2` stays the price of changing what an existing field means.
+    expect(VISUAL_AUDIT_SCHEMA_VERSION).toBe("1.1.0");
+  });
+});
+
+test.describe("the observed images the audit points at", () => {
+  /** Where the collector would store each appearance, named by its own hash. */
+  function stored(hash: string, bytes: number): { file: string; bytes: number } {
+    return { file: `artifacts/visual/some-run/observed/${hash}.png`, bytes };
+  }
+
+  test("a project that did not opt in stores no pictures at all", () => {
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": baseline(HOME, "home.png"),
+    });
+
+    expect("observed" in audit.pages[0]!).toBe(false);
+  });
+
+  test("the judged appearances are stored in first-appearance order", () => {
+    // An unstable page stores every way it rendered, the way the violation text
+    // reads them: the picture the run saw first, then each new way. The reviewer's
+    // question there is which of them is the page, and both pictures are the
+    // evidence they make that call from.
+    const audit = build(
+      [
+        capture(
+          { path: "/", sha256: HOME, bytes: 35444 },
+          { path: "/", sha256: CHANGED, bytes: 36000 },
+        ),
+      ],
+      { "/": baseline(HOME, "home.png") },
+      undefined,
+      (hash) => stored(hash, hash === HOME ? 35444 : 36000),
+    );
+
+    expect(audit.pages[0]?.violations[0]?.kind).toBe("unstable");
+    expect(audit.pages[0]?.observed).toEqual([
+      { sha256: HOME, bytes: 35444, file: `artifacts/visual/some-run/observed/${HOME}.png` },
+      { sha256: CHANGED, bytes: 36000, file: `artifacts/visual/some-run/observed/${CHANGED}.png` },
+    ]);
+  });
+
+  test("a matched page stores the one picture it compared against", () => {
+    const audit = build(
+      [capture({ path: "/", sha256: HOME, bytes: 35444 })],
+      { "/": baseline(HOME, "home.png") },
+      undefined,
+      (hash) => stored(hash, 35444),
+    );
+
+    expect(audit.pages[0]?.violations).toEqual([]);
+    expect(audit.pages[0]?.observed).toEqual([
+      { sha256: HOME, bytes: 35444, file: `artifacts/visual/some-run/observed/${HOME}.png` },
+    ]);
+  });
+
+  test("a page a test broke on purpose stores none of its pictures", () => {
+    // The stubbed capture is evidence about the stub, and storing it beside the
+    // audit would dress an unrelated picture up as the page's appearance. Judged
+    // means judged: the same captures the verdict was built from, and nothing else.
+    const audit = build(
+      [
+        capture({ path: "/", sha256: CHANGED, bytes: 40000, stubbed: true }),
+        capture({ path: "/", sha256: HOME, bytes: 35444 }),
+      ],
+      { "/": baseline(HOME, "home.png") },
+      undefined,
+      (hash) => stored(hash, 35444),
+    );
+
+    expect(audit.pages[0]?.violations).toEqual([]);
+    expect(audit.pages[0]?.observed).toEqual([
+      { sha256: HOME, bytes: 35444, file: `artifacts/visual/some-run/observed/${HOME}.png` },
+    ]);
+  });
+
+  test("a lookup that cannot answer for a judged appearance stops the build", () => {
+    // The opt-in is a promise the producer makes: every judged appearance's bytes
+    // ride along. An audit that points at nothing would read as "stored on purpose"
+    // to a reviewer who cannot see the difference from here.
+    expect(() =>
+      build(
+        [capture({ path: "/", sha256: HOME, bytes: 35444 })],
+        { "/": baseline(HOME, "home.png") },
+        undefined,
+        () => undefined,
+      ),
+    ).toThrow(/did not carry its bytes/);
+  });
+
+  test("an empty observed list is refused, because absence is the honest nothing", () => {
+    // A page that stores its appearance stores at least one picture; an empty
+    // array is a claim with nothing behind it, spelled differently from "absent",
+    // and the difference is the whole point.
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": baseline(HOME, "home.png"),
+    });
+    const tampered = {
+      ...audit,
+      pages: audit.pages.map((page) => ({ ...page, observed: [] })),
+    };
+
+    const verdict = validateVisualAudit(tampered);
+
+    expect(verdict.valid).toBe(false);
+    expect(verdict.problems.join(" ")).toContain("must not be empty");
+  });
+
+  test("an observed list that is not an array is refused", () => {
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": baseline(HOME, "home.png"),
+    });
+    const tampered = {
+      ...audit,
+      pages: audit.pages.map((page) => ({ ...page, observed: "home.png" })),
+    };
+
+    const verdict = validateVisualAudit(tampered);
+
+    expect(verdict.valid).toBe(false);
+    expect(verdict.problems.join(" ")).toContain("observed must be an array or absent");
+  });
+
+  test("an observed entry whose bytes do not mean anything is refused", () => {
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": baseline(HOME, "home.png"),
+    });
+    const tampered = {
+      ...audit,
+      pages: audit.pages.map((page) => ({
+        ...page,
+        // A zero-byte image is not a picture of the page, whatever wrote it.
+        observed: [{ sha256: HOME, bytes: 0, file: "artifacts/visual/r/observed/x.png" }],
+      })),
+    };
+
+    const verdict = validateVisualAudit(tampered);
+
+    expect(verdict.valid).toBe(false);
+    expect(verdict.problems.join(" ")).toContain("bytes must be a positive number");
+  });
+
+  test("an observed entry that repeats a stored appearance is refused", () => {
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": baseline(HOME, "home.png"),
+    });
+    const entry = { sha256: HOME, bytes: 35444, file: `artifacts/visual/r/observed/${HOME}.png` };
+    const tampered = {
+      ...audit,
+      pages: audit.pages.map((page) => ({
+        ...page,
+        observed: [entry, { ...entry }],
+      })),
+    };
+
+    const verdict = validateVisualAudit(tampered);
+
+    expect(verdict.valid).toBe(false);
+    expect(verdict.problems.join(" ")).toContain(`repeats sha256`);
+  });
+
+  test("an observed entry without the file it points at is refused", () => {
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": baseline(HOME, "home.png"),
+    });
+    const tampered = {
+      ...audit,
+      pages: audit.pages.map((page) => ({
+        ...page,
+        observed: [{ sha256: HOME, bytes: 35444, file: "" }],
+      })),
+    };
+
+    const verdict = validateVisualAudit(tampered);
+
+    expect(verdict.valid).toBe(false);
+    expect(verdict.problems.join(" ")).toContain("file must be a non-empty string");
+  });
+
+  test("the artifact the opt-in writes satisfies its own contract", () => {
+    const audit = build(
+      [
+        capture({ path: "/", sha256: HOME, bytes: 35444 }),
+        capture({ path: "/", sha256: CHANGED, bytes: 36000 }),
+      ],
+      { "/": baseline(HOME, "home.png") },
+      undefined,
+      (hash) => stored(hash, hash === HOME ? 35444 : 36000),
+    );
+
+    const verdict = validateVisualAudit(audit);
+    expect(verdict.problems, JSON.stringify(verdict.problems)).toEqual([]);
+    expect(verdict.valid).toBe(true);
   });
 });

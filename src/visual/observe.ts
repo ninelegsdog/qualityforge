@@ -15,19 +15,38 @@
  * pixels on 3 runs of 10 — which is why the dimension gates on one engine, on the
  * owner's decision, and why no pixel threshold was needed to make it safe.
  *
- * **The observed image is deliberately not kept.** The baseline lives in the
- * repository, but the current screenshot is page content and could carry a token or a
- * personalised list that field-level redaction cannot remove. What crosses the artifact
- * boundary is the hash, the byte size and the viewport; a reviewer who needs the picture
- * reproduces it at that viewport. The earlier comment here claimed the fixture kept the
- * current screenshot beside the artifact, and it never did. The decision is recorded as
- * G24 in `docs/defect-schema.md`.
+ * **The observed image is not kept — unless the project opts in.** By default the
+ * current screenshot is page content that could carry a token or a personalised list
+ * no field-level redaction can remove, so what crosses the artifact boundary is the
+ * hash, the byte size and the viewport; a reviewer who needs the picture reproduces
+ * it at that viewport. The owner's decision is recorded as G24 in
+ * `docs/defect-schema.md`, and its 2026-10-20 escalation is the opt-in: a project
+ * that declares `visual.observedImages` keeps the **judged** captures beside the
+ * audit, under bounded retention — snapshots are extra copies of page content, and
+ * that is why it is a decision, not a default.
+ *
+ * What the fixture attaches when the opt-in is on: the bytes of the capture, under a
+ * name that carries the capture's hash, so the pairing between a payload entry and
+ * its image is a fact about the bytes rather than about attachment order.
  */
 
 import { createHash } from "node:crypto";
 import type { Page } from "@playwright/test";
 
 export const VISUAL_CAPTURE_SCHEMA_VERSION = "1.0.0" as const;
+
+/**
+ * Attachment-name prefix the fixture writes a capture's image under when the
+ * project opted in, with the SHA-256 appended.
+ *
+ * One constant, imported by the fixture and the collector alike: the two would
+ * otherwise be two spellings of one name, and a drift between them breaks the
+ * pairing silently. The hash in the name is how a payload page and its image find
+ * each other — content-based pairing rather than attachment order — and the
+ * collector re-hashes the bytes it reads against the name before storing them, so
+ * the name and the file it names cannot disagree.
+ */
+export const VISUAL_IMAGE_ATTACHMENT_PREFIX = "quality-visual-image-";
 
 /** One page, as the browser rendered it. */
 export interface VisualPageObservation {
@@ -84,6 +103,7 @@ export class VisualObserver {
   readonly #pages: VisualPageObservation[] = [];
   /** Whether the current test declared its page deliberately wrong. */
   #stubbed = false;
+  #lastImage: Buffer | undefined;
 
   /**
    * @param page the page to photograph.
@@ -166,8 +186,22 @@ export class VisualObserver {
       stubbed: this.#stubbed,
       browser: this.browserName,
     };
+    // Retained so the fixture can attach the same bytes the hash was computed
+    // from — attaching from the observation alone would re-shoot the page, and
+    // the two screenshots could disagree with the recorded hash.
+    this.#lastImage = image;
     this.#pages.push(observation);
     return observation;
+  }
+
+  /**
+   * The bytes of the most recent capture, or `undefined` before the first one.
+   *
+   * For the opt-in storage alone: the default contract carries hashes, and
+   * nothing should pay for the bytes of a capture it decided not to keep.
+   */
+  lastImage(): Buffer | undefined {
+    return this.#lastImage;
   }
 
   /** Everything captured so far. Safe to call more than once. */

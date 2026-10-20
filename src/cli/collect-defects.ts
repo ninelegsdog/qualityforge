@@ -213,6 +213,11 @@ async function main(): Promise<number> {
               baselineDirectory: config.visual.directory ?? DEFAULT_VISUAL_BASELINE_DIRECTORY,
               project: config.visual.project,
               pages: config.visual.pages,
+              // The whole opt-in, passed as-is when it is declared. A project
+              // without the block writes no observed images, exactly as before.
+              ...(config.visual.observedImages === undefined
+                ? {}
+                : { observedImages: config.visual.observedImages }),
             },
           }),
 

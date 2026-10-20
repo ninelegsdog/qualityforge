@@ -1066,6 +1066,20 @@ human reviewer says they are insufficient, the next step is an opt-in observed i
 with a retention and redaction policy, not a diff overlay built on an image the artifact
 does not keep.
 
+_Escalation resolved the same day._ The reviewer said the hash pair is not always
+enough — a header losing a border is a sentence about pixels, and "reproduce it at the
+recorded viewport" asks the reviewer to re-derive what the run already saw. The opt-in
+the decision pointed at is now real, and the decision's line held everywhere it could:
+the store is `visual.observedImages`, declared in the consumer's own configuration,
+keeping only the **judged** captures under a `keep` bound, inside the run's own
+directory, pointed at from the artifact (see
+[the visual audit schema](visual-audit-schema.md#what-a-project-can-opt-in-to)). It is
+still no overlay: the two pictures stay two pictures, opened side by side. Redaction
+was resolved by naming what it can and cannot be — pixels cannot be field-redacted, so
+the controls that exist are the explicit decision itself, the judged-only filter, and
+the retention bound — and the default project keeps writing artifacts with no observed
+image at all.
+
 #### G25 · An appearance a leg does not judge cannot be a finding
 
 _What could not be expressed:* whether an unobserved page is a failure or a question that

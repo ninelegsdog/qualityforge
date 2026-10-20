@@ -160,7 +160,7 @@ Two read-only MCP tools serve them over `--visual-root`:
 
 - `quality_list_visual_audits` — one entry per run, with the approving engine
 - `quality_get_visual_audit` — every page, its hash, and what was approved against what
-  was seen
+  was seen; on an opt-in, also every stored observed image the page points at
 
 A client path that walks out of the appearance root is refused with `-32602`, asserted
 over a real pipe in `scripts/mcp-tools-check.py` against a **seeded change** — a clean
@@ -168,16 +168,61 @@ seed would prove the wire works and nothing about the part a model acts on.
 
 ## What this does not do
 
-**There is no rendered diff overlay in v1, and the observed screenshot is not stored.**
-The owner's decision of 2026-10-20 is recorded as
-[G24](defect-schema.md#g24--a-rendered-difference-is-not-stored-as-a-picture): a
-screenshot is page content, not a measurement, and it could carry a token or a
-personalised list that no field-level redaction can remove. The artifact gives the
-baseline's hash and path, the observed hash and byte size, and the viewport the capture
-used; a human who needs more reproduces the page at that viewport.
+**There is no rendered diff overlay in v1.** The owner's decision of 2026-10-20 is
+recorded as
+[G24](defect-schema.md#g24--a-rendered-difference-is-not-stored-as-a-picture), and it
+survived the escalation below: no pixel library has been added to this repository, and
+no tool renders one image out of two. What a reviewer does with the two pictures is
+open them side by side.
 
-There are no two images in the artifact to open or diff. A reader who wants the observed
-page has to reproduce it; the baseline is the one picture the repository keeps.
+**By default the observed screenshot is not stored either.** A screenshot is page
+content, not a measurement, and it could carry a token or a personalised list that no
+field-level redaction can remove. Without the opt-in, the artifact gives the baseline's
+hash and path, the observed hash and byte size, and the viewport the capture used; a
+human who needs more reproduces the page at that viewport. The default is pinned by
+test: every page of every artifact a default project writes reads `"observed" in page`
+as false, and no `observed/` appears under the visual root.
+
+## What a project can opt in to
+
+`visual.observedImages` keeps the judged captures as images beside the audit:
+
+```json
+"visual": {
+  "project": "chromium",
+  "directory": "tests/visual-baselines",
+  "pages": ["/", "/docs"],
+  "observedImages": { "keep": 2 }
+}
+```
+
+Declaring the block is the whole opt-in, in the shape `history` uses, and `keep` is
+required rather than defaulted — the default a caller did not choose is the default
+nobody can defend. It buys three things and names them honestly:
+
+| Thing         | Where it lives                                                                                                                                                               |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the storage   | `artifacts/visual/<runId>/observed/<sha256>.png` — one file per **distinct** appearance the audit judged, named by the hash of its own bytes, inside the run's own directory |
+| the pointers  | `pages[].observed[]` in the artifact: `sha256`, `bytes`, `file`, in first-appearance order                                                                                   |
+| the retention | after every opt-in run, `observed/` under the visual root is freed in every run but the newest `keep` that hold one; the audits are never pruned                             |
+
+**Judged** is doing the work it always does here: a stubbed capture is evidence about
+the stub, a foreign engine's capture is not this engine's appearance, and neither is
+stored — the same filter the verdict was built from owns the list. An appearance whose
+bytes never arrived stops the collection instead of being pointed at, because an
+audit entry that opened as nothing reads the same as "stored on purpose", and a reader
+inside the artifact cannot tell the difference. The bytes are re-hashed on arrival
+against the name they travelled under, so the hash in the audit, the name of the file
+and the content of the file stay one fact.
+
+Why offer this at all, a day after deciding not to: a hash pair tells a reviewer
+_that_ something moved and by how many bytes, not what a header losing a border looks
+like. When that is not enough, the choice to keep copies of page content belongs to
+the project whose pages they are — declared, judged-only, and bounded. There is no
+redaction that can be applied to pixels, which is why the default stays _not stored_:
+what the feature controls is the **decision** itself, the filter, and how long the
+copies live. The artifact is `schemaVersion` **1.1.0** since, an optional field added
+under the versioning rule and no existing field's meaning touched.
 
 Cross-environment comparison is written up with the rendered-diff decision as
 [G23–G25 in the defect schema](defect-schema.md#g23--a-screenshot-cannot-say-which-way-a-page-looks-right).

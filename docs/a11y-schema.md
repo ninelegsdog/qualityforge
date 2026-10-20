@@ -47,6 +47,41 @@ The engine is a **peer dependency**, like `@playwright/test`. The core of this
 package never loads it; the audit uses the engine the project already has, so no
 second copy is shipped.
 
+## Relationship to a test run
+
+**An accessibility audit is a separate gate, not a block of the defect run.**
+`qualityforge-a11y` opens its own browser, audits the pages it was given, writes its
+own artifact and exits with its own code. The collector never calls it, and
+`quality-summary.v1.json` deliberately has no `a11y` field.
+
+The live external run on 2026-10-19 exposed why the absence needs saying: an agent
+read the defect summary, saw no accessibility block, and could not tell whether the
+dimension was silent, clean, or simply run by another command. The answer is the
+last one. There is no `summary.a11y` because there is no fact for it to hold — the
+collector does not know whether an audit happened, which pages it covered, or
+whether it finished.
+
+What the two artifacts do share is enough to correlate them honestly:
+
+- **Origin.** `url` is the origin, with no path, exactly as in the defect summary.
+  Audit the route separately; the artifact tells you which origin it belongs to, not
+  which page.
+- **Time.** `createdAt` is the audit's own timestamp. An audit taken before a deploy
+  says nothing about the application after it.
+- **`runId`.** It names the audit, not a suite run. Two audits with different ids may
+  cover the same application, and an audit and a defect run may share a timestamp
+  without sharing a cause.
+
+To gate both, run both commands and require both exit codes. A green
+`summary.gate` is evidence about the tests; it is not evidence that accessibility
+was audited. A `--run-id` flag was considered and rejected for this version: it
+would record a link the command cannot verify, and two independently correct
+artifacts joined by a false id are worse than two artifacts joined by origin and
+time.
+
+The MCP tools say the same thing when they list audits, so an agent that finds them
+does not have to infer it from this document.
+
 ## Shape
 
 ```jsonc
@@ -156,6 +191,10 @@ intact while `html` beside it is reduced.
    artifact does not pretend otherwise.
 7. **An audit is not a gate result.** Exit `1` means violations were found on the
    pages you chose. It says nothing about whether your tests pass.
+8. **`counts.nodes` is kept nodes across both arrays.** It includes `incomplete`,
+   not only `violations`: on the live external run, 24 was 21 violation nodes plus
+   3 incomplete nodes. `counts.truncatedRules` counts truncation in both arrays too.
+   Read the arrays when the difference matters; the scalar is a size, not a verdict.
 
 ## What the JSON Schema cannot express, and where that check lives instead
 

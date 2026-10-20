@@ -76,6 +76,14 @@ hashes**: the image is the baseline, and its hash is computed from the file on e
 A manifest beside the images would be a second copy of one fact, and two copies of one
 fact are two things to drift.
 
+**A baseline's viewport is `null`, not a number.** The PNG carries pixels, not CSS
+dimensions, and a viewport cannot be recovered from it without guessing. The capture
+beside the verdict records the viewport that was actually used. Until the live external
+run on 2026-10-19, the producer wrote `0×0×0` in that field, which a reader could only
+take as a real measurement of a page nobody rendered. Unknown is now stated as unknown,
+and the validator refuses zero dimensions if an older producer or a tampered artifact
+claims them.
+
 Three rules keep the approval human:
 
 | rule                                                | why                                                                                                                                                                                        |

@@ -628,10 +628,11 @@ async function readBaselines(
       const bytes = await readFile(path.join(projectRoot, file));
       found.set(page, {
         sha256: createHash("sha256").update(bytes).digest("hex"),
-        // The viewport the baseline was taken at is not stored beside it: it is in the
-        // capture that produced it, and a reader who needs it opens the image. Writing
-        // it here would be a second fact that could disagree with the pixels.
-        viewport: { width: 0, height: 0, deviceScaleFactor: 0 },
+        // The viewport the baseline was taken at is not stored beside the image, and
+        // zeros are not a measurement. `null` says the fact is not here; the capture
+        // beside this verdict is where the actual viewport lives. The live external
+        // run found the old zeros and a reader could only read them as a real 0×0×0.
+        viewport: null,
         file,
       });
     } catch {

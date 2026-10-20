@@ -332,6 +332,35 @@ test.describe("the appearance verdict", () => {
     expect(audit.pages[0]?.observations).toBe(1);
   });
 
+  test("a baseline that does not know its viewport says null, not zero", () => {
+    // The committed PNG carries pixels, not a viewport. `null` is the honest answer;
+    // `0×0×0` reads as a page nobody could have rendered. The live external run found
+    // the zeros in a real artifact.
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": { sha256: HOME, viewport: null, file: "tests/visual-baselines/home-chromium-linux.png" },
+    });
+
+    expect(audit.pages[0]?.baseline?.viewport).toBeNull();
+    const verdict = validateVisualAudit(audit);
+    expect(verdict.problems, JSON.stringify(verdict.problems)).toEqual([]);
+    expect(verdict.valid).toBe(true);
+  });
+
+  test("a zero viewport is refused, because no browser produced one", () => {
+    const audit = build([capture({ path: "/", sha256: HOME, bytes: 35444 })], {
+      "/": {
+        sha256: HOME,
+        viewport: { width: 0, height: 0, deviceScaleFactor: 0 },
+        file: "tests/visual-baselines/home-chromium-linux.png",
+      },
+    });
+
+    const verdict = validateVisualAudit(audit);
+
+    expect(verdict.valid).toBe(false);
+    expect(verdict.problems.join(" ")).toContain("an unknown viewport is null, not zero");
+  });
+
   test("the artifact the producer writes satisfies its own contract", () => {
     const audits: VisualAudit[] = [
       build([capture({ path: "/", sha256: HOME, bytes: 1 })], { "/": baseline(HOME, "b.png") }),

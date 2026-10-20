@@ -70,11 +70,27 @@ export interface VisualViolation {
 }
 
 /** What a committed baseline says about one page. */
+/** Viewport of a capture, in CSS pixels and device pixels per CSS pixel. */
+export interface VisualViewport {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+}
+
 export interface VisualBaseline {
   /** SHA-256 of the baseline image, computed from the file rather than stored. */
   sha256: string;
-  /** Viewport the baseline was taken at, in CSS pixels. */
-  viewport: { width: number; height: number; deviceScaleFactor: number };
+  /**
+   * The viewport the baseline was taken at, or `null` when it is not recorded.
+   *
+   * The producer writes `null`, and did not always: the live external run found it
+   * claiming `0×0×0`. A PNG has pixels, not CSS dimensions, and guessing the viewport
+   * from the pixels would be a second fact that could disagree with the capture. The
+   * capture beside the verdict is where the actual viewport lives; this field says,
+   * honestly, that the baseline does not carry one. A future baseline format that does
+   * record it can fill the object in.
+   */
+  viewport: VisualViewport | null;
   /**
    * Where the image lives, relative to the project root.
    *
@@ -92,7 +108,7 @@ export interface VisualPageResult {
   /** Size of the capture in bytes, or `null`. */
   bytes: number | null;
   /** Viewport the capture was taken at, or `null`. */
-  viewport: { width: number; height: number; deviceScaleFactor: number } | null;
+  viewport: VisualViewport | null;
   /** What the committed baseline says, or `null` when there is none. */
   baseline: VisualBaseline | null;
   observations: number;
@@ -147,6 +163,32 @@ function describeValue(value: unknown): string {
   if (typeof value === "object") return "an object";
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return `a ${typeof value}`;
+}
+
+/**
+ * Check a viewport, or the honest absence of one.
+ *
+ * A zero dimension is refused rather than read as "unknown". The producer used to
+ * write `0×0×0` beside every baseline because the PNG does not carry a viewport; the
+ * live external run showed that a reader can only take those numbers as a real
+ * measurement of a page nobody rendered. Unknown is `null`, and the four numbers,
+ * when present, have to be ones a browser could actually produce.
+ */
+function checkViewport(value: unknown, where: string, problems: string[]): void {
+  if (value === null) return;
+  if (!isRecord(value)) {
+    problems.push(`${where} must be an object or null, got ${describeValue(value)}`);
+    return;
+  }
+  for (const field of ["width", "height", "deviceScaleFactor"] as const) {
+    const number = value[field];
+    if (typeof number !== "number" || !Number.isFinite(number) || number <= 0) {
+      problems.push(
+        `${where}.${field} must be a positive number, got ${describeValue(number)}; ` +
+          `an unknown viewport is null, not zero`,
+      );
+    }
+  }
 }
 
 /**
@@ -205,8 +247,13 @@ export function validateVisualAudit(value: unknown): ValidationResult {
         `${where}.sha256 must be a hex string or null, got ${describeValue(entry.sha256)}`,
       );
     }
-    if (entry.baseline !== null && !isRecord(entry.baseline)) {
-      problems.push(`${where}.baseline must be an object or null`);
+    checkViewport(entry.viewport, `${where}.viewport`, problems);
+    if (entry.baseline !== null) {
+      if (!isRecord(entry.baseline)) {
+        problems.push(`${where}.baseline must be an object or null`);
+      } else {
+        checkViewport(entry.baseline.viewport, `${where}.baseline.viewport`, problems);
+      }
     }
     if (!Array.isArray(entry.violations)) {
       problems.push(`${where}.violations must be an array`);

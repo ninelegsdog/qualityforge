@@ -156,6 +156,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads `NOT RUN` rather than as a clean one. Asserted on the wire against a real
   seeded run (`mcp:check:tools`), not only against a hand-written summary.
 
+- **Accessibility looked like a missing block in the run summary.** The live
+  external agent read `quality-summary.v1.json`, found no accessibility field and
+  could not tell whether the dimension was absent, clean or run by another command.
+  It is the last one: `qualityforge-a11y` is a separate gate with its own artifact,
+  `runId` and exit code, and the collector never calls it. The schema now states
+  that independence and the way to correlate the two by origin and `createdAt`;
+  both MCP tools say it too, rather than leaving an agent to infer a relationship
+  from two similar-looking ids.
+
 - **A token with no key beside it was not redacted.** `redactAssignments` matched
   secrets by the name of the key next to them, which cannot work for a token
   Playwright quotes out of the page into `Received:` — measured, the token

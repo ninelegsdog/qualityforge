@@ -244,7 +244,8 @@ export const TOOLS: ToolDefinition[] = [
       "List the accessibility audits this project has written, newest first, with " +
       "how many violations and undecided rules each found and how many rules were " +
       "truncated. Use it to see whether anyone has audited accessibility at all, " +
-      "and whether the newest audit is clean. Read-only.",
+      "and whether the newest audit is clean. These audits are independent of " +
+      "defect runs: a runId here names the audit, not a suite run. Read-only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1146,6 +1147,8 @@ async function listAudits(
           );
         }),
         "",
+        "These audits are independent of defect runs: a runId names the audit, " +
+          "not a suite run. Correlate by origin and createdAt.",
         `Next: call quality_get_audit with an auditPath to read one in full.`,
       ].join("\n"),
     ),

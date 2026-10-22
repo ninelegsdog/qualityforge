@@ -1,10 +1,10 @@
 # Roadmap
 
-Status: **stable, published.** `qualityforge@0.1.0` went to npm on 2026-10-15
-as the first stable release; `latest` points at it and `next` still holds
-`0.1.0-alpha.2` (2026-10-10). Contract `defect.v1` is at **1.4.0**; tags
-`v0.1.0-alpha.1` (2026-10-06), `v0.1.0-alpha.2` (2026-10-07) and `v0.1.0`
-(2026-10-15).
+Status: **stable, published.** `qualityforge@0.2.0` went to npm on 2026-10-21;
+`latest` points at it, `0.1.0` (2026-10-15) was the first stable release and
+`next` still holds `0.1.0-alpha.2` (2026-10-10). Contract `defect.v1` is at
+**1.6.0**; tags `v0.1.0-alpha.1` (2026-10-06), `v0.1.0-alpha.2` (2026-10-07)
+and `v0.1.0` (2026-10-15) — the `v0.2.0` tag is still owed to the release.
 
 This file was rewritten on 2026-10-04 because it had drifted: it still listed the
 repository, the licence and the community files as unbuilt, and Phases 2 and 3 as

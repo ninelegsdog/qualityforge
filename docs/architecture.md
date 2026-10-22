@@ -1,7 +1,7 @@
 # Architecture
 
-Status: stable, published. `qualityforge@0.1.0` has been on npm since
-2026-10-15, and the defect contract is `defect.v1` at 1.4.0. This
+Status: stable, published. `qualityforge@0.2.0` has been on npm since
+2026-10-21, and the defect contract is `defect.v1` at 1.6.0. This
 document describes what exists today and the direction it is going. Where a
 decision is not yet final, it says so.
 
@@ -230,8 +230,9 @@ These are not preferences; they follow from the protocol version in use.
 
 ## Distribution
 
-- **npm.** `qualityforge@0.1.0`, published 2026-10-15, and `latest` points at
-  it; `0.1.0-alpha.2` (2026-10-10) is still under the `next` tag.
+- **npm.** `qualityforge@0.2.0`, published 2026-10-21, and `latest` points at
+  it; `0.1.0` (2026-10-15) is the previous stable, and `0.1.0-alpha.2`
+  (2026-10-10) is still under the `next` tag.
   `@playwright/test`
   is a peer dependency (a consuming project brings its own), pinned exactly to
   1.63.0 in `devDependencies`, and the declared range is `^1.63.0`.

@@ -28,6 +28,15 @@ const UNIT_TESTS = /tests[\\/]unit[\\/].*\.test\.ts$/;
 /** Tests that drive a real browser, and therefore the ones worth repeating. */
 const SMOKE_TESTS = /tests[\\/]smoke[\\/].*\.spec\.ts$/;
 
+/**
+ * MCP wire tests: they spawn the *built* server as a process and speak JSON-RPC
+ * to it over stdio, so they need `dist/` and no browser at all. `.test.ts` on
+ * purpose — the same suffix as `unit`, so a reader can tell from the filename
+ * that no fixture app is involved, and `helpers/mcp-proc.ts` stays a helper
+ * rather than a test file.
+ */
+const INTEGRATION_TESTS = /tests[\\/]integration[\\/].*\.test\.ts$/;
+
 export default defineConfig({
   /**
    * Where approved screenshots live, and it is source rather than output.
@@ -153,6 +162,17 @@ export default defineConfig({
    * tripling the matrix does not triple the pure-logic tests. That keeps the
    * cost of a new browser in the smoke suite, where the cost actually is.
    *
+   * The MCP integration layer is a third kind, and it is a project here rather
+   * than behind its own `--config` for the reason the `unit` project exists:
+   * a file no project matches does not run, and `npx playwright test
+   * tests/integration` reporting "No tests found" is the silent version of the
+   * orphaned test the `unit` job comment warns about. The cost of that choice is
+   * stated rather than hidden — this layer inherits `globalSetup` and
+   * `webServer`, so it asks for the fixture port even though it never opens an
+   * HTTP connection of its own. It buys a single command (`npm test`) and one
+   * CI job that already runs the config, instead of a second entry point
+   * somebody has to remember to keep green.
+   *
    * The split is one line of intent: a browser only ever learns something from
    * the smoke suite, so only the smoke suite is worth repeating per browser.
    */
@@ -160,6 +180,17 @@ export default defineConfig({
     {
       name: "unit",
       testMatch: UNIT_TESTS,
+    },
+    {
+      // Its own output directory, because Playwright clears `outputDir` at the
+      // start of a run: a targeted MCP run must not delete the trace and
+      // screenshot evidence a browser run left behind. It also gets 60s rather
+      // than the 30s global: the first run in a fresh checkout builds `dist/`
+      // before the server can be spawned.
+      name: "integration",
+      testMatch: INTEGRATION_TESTS,
+      outputDir: "./test-results/mcp-integration",
+      timeout: 60_000,
     },
     {
       name: "chromium",

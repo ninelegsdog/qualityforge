@@ -120,7 +120,9 @@ jobs:
   # This job exists mostly so the `unit` project is not orphaned. `--project`
   # selects exactly one project, so browser legs on their own would quietly stop
   # running these 135 tests, and the failure mode is invisible until somebody
-  # notices a test that has not run in weeks.
+  # notices a test that has not run in weeks. The same argument put the MCP
+  # integration layer here: a project nothing selects is exactly that failure,
+  # and a job of its own would be a check nobody listed as required.
   unit:
     name: Unit tests (node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -142,8 +144,22 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
+      # `--ignore-scripts` skips `prepare`, so nothing here has built `dist/`,
+      # and the MCP layer spawns the *built* server (`dist/mcp/index.js`) as its
+      # subject. Building it in the job is the honest equivalent of what a
+      # contributor's `npm install` did for them.
+      - name: Build dist
+        run: npm run build
+
       - name: Run unit tests
         run: npx playwright test --project=unit
+
+      # stdio wire tests: real process, real JSON-RPC frames, no browser.
+      # `--reporter=list` because the default json reporter writes
+      # `artifacts/json/playwright-results.json`, which is the evidence of a
+      # *suite* run and must not be overwritten by a layer run.
+      - name: Run MCP integration layer
+        run: npx playwright test --project=integration --reporter=list
 
       - name: Upload artifacts
         if: ${{ !cancelled() }}

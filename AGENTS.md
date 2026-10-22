@@ -252,6 +252,15 @@ really does hold evidence is still honoured. A server that ignored its working
 directory entirely would pass the first half alone, so the control case is there
 on purpose.
 
+A fourth wire check exists as a suite rather than a script:
+`npm run test:integration` runs `tests/integration/` — the built server as a
+real process, JSON-RPC frames over stdio, the official SDK client through its
+own `StdioClientTransport`, and the modern epoch's `server/discover`. It is a
+Playwright project (`integration`), so `npm test` runs it and the `unit` CI job
+builds and runs it too; it needs `dist/` because the subject is the built
+server, and it writes to `test-results/mcp-integration` so a targeted run does
+not clear a browser run's evidence.
+
 Separate from those three, `npm run mcp:schema` extracts the
 `ServerCapabilitiesSchema` from the `opencode` binary on this machine and fails
 if this server advertises a member the client's schema does not contain. It

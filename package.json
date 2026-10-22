@@ -55,6 +55,7 @@
     "test": "playwright test",
     "test:smoke": "playwright test tests/smoke --project=chromium",
     "test:unit": "playwright test tests/unit",
+    "test:integration": "npx playwright test --project=integration --reporter=list",
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui",
     "report": "playwright show-report",
@@ -95,6 +96,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@playwright/test": "1.63.0",
     "@types/node": "^22.20.5",
     "ajv": "8.20.0",

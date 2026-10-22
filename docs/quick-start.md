@@ -40,20 +40,25 @@ npm test
 ```
 
 This starts the bundled demo app in `fixtures/` on `http://127.0.0.1:4311`,
-runs every spec in all four projects and shuts the server down again. A clean
+runs every spec in all five projects and shuts the server down again. A clean
 clone is green with no configuration and no third-party network access.
 
 | Count                                       | Number |
 | ------------------------------------------- | ------ |
-| Specs, all four projects                    | 765    |
+| Specs, all five projects                    | 779    |
 | Skipped without any configuration           | 60     |
 | — of those, `evidence-pipeline.spec.ts`     | 6      |
 | — of those, `quotes-toscrape.smoke.spec.ts` | 30     |
 | — of those, `github.smoke.spec.ts`          | 24     |
 
+The fifth project, `integration`, is the MCP layer: tests that spawn the built
+server as a process and speak JSON-RPC to it over stdio. It opens no browser of
+its own, and it is counted here for the same reason the `unit` project is — a
+project nothing selects is a test that quietly stops existing.
+
 Those skips are deliberate and all of them are described below: the evidence
 pipeline fails on purpose, and the third-party suite needs an application this
-repository did not build. The remaining 705 run.
+repository did not build. The remaining 719 run.
 
 Every number in that table — and the `The remaining N run.` sentence above
 it — is checked against the suite by

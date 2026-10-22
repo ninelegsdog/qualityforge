@@ -14,10 +14,10 @@ hands all of it to an AI assistant without granting it the ability to act.
 [![MCP protocol 2026-07-28](https://img.shields.io/badge/MCP%20protocol-2026--07--28-000000.svg)](#the-mcp-server)
 [![License](https://img.shields.io/github/license/ninelegsdog/qualityforge.svg)](LICENSE)
 
-> **Status — stable, published.** `qualityforge@0.1.0` is on npm since
-> 2026-10-15, and the defect contract is `defect.v1` at 1.4.0. This is the
-> first stable release; the `0.x` line still allows breaking changes in a
-> minor, so pin the version you install.
+> **Status — stable, published.** `qualityforge@0.2.0` is on npm since
+> 2026-10-21 (`0.1.0` on 2026-10-15 was the first stable release), and the
+> defect contract is `defect.v1` at 1.6.0. The `0.x` line still allows
+> breaking changes in a minor, so pin the version you install.
 
 ## Contents
 
@@ -190,7 +190,7 @@ not run at all.
 ### Installing the package
 
 ```bash
-npm i qualityforge@0.1.0
+npm i qualityforge@0.2.0
 ```
 
 `latest` points at this release. Pin the version you want rather than trusting

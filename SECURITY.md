@@ -56,7 +56,7 @@ security change and needs review.
 ## Supported versions
 
 **There are no supported versions.** The most recent published build is
-`qualityforge@0.1.0`, tagged `v0.1.0`, and stability is not the same as
+`qualityforge@0.2.0`, published 2026-10-21, and stability is not the same as
 support: no version is maintained in place, so no long-term-support
 branches exist. Security fixes land on the `main` branch and are cut into
 patch releases from there. Report against the current release; anything

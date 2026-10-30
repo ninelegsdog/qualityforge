@@ -18,6 +18,7 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
       - run: npm ci
+      - run: npx playwright install --with-deps
       - run: npm publish --provenance --access public
       - name: Publish to MCP Registry
         run: |

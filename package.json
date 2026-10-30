@@ -1,6 +1,6 @@
 {
   "name": "qualityforge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "description": "Evidence-first browser quality automation for modern web applications.",
   "license": "Apache-2.0",
@@ -106,5 +106,6 @@
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.2"
-  }
+  },
+  "mcpName": "io.github.ninelegsdog/qualityforge"
 }

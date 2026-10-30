@@ -441,3 +441,11 @@ faith: the community standards are in
 ## Интеграция с агентами
 
 В комплекте **read-only MCP-сервер**. Агент может прочитать артефакты падения, понять контекст и предложить точечный фикс без догадок.
+
+## Used in production
+
+QualityForge is used to verify the [BotKit](https://github.com/ninelegsdog) ecosystem of 9 production Telegram bots via [botkit-farm](https://github.com/ninelegsdog/botkit-farm). The MCP server enables AI agents to analyze test failures with full evidence (traces, screenshots, network logs) without direct access to modify code.
+
+## Agent Infrastructure Focus
+
+Built as part of a broader [agentic development infrastructure](https://github.com/ninelegsdog/agentic-development-playbook) - harnesses, quality gates, and verification-first workflows for AI coding agents.

@@ -88,7 +88,7 @@ export const INTERNAL_ERROR = -32603;
 export const UNSUPPORTED_PROTOCOL_VERSION = -32022;
 
 export const SERVER_NAME = "qualityforge-mcp";
-export const SERVER_VERSION = "0.2.2";
+export const SERVER_VERSION = "0.2.3";
 
 /** A JSON-RPC request. `id` is absent for notifications. */
 export interface JsonRpcRequest {

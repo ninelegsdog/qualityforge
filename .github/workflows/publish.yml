@@ -1,7 +1,5 @@
 name: Publish to npm + MCP Registry
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:

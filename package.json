@@ -40,7 +40,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ninelegsdog/qualityforge.git"
+    "url": "https://github.com/ninelegsdog/qualityforge"
   },
   "keywords": [
     "playwright",

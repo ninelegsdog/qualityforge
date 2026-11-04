@@ -7,12 +7,12 @@
     "source": "github",
     "id": "1402849493"
   },
-  "version": "0.2.1",
+  "version": "0.2.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "qualityforge",
-      "version": "0.2.1",
+      "version": "0.2.3",
       "transport": {
         "type": "stdio"
       }

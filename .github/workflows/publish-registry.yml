@@ -1,0 +1,26 @@
+name: Publish to MCP Registry
+
+# Registry-only publish. The full workflow (npm + registry) cannot be re-run for a
+# version that is already on npm: `npm publish` fails first and the registry step
+# never executes. This workflow syncs server.json without touching npm.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to MCP Registry
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

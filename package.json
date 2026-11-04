@@ -95,17 +95,27 @@
     "axe-core": "^4.10.0"
   },
   "devDependencies": {
+    "@eslint/config-array": "^0.23.5",
     "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@playwright/test": "1.63.0",
     "@types/node": "^22.20.5",
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
+    "@typescript-eslint/parser": "^8.72.1",
+    "@typescript-eslint/type-utils": "^8.72.1",
+    "@typescript-eslint/typescript-estree": "^8.72.1",
+    "@typescript-eslint/utils": "^8.72.1",
     "ajv": "8.20.0",
     "axe-core": "4.14.0",
-    "eslint": "^10.13.0",
+    "eslint": "^10.14.0",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.2"
+    "typescript-eslint": "^8.72.1",
+    "minimatch": "^11.0.1"
   },
-  "mcpName": "io.github.ninelegsdog/qualityforge"
+  "mcpName": "io.github.ninelegsdog/qualityforge",
+  "overrides": {
+    "minimatch": "^11.0.1"
+  }
 }

@@ -98,7 +98,7 @@
     "@eslint/config-array": "^0.23.5",
     "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/sdk": "1.32.1",
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.65.0",
     "@types/node": "^22.20.5",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.72.1",

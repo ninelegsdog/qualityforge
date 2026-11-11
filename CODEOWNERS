@@ -4,7 +4,7 @@
 # Владелец проекта — по умолчанию для всего репозитория
 *       @ninelegsdog
 
-# Ядро качеforge: MCP-сервер и пайплайн 증거
+# Ядро qualityforge: MCP-сервер и пайплайн доказательств
 /src/mcp/         @ninelegsdog
 /src/collect/     @ninelegsdog
 /schemas/         @ninelegsdog

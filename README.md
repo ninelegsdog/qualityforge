@@ -13,7 +13,7 @@ hands all of it to an AI assistant without granting it the ability to act.
 [![npm downloads](https://img.shields.io/npm/dm/qualityforge.svg)](https://www.npmjs.com/package/qualityforge)
 [![Node >= 22](https://img.shields.io/badge/node-%3E%3D22-339933.svg)](#quick-start)
 [![MCP protocol 2026-07-28](https://img.shields.io/badge/MCP%20protocol-2026--07--28-000000.svg)](#the-mcp-server)
-[![MCP grade A on mcprush](https://mcprush.com/badge/qualityforge-mcp/card.svg)](https://mcprush.com/to/qualityforge-mcp?ref=badge)
+[![Qualityforge MCP on mcprush](https://mcprush.com/badge/qualityforge-mcp/score.svg)](https://mcprush.com/to/qualityforge-mcp?ref=badge)
 [![License](https://img.shields.io/github/license/ninelegsdog/qualityforge.svg)](LICENSE)
 
 > **Status — stable, published.** `qualityforge@0.2.3` is on npm since
@@ -232,6 +232,8 @@ npx --no-install qualityforge-mcp [--root <dir>] [--history <dir>]
 ```
 
 ## The MCP server
+
+[![Qualityforge MCP server](https://mcprush.com/badge/qualityforge-mcp/card.svg)](https://mcprush.com/to/qualityforge-mcp?ref=badge)
 
 `npm run mcp` starts a read-only MCP server over stdio, speaking protocol
 2026-07-28. It hands an agent the evidence layer: what failed, where, and what

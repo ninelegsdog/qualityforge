@@ -1,0 +1,19 @@
+# Code owners — кто отвечает за части репозитория.
+# GitHub автоматически назначает этих ревьюеров на pull request.
+
+# Владелец проекта — по умолчанию для всего репозитория
+*       @ninelegsdog
+
+# Ядро качеforge: MCP-сервер и пайплайн 증거
+/src/mcp/         @ninelegsdog
+/src/collect/     @ninelegsdog
+/schemas/         @ninelegsdog
+
+# Документация и примеры
+/docs/            @ninelegsdog
+/examples/        @ninelegsdog
+
+# CI и конфигурация репозитория
+/.github/         @ninelegsdog
+config/           @ninelegsdog
+scripts/          @ninelegsdog

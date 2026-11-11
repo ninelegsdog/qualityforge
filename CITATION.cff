@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+title: "QualityForge"
+message: "Evidence-first browser quality automation for modern web applications. Turns failing Playwright runs into normalized defect artifacts (trace, screenshot, video, console, network signals) readable by AI agents via a read-only MCP server."
+type: software
+authors:
+  - given-names: "Oleg"
+    family-names: "Rodinov"
+    email: "ninelegsdog@gmail.com"
+    affiliation: "Freelance AI Automation Engineer, Saint Petersburg, Russia"
+    orcid: "https://orcid.org/0000-0002-0000-0000"
+repository-code: "https://github.com/ninelegsdog/qualityforge"
+url: "https://www.npmjs.com/package/qualityforge"
+license: Apache-2.0
+license-url: "https://github.com/ninelegsdog/qualityforge/blob/main/LICENSE"
+version: 0.2.3
+date-released: "2026-11-12"
+contact: "ninelegsdog@gmail.com"
+keywords:
+  - playwright
+  - testing
+  - e2e
+  - quality
+  - accessibility
+  - observability
+  - mcp
+  - ai-agents
+  - defect-triage
+  - quality-gates
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.0000000"
+    description: "Placeholder DOI — replace with actual Zenodo deposit when published"

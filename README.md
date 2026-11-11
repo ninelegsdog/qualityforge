@@ -10,12 +10,14 @@ hands all of it to an AI assistant without granting it the ability to act.
 
 [![CI](https://github.com/ninelegsdog/qualityforge/actions/workflows/ci.yml/badge.svg)](https://github.com/ninelegsdog/qualityforge/actions)
 [![npm](https://img.shields.io/npm/v/qualityforge.svg)](https://www.npmjs.com/package/qualityforge)
+[![npm downloads](https://img.shields.io/npm/dm/qualityforge.svg)](https://www.npmjs.com/package/qualityforge)
 [![Node >= 22](https://img.shields.io/badge/node-%3E%3D22-339933.svg)](#quick-start)
 [![MCP protocol 2026-07-28](https://img.shields.io/badge/MCP%20protocol-2026--07--28-000000.svg)](#the-mcp-server)
+[![MCP grade A on mcprush](https://mcprush.com/badge/qualityforge-mcp/card.svg)](https://mcprush.com/to/qualityforge-mcp?ref=badge)
 [![License](https://img.shields.io/github/license/ninelegsdog/qualityforge.svg)](LICENSE)
 
-> **Status — stable, published.** `qualityforge@0.2.0` is on npm since
-> 2026-10-21 (`0.1.0` on 2026-10-15 was the first stable release), and the
+> **Status — stable, published.** `qualityforge@0.2.3` is on npm since
+> 2026-11-04 (`0.1.0` on 2026-10-15 was the first stable release), and the
 > defect contract is `defect.v1` at 1.6.0. The `0.x` line still allows
 > breaking changes in a minor, so pin the version you install.
 
@@ -190,7 +192,7 @@ not run at all.
 ### Installing the package
 
 ```bash
-npm i qualityforge@0.2.0
+npm i qualityforge@0.2.3
 ```
 
 `latest` points at this release. Pin the version you want rather than trusting

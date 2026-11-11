@@ -428,22 +428,6 @@ Apache-2.0 — see [`LICENSE`](LICENSE). Be straightforward and assume good
 faith: the community standards are in
 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
-## Why evidence-first?
-
-Обычный тест-раннер говорит «failed». **QualityForge** говорит «почему упало» — собирает артефакты для быстрого разбора агентом или человеком.
-
-## Артефакты при падении
-
-- **Screenshot** — скриншот состояния страницы в момент падения
-- **Trace/Video** — трассировка Playwright для воспроизведения
-- **Logs** — консольные логи и сетевые события
-- **HAR** — сетевой трафик (опционально)
-- **Context** — URL, viewport, шаги, ожидания
-
-## Интеграция с агентами
-
-В комплекте **read-only MCP-сервер**. Агент может прочитать артефакты падения, понять контекст и предложить точечный фикс без догадок.
-
 ## Used in production
 
 QualityForge is used to verify the [BotKit](https://github.com/ninelegsdog) ecosystem of 9 production Telegram bots via [botkit-farm](https://github.com/ninelegsdog/botkit-farm). The MCP server enables AI agents to analyze test failures with full evidence (traces, screenshots, network logs) without direct access to modify code.
